@@ -12,6 +12,7 @@ import { CommonModule } from './common/common.module';
 import { typeOrmConfig } from './config/typeorm.config';
 import { validateEnv } from './config/environment.config';
 import { CertificateModule } from './certificate/certificate.module';
+import { StellarModule } from './modules/stellar/stellar.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { CertificateModule } from './certificate/certificate.module';
     CertificatesModule,
     IssuersModule,
     CertificateModule,
+    StellarModule,
   ],
   controllers: [AppController],
   providers: [AppService],

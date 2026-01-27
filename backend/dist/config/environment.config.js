@@ -35,6 +35,14 @@ class EnvironmentVariables {
     ALLOWED_ORIGINS;
     SENTRY_DSN;
     ENABLE_SENTRY;
+    EMAIL_SERVICE;
+    EMAIL_HOST;
+    EMAIL_PORT;
+    EMAIL_USERNAME;
+    EMAIL_PASSWORD;
+    EMAIL_FROM;
+    SENDGRID_API_KEY;
+    REDIS_URL;
 }
 __decorate([
     (0, class_validator_1.IsEnum)(Environment),
@@ -102,6 +110,46 @@ __decorate([
     (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], EnvironmentVariables.prototype, "ENABLE_SENTRY", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], EnvironmentVariables.prototype, "EMAIL_SERVICE", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], EnvironmentVariables.prototype, "EMAIL_HOST", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], EnvironmentVariables.prototype, "EMAIL_PORT", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], EnvironmentVariables.prototype, "EMAIL_USERNAME", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], EnvironmentVariables.prototype, "EMAIL_PASSWORD", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], EnvironmentVariables.prototype, "EMAIL_FROM", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], EnvironmentVariables.prototype, "SENDGRID_API_KEY", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], EnvironmentVariables.prototype, "REDIS_URL", void 0);
 function validateEnv() {
     const validatedEnv = (0, class_transformer_1.plainToClass)(EnvironmentVariables, {
         NODE_ENV: process.env.NODE_ENV,
@@ -120,6 +168,14 @@ function validateEnv() {
         ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
         SENTRY_DSN: process.env.SENTRY_DSN,
         ENABLE_SENTRY: process.env.ENABLE_SENTRY === 'true',
+        EMAIL_SERVICE: process.env.EMAIL_SERVICE,
+        EMAIL_HOST: process.env.EMAIL_HOST,
+        EMAIL_PORT: process.env.EMAIL_PORT,
+        EMAIL_USERNAME: process.env.EMAIL_USERNAME,
+        EMAIL_PASSWORD: process.env.EMAIL_PASSWORD,
+        EMAIL_FROM: process.env.EMAIL_FROM,
+        SENDGRID_API_KEY: process.env.SENDGRID_API_KEY,
+        REDIS_URL: process.env.REDIS_URL,
     }, { enableImplicitConversion: true });
     const errors = (0, class_validator_1.validateSync)(validatedEnv);
     if (errors.length > 0) {

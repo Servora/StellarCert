@@ -10,6 +10,7 @@ exports.AppModule = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const typeorm_1 = require("@nestjs/typeorm");
+const bull_1 = require("@nestjs/bull");
 const app_controller_1 = require("./app.controller");
 const app_service_1 = require("./app.service");
 const auth_module_1 = require("./modules/auth/auth.module");
@@ -18,6 +19,7 @@ const certificates_module_1 = require("./modules/certificates/certificates.modul
 const issuers_module_1 = require("./modules/issuers/issuers.module");
 const health_module_1 = require("./modules/health/health.module");
 const common_module_1 = require("./common/common.module");
+const email_module_1 = require("./modules/email/email.module");
 const typeorm_config_1 = require("./config/typeorm.config");
 const environment_config_1 = require("./config/environment.config");
 const certificate_module_1 = require("./certificate/certificate.module");
@@ -32,6 +34,22 @@ exports.AppModule = AppModule = __decorate([
                 isGlobal: true,
                 validate: environment_config_1.validateEnv,
             }),
+            bull_1.BullModule.forRootAsync({
+                imports: [config_1.ConfigModule],
+                inject: [config_1.ConfigService],
+                useFactory: (configService) => {
+                    const redisUrl = configService.get('REDIS_URL');
+                    if (redisUrl) {
+                        return { redis: { url: redisUrl } };
+                    }
+                    return {
+                        redis: {
+                            host: 'localhost',
+                            port: 6379,
+                        },
+                    };
+                },
+            }),
             typeorm_1.TypeOrmModule.forRoot(typeorm_config_1.typeOrmConfig),
             common_module_1.CommonModule,
             health_module_1.HealthModule,
@@ -41,6 +59,7 @@ exports.AppModule = AppModule = __decorate([
             issuers_module_1.IssuersModule,
             certificate_module_1.CertificateModule,
             stellar_module_1.StellarModule,
+            email_module_1.EmailModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],

@@ -20,6 +20,14 @@ declare class EnvironmentVariables {
     ALLOWED_ORIGINS: string;
     SENTRY_DSN?: string;
     ENABLE_SENTRY?: boolean;
+    EMAIL_SERVICE?: string;
+    EMAIL_HOST?: string;
+    EMAIL_PORT?: number;
+    EMAIL_USERNAME?: string;
+    EMAIL_PASSWORD?: string;
+    EMAIL_FROM?: string;
+    SENDGRID_API_KEY?: string;
+    REDIS_URL?: string;
 }
 export declare function validateEnv(): EnvironmentVariables;
 export {};

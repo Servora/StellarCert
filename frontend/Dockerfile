@@ -4,7 +4,7 @@ FROM node:18-alpine AS development
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm install --silent
 
 COPY . .
 
@@ -18,7 +18,7 @@ FROM node:18-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm install --silent
 
 COPY . .
 RUN npm run build

@@ -28,11 +28,6 @@ declare class EnvironmentVariables {
     EMAIL_FROM?: string;
     SENDGRID_API_KEY?: string;
     REDIS_URL?: string;
-    STORAGE_ENDPOINT?: string;
-    STORAGE_REGION?: string;
-    STORAGE_ACCESS_KEY?: string;
-    STORAGE_SECRET_KEY?: string;
-    STORAGE_BUCKET?: string;
 }
 export declare function validateEnv(): EnvironmentVariables;
 export {};

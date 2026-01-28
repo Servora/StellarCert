@@ -61,7 +61,6 @@ exports.AppModule = AppModule = __decorate([
             certificate_module_1.CertificateModule,
             stellar_module_1.StellarModule,
             email_module_1.EmailModule,
-            files_module_1.FilesModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],

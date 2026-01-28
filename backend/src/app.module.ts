@@ -15,6 +15,7 @@ import { typeOrmConfig } from './config/typeorm.config';
 import { validateEnv } from './config/environment.config';
 import { CertificateModule } from './certificate/certificate.module';
 import { StellarModule } from './modules/stellar/stellar.module';
+import { FilesModule } from './modules/files/files.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { StellarModule } from './modules/stellar/stellar.module';
     CertificateModule,
     StellarModule,
     EmailModule,
+    FilesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

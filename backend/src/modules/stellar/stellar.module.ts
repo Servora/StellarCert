@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { CacheModule } from '@nestjs/cache-manager';
 import { AddressValidationService } from './services/address-validation.service';
+import { StellarService } from './services/stellar.service';
 import { AddressValidationController } from './controllers/address-validation.controller';
 
 @Module({
@@ -13,7 +14,7 @@ import { AddressValidationController } from './controllers/address-validation.co
     }),
   ],
   controllers: [AddressValidationController],
-  providers: [AddressValidationService],
-  exports: [AddressValidationService],
+  providers: [AddressValidationService, StellarService],
+  exports: [AddressValidationService, StellarService],
 })
 export class StellarModule {}

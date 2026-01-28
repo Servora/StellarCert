@@ -24,6 +24,7 @@ const typeorm_config_1 = require("./config/typeorm.config");
 const environment_config_1 = require("./config/environment.config");
 const certificate_module_1 = require("./certificate/certificate.module");
 const stellar_module_1 = require("./modules/stellar/stellar.module");
+const files_module_1 = require("./modules/files/files.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;

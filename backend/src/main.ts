@@ -33,7 +33,8 @@ async function bootstrap() {
 
   // Initialize Sentry request handler
   if (sentryService.isInitialized()) {
-    app.use(Sentry.Handlers.requestHandler());
+    // app.use(Sentry.Handlers.requestHandler());
+    // app.use(Sentry.Handlers.tracingHandler());
   }
 
   // Add global monitoring interceptor
@@ -53,7 +54,7 @@ async function bootstrap() {
 
   // Initialize Sentry error handler
   if (sentryService.isInitialized()) {
-    app.use(Sentry.Handlers.errorHandler());
+    // app.use(Sentry.Handlers.errorHandler());
   }
   
   const port = process.env.PORT ?? 3000;

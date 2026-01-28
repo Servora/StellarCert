@@ -3,7 +3,7 @@ import Layout from './components/Layout';
 import Create from './pages/Create';
 import Dashboard from './pages/Dashboard';
 import Home from './pages/Home';
-import Verify from './pages/Verify';
+import VerifyCertificate from './pages/VerifyCertificate';
 import View from './pages/View';
 
 export default function App(): JSX.Element {
@@ -11,7 +11,7 @@ export default function App(): JSX.Element {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Home />} />
-        <Route path="verify" element={<Verify />} />
+        <Route path="verify" element={<VerifyCertificate />} />
         <Route path="create" element={<Create />} />
         <Route path="view" element={<View />} />
         <Route path="dashboard" element={<Dashboard />} />

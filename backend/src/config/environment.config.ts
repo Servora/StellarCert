@@ -90,6 +90,27 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   REDIS_URL?: string;
+
+  // Storage Configuration
+  @IsOptional()
+  @IsString()
+  STORAGE_ENDPOINT?: string;
+
+  @IsOptional()
+  @IsString()
+  STORAGE_REGION?: string;
+
+  @IsOptional()
+  @IsString()
+  STORAGE_ACCESS_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  STORAGE_SECRET_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  STORAGE_BUCKET?: string;
 }
 
 export function validateEnv(): EnvironmentVariables {
@@ -120,6 +141,11 @@ export function validateEnv(): EnvironmentVariables {
       EMAIL_FROM: process.env.EMAIL_FROM,
       SENDGRID_API_KEY: process.env.SENDGRID_API_KEY,
       REDIS_URL: process.env.REDIS_URL,
+      STORAGE_ENDPOINT: process.env.STORAGE_ENDPOINT,
+      STORAGE_REGION: process.env.STORAGE_REGION,
+      STORAGE_ACCESS_KEY: process.env.STORAGE_ACCESS_KEY,
+      STORAGE_SECRET_KEY: process.env.STORAGE_SECRET_KEY,
+      STORAGE_BUCKET: process.env.STORAGE_BUCKET,
     },
     { enableImplicitConversion: true },
   );

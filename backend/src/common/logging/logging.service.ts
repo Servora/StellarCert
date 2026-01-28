@@ -32,7 +32,9 @@ export class LoggingService {
       requestId: uuidv4(),
       ...overrides,
     };
-    this.contextMap.set(context.correlationId, context);
+    if (context.correlationId) {
+        this.contextMap.set(context.correlationId, context);
+    }
     return context;
   }
 

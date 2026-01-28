@@ -136,7 +136,7 @@ export class CertificateStatsService {
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    const baseWhere = issuerFilter.issuerId
+    const baseWhere: any = issuerFilter.issuerId
       ? { certificate: { issuerId: issuerFilter.issuerId } }
       : {};
 
@@ -190,8 +190,11 @@ export class CertificateStatsService {
 
   async clearStatsCache(): Promise<void> {
     // Clear all stats-related cache entries
-    const keys = await this.cacheManager.store.keys();
-    const statsKeys = keys.filter((key) => key.startsWith('cert-stats'));
-    await Promise.all(statsKeys.map((key) => this.cacheManager.del(key)));
+    const store = (this.cacheManager as any).store;
+    if (store && store.keys) {
+        const keys = await store.keys();
+        const statsKeys = keys.filter((key: string) => key.startsWith('cert-stats'));
+        await Promise.all(statsKeys.map((key: string) => this.cacheManager.del(key)));
+    }
   }
 }

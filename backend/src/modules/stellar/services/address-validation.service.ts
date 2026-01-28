@@ -1,8 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
-import { Horizon, Server } from '@stellar/stellar-sdk';
+import { Horizon, StrKey } from '@stellar/stellar-sdk';
 import {
   AddressValidationOptions,
   ValidationResult,
@@ -21,7 +20,7 @@ import {
 @Injectable()
 export class AddressValidationService {
   private readonly logger = new Logger(AddressValidationService.name);
-  private readonly servers: Map<StellarNetwork, Server>;
+  private readonly servers: Map<StellarNetwork, Horizon.Server>;
   private readonly config: StellarConfig;
   private readonly cache: Cache;
 
@@ -35,13 +34,19 @@ export class AddressValidationService {
       set: async (key: string, value: any, options?: any) => {},
       del: async (key: string) => {},
       reset: async () => {},
+      wrap: async (key: string, fn: any) => null,
       store: {
         get: async (key: string) => null,
         set: async (key: string, value: any, options?: any) => {},
         del: async (key: string) => {},
         keys: async () => [],
+        reset: async () => {},
+        mset: async (args: any) => {},
+        mget: async (args: any) => [],
+        mdel: async (args: any) => {},
+        ttl: async (key: string) => 0,
       },
-    } as Cache;
+    } as unknown as Cache;
 
     this.config = this.loadConfig();
     this.servers = this.initializeServers();
@@ -64,11 +69,11 @@ export class AddressValidationService {
     };
   }
 
-  private initializeServers(): Map<StellarNetwork, Server> {
-    const servers = new Map<StellarNetwork, Server>();
+  private initializeServers(): Map<StellarNetwork, Horizon.Server> {
+    const servers = new Map<StellarNetwork, Horizon.Server>();
     
-    servers.set(StellarNetwork.PUBLIC, new Server(this.config.horizonUrls.public));
-    servers.set(StellarNetwork.TESTNET, new Server(this.config.horizonUrls.testnet));
+    servers.set(StellarNetwork.PUBLIC, new Horizon.Server(this.config.horizonUrls.public));
+    servers.set(StellarNetwork.TESTNET, new Horizon.Server(this.config.horizonUrls.testnet));
 
     return servers;
   }
@@ -160,30 +165,34 @@ export class AddressValidationService {
     };
   }
 
-  private async validateAddress(address: string, options: AddressValidationOptions): Promise<ValidationResult> {
-    const result: ValidationResult = {
+  async validateAddress(address: string, options: AddressValidationOptions): Promise<AddressValidationResult> {
+    const result: AddressValidationResult = {
       isValid: false,
+      error: undefined,
       isFormatValid: false,
       isChecksumValid: false,
       isNetworkValid: false,
+      accountExists: false,
+      accountDetails: undefined,
     };
 
     try {
-      // Step 1: Format validation
-      result.isFormatValid = this.validateFormat(address);
-      if (!result.isFormatValid) {
-        result.error = 'Invalid address format';
-        return result;
+      // 1. Basic Format Validation
+      // StrKey.isValidEd25519PublicKey(address) is the correct way to validate addresses in newer SDK
+      try {
+          if (!StrKey.isValidEd25519PublicKey(address)) {
+              result.error = 'Invalid address format';
+              return result;
+          }
+          result.isFormatValid = true;
+          result.isChecksumValid = true; 
+          result.isValid = true;
+      } catch (e) {
+           result.error = 'Invalid address format';
+           return result;
       }
 
-      // Step 2: Checksum validation using Stellar SDK
-      result.isChecksumValid = this.validateChecksum(address);
-      if (!result.isChecksumValid) {
-        result.error = 'Invalid checksum';
-        return result;
-      }
-
-      // Step 3: Network validation
+      // 2. Network Check (if requested)
       result.isNetworkValid = this.validateNetwork(address, options.network);
       if (!result.isNetworkValid) {
         result.error = `Address does not match ${options.network} network`;
@@ -205,23 +214,6 @@ export class AddressValidationService {
     }
 
     return result;
-  }
-
-  private validateFormat(address: string): boolean {
-    // Stellar addresses are 56 characters long (G + 55 characters)
-    // They contain only uppercase letters (except for the first character which is 'G')
-    const stellarAddressRegex = /^G[A-Z0-9]{55}$/;
-    return stellarAddressRegex.test(address);
-  }
-
-  private validateChecksum(address: string): boolean {
-    try {
-      // Use Stellar SDK's built-in validation
-      return Horizon.isValidAddress(address);
-    } catch (error) {
-      this.logger.error(`Checksum validation error for ${address}:`, error);
-      return false;
-    }
   }
 
   private validateNetwork(address: string, network: StellarNetwork): boolean {
@@ -259,7 +251,7 @@ export class AddressValidationService {
       }
 
       const account = await server.loadAccount(address);
-      const accountDetails: HorizonAccountResponse = account.toJSONObject();
+      const accountDetails: HorizonAccountResponse = account as unknown as HorizonAccountResponse;
 
       const result = {
         exists: true,
@@ -307,13 +299,14 @@ export class AddressValidationService {
     }
   }
 
-  async clearCache(): Promise<void> {
+  async resetCache(): Promise<void> {
     try {
-      await this.cache.reset();
-      this.logger.log('Stellar address validation cache cleared');
+      if ((this.cache as any).reset) {
+        await (this.cache as any).reset();
+      }
+      this.logger.log('Address validation cache cleared');
     } catch (error) {
-      this.logger.error('Error clearing cache:', error);
-      throw error;
+      this.logger.error('Failed to clear cache', error);
     }
   }
 

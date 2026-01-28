@@ -28,6 +28,19 @@ describe('AddressValidationService', () => {
   };
 
   beforeEach(async () => {
+    // Mock config values
+    mockConfigService.get.mockImplementation((key: string, defaultValue?: any) => {
+      const configMap = {
+        'STELLAR_HORIZON_PUBLIC_URL': 'https://horizon.stellar.org',
+        'STELLAR_HORIZON_TESTNET_URL': 'https://horizon-testnet.stellar.org',
+        'STELLAR_CACHE_TTL': 300000,
+        'STELLAR_CACHE_MAX_SIZE': 1000,
+        'STELLAR_RATE_LIMIT_RPS': 10,
+        'STELLAR_RATE_LIMIT_BURST': 20,
+      };
+      return configMap[key] || defaultValue;
+    });
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AddressValidationService,
@@ -47,17 +60,7 @@ describe('AddressValidationService', () => {
     cache = module.get<Cache>(CACHE_MANAGER);
 
     // Mock config values
-    mockConfigService.get.mockImplementation((key: string, defaultValue?: any) => {
-      const configMap = {
-        'STELLAR_HORIZON_PUBLIC_URL': 'https://horizon.stellar.org',
-        'STELLAR_HORIZON_TESTNET_URL': 'https://horizon-testnet.stellar.org',
-        'STELLAR_CACHE_TTL': 300000,
-        'STELLAR_CACHE_MAX_SIZE': 1000,
-        'STELLAR_RATE_LIMIT_RPS': 10,
-        'STELLAR_RATE_LIMIT_BURST': 20,
-      };
-      return configMap[key] || defaultValue;
-    });
+
   });
 
   afterEach(() => {
@@ -71,9 +74,9 @@ describe('AddressValidationService', () => {
   describe('validate', () => {
     it('should validate a correct Stellar address format', async () => {
       const validAddress = 'GD5J7YFQGYVFSJ4G6LXJZT5Y2E5Z2X7ZQ2K7X7ZQ2K7X7ZQ2K7X7ZQ';
-      
+
       // Mock the Horizon.isValidAddress to return true
-      jest.spyOn(require('@stellar/stellar-sdk').Horizon, 'isValidAddress').mockReturnValue(true);
+      jest.spyOn(require('@stellar/stellar-sdk').StrKey, 'isValidEd25519PublicKey').mockReturnValue(true);
 
       const result = await service.validate({
         address: validAddress,
@@ -90,7 +93,7 @@ describe('AddressValidationService', () => {
 
     it('should reject invalid address format', async () => {
       const invalidAddress = 'INVALID_ADDRESS';
-      
+
       const result = await service.validate({
         address: invalidAddress,
         network: StellarNetwork.PUBLIC,
@@ -104,9 +107,9 @@ describe('AddressValidationService', () => {
 
     it('should reject address with invalid checksum', async () => {
       const invalidChecksumAddress = 'GD5J7YFQGYVFSJ4G6LXJZT5Y2E5Z2X7ZQ2K7X7ZQ2K7X7ZQ2K7X7ZZ';
-      
+
       // Mock the Horizon.isValidAddress to return false for invalid checksum
-      jest.spyOn(require('@stellar/stellar-sdk').Horizon, 'isValidAddress').mockReturnValue(false);
+      jest.spyOn(require('@stellar/stellar-sdk').StrKey, 'isValidEd25519PublicKey').mockReturnValue(false);
 
       const result = await service.validate({
         address: invalidChecksumAddress,
@@ -124,13 +127,13 @@ describe('AddressValidationService', () => {
   describe('validateAndCheckExists', () => {
     it('should validate address and check existence', async () => {
       const validAddress = 'GD5J7YFQGYVFSJ4G6LXJZT5Y2E5Z2X7ZQ2K7X7ZQ2K7X7ZQ2K7X7ZQ';
-      
+
       // Mock Horizon.isValidAddress
-      jest.spyOn(require('@stellar/stellar-sdk').Horizon, 'isValidAddress').mockReturnValue(true);
-      
+      jest.spyOn(require('@stellar/stellar-sdk').StrKey, 'isValidEd25519PublicKey').mockReturnValue(true);
+
       // Mock cache miss
       mockCache.get.mockResolvedValue(null);
-      
+
       // Mock Horizon server loadAccount
       const mockAccount = {
         id: validAddress,
@@ -176,13 +179,13 @@ describe('AddressValidationService', () => {
 
     it('should handle non-existent account', async () => {
       const nonExistentAddress = 'GD5J7YFQGYVFSJ4G6LXJZT5Y2E5Z2X7ZQ2K7X7ZQ2K7X7ZQ2K7X7XX';
-      
+
       // Mock Horizon.isValidAddress
-      jest.spyOn(require('@stellar/stellar-sdk').Horizon, 'isValidAddress').mockReturnValue(true);
-      
+      jest.spyOn(require('@stellar/stellar-sdk').StrKey, 'isValidEd25519PublicKey').mockReturnValue(true);
+
       // Mock cache miss
       mockCache.get.mockResolvedValue(null);
-      
+
       // Mock Horizon server loadAccount to throw 404 error
       const mockServer = {
         loadAccount: jest.fn().mockRejectedValue({ response: { status: 404 } }),
@@ -209,9 +212,9 @@ describe('AddressValidationService', () => {
         'GD5J7YFQGYVFSJ4G6LXJZT5Y2E5Z2X7ZQ2K7X7ZQ2K7X7ZQ2K7X7ZQ', // Valid
         'INVALID_ADDRESS', // Invalid format
       ];
-      
+
       // Mock Horizon.isValidAddress
-      jest.spyOn(require('@stellar/stellar-sdk').Horizon, 'isValidAddress').mockReturnValue(true);
+      jest.spyOn(require('@stellar/stellar-sdk').StrKey, 'isValidEd25519PublicKey').mockReturnValue(true);
 
       const result = await service.validateBulk({
         addresses,

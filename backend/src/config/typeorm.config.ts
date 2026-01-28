@@ -7,7 +7,7 @@ export const typeOrmConfig: TypeOrmModuleOptions = {
   username: process.env.DB_USERNAME || 'stellarwave_user',
   password: process.env.DB_PASSWORD || 'stellarwave_password',
   database: process.env.DB_NAME || 'stellarwave',
-  entities: [__dirname + '/../**/*.entity{.ts,.js}'],
+  entities: [],
   synchronize: process.env.NODE_ENV !== 'production',
   logging: process.env.NODE_ENV !== 'production',
   autoLoadEntities: true,

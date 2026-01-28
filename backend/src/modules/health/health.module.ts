@@ -6,10 +6,12 @@ import { DatabaseHealthIndicator } from './indicators/database.health';
 import { StellarHealthIndicator } from './indicators/stellar.health';
 import { MetricsService } from '../../common/monitoring/metrics.service';
 
+import { StellarModule } from '../stellar/stellar.module';
+
 @Module({
-  imports: [TerminusModule],
+  imports: [TerminusModule, StellarModule],
   controllers: [HealthController, MetricsController],
   providers: [DatabaseHealthIndicator, StellarHealthIndicator, MetricsService],
   exports: [MetricsService],
 })
-export class HealthModule {}
+export class HealthModule { }

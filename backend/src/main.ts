@@ -12,7 +12,7 @@ import * as cors from 'cors';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  
+
   // Initialize Sentry before anything else
   const sentryService = app.get(SentryService);
   const loggingService = app.get(LoggingService);
@@ -23,10 +23,10 @@ async function bootstrap() {
     origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'],
     credentials: true,
   });
-  
+
   // Set global prefix
   app.setGlobalPrefix('api');
-  
+
   // Use global pipes and filters
   app.useGlobalPipes(new ValidationPipe());
   app.useGlobalFilters(new GlobalExceptionFilter(sentryService, loggingService));
@@ -41,7 +41,7 @@ async function bootstrap() {
   app.useGlobalInterceptors(
     new MonitoringInterceptor(metricsService, sentryService, loggingService),
   );
-  
+
   // Swagger setup
   const config = new DocumentBuilder()
     .setTitle('StellarWave API')
@@ -56,11 +56,10 @@ async function bootstrap() {
   if (sentryService.isInitialized()) {
     // app.use(Sentry.Handlers.errorHandler());
   }
-  
+
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
 
   loggingService.log(`Application started on port ${port}`);
 }
-bootstrap();
 bootstrap();

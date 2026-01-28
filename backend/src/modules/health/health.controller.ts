@@ -4,8 +4,11 @@ import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 import { DatabaseHealthIndicator } from './indicators/database.health';
 import { StellarHealthIndicator } from './indicators/stellar.health';
 
+import { Public } from '../../common/decorators/public.decorator';
+
 @ApiTags('health')
 @Controller('health')
+@Public()
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
 
@@ -13,7 +16,7 @@ export class HealthController {
     private health: HealthCheckService,
     private databaseHealth: DatabaseHealthIndicator,
     private stellarHealth: StellarHealthIndicator,
-  ) {}
+  ) { }
 
   /**
    * General health check endpoint

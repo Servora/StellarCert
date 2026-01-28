@@ -60,10 +60,6 @@ export class StellarService implements OnModuleInit {
     this.logger.log(`StellarService initialized on ${network}`);
   }
 
-  /**
-   * Generates a new random keypair.
-   * If on testnet, attempts to fund it via Friendbot.
-   */
   async createAccount(): Promise<CreateAccountResult> {
     const keypair = Keypair.random();
     const publicKey = keypair.publicKey();
@@ -84,9 +80,6 @@ export class StellarService implements OnModuleInit {
     return { publicKey, secretKey, funded };
   }
 
-  /**
-   * Fetches account information (balances, sequence number, etc.)
-   */
   async getAccountInfo(publicKey: string) {
     try {
       return await this.server.loadAccount(publicKey);
@@ -96,12 +89,6 @@ export class StellarService implements OnModuleInit {
     }
   }
 
-  /**
-   * Creates and submits a transaction to record a certificate issuance.
-   * This example sends a small amount of XLM (or custom asset) with a Memo.
-   * In a real certificate scenario, this might involve sending a specific asset or managing data entries.
-   * For this wrapper, we'll implement a basic payment with Memo to the recipient.
-   */
   async createCertificateTransaction(
     destination: string,
     memoText: string,
@@ -121,8 +108,8 @@ export class StellarService implements OnModuleInit {
         .addOperation(
           Operation.payment({
             destination: destination,
-            asset: Asset.native(), // Could be custom asset if assetCode provided
-            amount: '1', // Nominal amount
+            asset: Asset.native(),
+            amount: '1',
           })
         )
         .addMemo(Memo.text(memoText))
@@ -150,15 +137,12 @@ export class StellarService implements OnModuleInit {
     }
   }
 
-  /**
-   * Verifies a transaction by its hash.
-   */
   async verifyTransaction(hash: string): Promise<TransactionResult> {
     try {
       const tx = await this.server.transactions().transaction(hash).call();
       return {
         hash: tx.hash,
-        successful: true, // If it exists in Horizon, it was successful (unless failed flag is present, but usually failed txs aren't in simple query without handle)
+        successful: true,
         ledger: tx.ledger_attr,
       };
     } catch (error) {
@@ -169,5 +153,22 @@ export class StellarService implements OnModuleInit {
         error: error.message,
       };
     }
+  }
+
+  async checkNetworkHealth(): Promise<boolean> {
+    try {
+      const ledger = await this.server.ledgers().limit(1).call();
+      return !!ledger && ledger.records && ledger.records.length > 0;
+    } catch (error) {
+      this.logger.error('Stellar network health check failed', error);
+      return false;
+    }
+  }
+
+  getNetworkInfo(): { network: string; horizon: string } {
+    return {
+      network: this.configService.get<string>('STELLAR_NETWORK') || 'testnet',
+      horizon: this.configService.get<string>('STELLAR_HORIZON_URL') || 'https://horizon-testnet.stellar.org',
+    };
   }
 }

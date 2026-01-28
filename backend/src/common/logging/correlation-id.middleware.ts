@@ -6,12 +6,12 @@ import { LoggingService, LogContext } from '../logging/logging.service';
 export class CorrelationIdMiddleware implements NestMiddleware {
   private readonly logger = new Logger(CorrelationIdMiddleware.name);
 
-  constructor(private loggingService: LoggingService) {}
+  constructor(private loggingService: LoggingService) { }
 
   use(req: Request, res: Response, next: NextFunction): void {
     // Check if correlation ID is provided in headers
     let correlationId = req.headers['x-correlation-id'] as string;
-    
+
     if (!correlationId) {
       correlationId = this.loggingService.generateCorrelationId();
     }
@@ -38,13 +38,13 @@ export class CorrelationIdMiddleware implements NestMiddleware {
 
     // Hook into response to log completion
     const originalSend = res.send;
-    res.send = function (data: any) {
+    res.send = (data: any) => {
       this.loggingService.log(
         `${req.method} ${req.path} - Response sent with status ${res.statusCode}`,
         context,
       );
-      return originalSend.call(this, data);
-    }.bind({ loggingService: this.loggingService });
+      return originalSend.apply(res, [data]);
+    };
 
     next();
   }

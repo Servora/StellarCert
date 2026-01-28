@@ -9,12 +9,15 @@ import { ErrorCode } from '../constants/error-codes';
  * JWT Authentication Guard
  * Validates JWT tokens from the Authorization header
  */
+import { ConfigService } from '@nestjs/config';
+
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private jwtService: JwtService,
     private reflector: Reflector,
-  ) {}
+    private configService: ConfigService,
+  ) { }
 
   canActivate(context: ExecutionContext): boolean {
     // Check if the route is public
@@ -38,11 +41,14 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     try {
+      const secret = this.configService.get<string>('JWT_SECRET') || 'default_secret_key_for_dev';
+      // console.log('Verifying token with secret:', secret.substring(0, 4) + '...');
       const payload = this.jwtService.verify(token, {
-        secret: process.env.JWT_SECRET || 'your-secret-key',
+        secret: secret,
       });
       request.user = payload;
     } catch (error) {
+      // console.error('JWT Verification Error:', error.message);
       if (error.name === 'TokenExpiredError') {
         throw new AuthException(ErrorCode.TOKEN_EXPIRED, 'Token has expired');
       }

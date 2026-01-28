@@ -6,7 +6,7 @@ import { MetricsService } from '../monitoring/metrics.service';
 export class MetricsMiddleware implements NestMiddleware {
   private readonly logger = new Logger(MetricsMiddleware.name);
 
-  constructor(private metricsService: MetricsService) {}
+  constructor(private metricsService: MetricsService) { }
 
   use(req: Request, res: Response, next: NextFunction): void {
     const startTime = Date.now();
@@ -14,7 +14,7 @@ export class MetricsMiddleware implements NestMiddleware {
 
     // Hook into response to capture metrics
     const originalSend = res.send;
-    res.send = function (data: any) {
+    res.send = (data: any) => {
       const duration = (Date.now() - startTime) / 1000; // Convert to seconds
       const status = res.statusCode;
       const route = this.metricsService.normalizeRoute(path);
@@ -26,8 +26,8 @@ export class MetricsMiddleware implements NestMiddleware {
         this.metricsService.recordHttpError(method, route, status);
       }
 
-      return originalSend.call(this, data);
-    }.bind({ metricsService: this.metricsService });
+      return originalSend.apply(res, [data]);
+    };
 
     next();
   }

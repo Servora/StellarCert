@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Inject } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { ConfigService } from '@nestjs/config';
 import { Cache } from 'cache-manager';
 import { Horizon, StrKey } from '@stellar/stellar-sdk';
@@ -26,27 +27,9 @@ export class AddressValidationService {
 
   constructor(
     private readonly configService: ConfigService,
-    // @Inject(CACHE_MANAGER) cache: Cache,
+    @Inject(CACHE_MANAGER) cache: Cache,
   ) {
-    // this.cache = cache;
-    this.cache = {
-      get: async (key: string) => null,
-      set: async (key: string, value: any, options?: any) => {},
-      del: async (key: string) => {},
-      reset: async () => {},
-      wrap: async (key: string, fn: any) => null,
-      store: {
-        get: async (key: string) => null,
-        set: async (key: string, value: any, options?: any) => {},
-        del: async (key: string) => {},
-        keys: async () => [],
-        reset: async () => {},
-        mset: async (args: any) => {},
-        mget: async (args: any) => [],
-        mdel: async (args: any) => {},
-        ttl: async (key: string) => 0,
-      },
-    } as unknown as Cache;
+    this.cache = cache;
 
     this.config = this.loadConfig();
     this.servers = this.initializeServers();
@@ -71,7 +54,7 @@ export class AddressValidationService {
 
   private initializeServers(): Map<StellarNetwork, Horizon.Server> {
     const servers = new Map<StellarNetwork, Horizon.Server>();
-    
+
     servers.set(StellarNetwork.PUBLIC, new Horizon.Server(this.config.horizonUrls.public));
     servers.set(StellarNetwork.TESTNET, new Horizon.Server(this.config.horizonUrls.testnet));
 
@@ -86,7 +69,7 @@ export class AddressValidationService {
     };
 
     const result = await this.validateAddress(request.address, options);
-    
+
     return {
       isValid: result.isValid,
       error: result.error,
@@ -106,7 +89,7 @@ export class AddressValidationService {
     };
 
     const result = await this.validateAddress(address, options);
-    
+
     return {
       isValid: result.isValid,
       error: result.error,
@@ -125,12 +108,12 @@ export class AddressValidationService {
       cacheResults: true,
     };
 
-    const validationPromises = request.addresses.map(address => 
+    const validationPromises = request.addresses.map(address =>
       this.validateAddress(address, options)
     );
 
     const results = await Promise.allSettled(validationPromises);
-    
+
     const validationResults: AddressValidationResult[] = results.map((result, index) => {
       if (result.status === 'fulfilled') {
         return {
@@ -180,16 +163,16 @@ export class AddressValidationService {
       // 1. Basic Format Validation
       // StrKey.isValidEd25519PublicKey(address) is the correct way to validate addresses in newer SDK
       try {
-          if (!StrKey.isValidEd25519PublicKey(address)) {
-              result.error = 'Invalid address format';
-              return result;
-          }
-          result.isFormatValid = true;
-          result.isChecksumValid = true; 
-          result.isValid = true;
+        if (!StrKey.isValidEd25519PublicKey(address)) {
+          result.error = 'Invalid address format';
+          return result;
+        }
+        result.isFormatValid = true;
+        result.isChecksumValid = true;
+        result.isValid = true;
       } catch (e) {
-           result.error = 'Invalid address format';
-           return result;
+        result.error = 'Invalid address format';
+        return result;
       }
 
       // 2. Network Check (if requested)
@@ -224,8 +207,8 @@ export class AddressValidationService {
   }
 
   private async checkAccountExists(
-    address: string, 
-    network: StellarNetwork, 
+    address: string,
+    network: StellarNetwork,
     useCache: boolean
   ): Promise<{ exists: boolean; details?: HorizonAccountResponse }> {
     const cacheKey = `stellar:account:${network}:${address}`;
@@ -299,7 +282,7 @@ export class AddressValidationService {
     }
   }
 
-  async resetCache(): Promise<void> {
+  async clearCache(): Promise<void> {
     try {
       if ((this.cache as any).reset) {
         await (this.cache as any).reset();

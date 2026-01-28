@@ -4,9 +4,12 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 
+import { Public } from '../../common/decorators/public.decorator';
+
 @Controller('auth')
+@Public()
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(private authService: AuthService) { }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)

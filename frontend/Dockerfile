@@ -1,34 +1,21 @@
-# Development Stage
-FROM node:18-alpine AS development
+# Simple dev-focused Docker image for the frontend
+# - Runs the Vite dev server inside the container
+# - Good for local development and preview environments
 
+FROM node:18
+
+# Set working directory inside the container
 WORKDIR /app
 
+# Install dependencies first (leverages Docker layer caching)
 COPY package*.json ./
-RUN npm install --silent
+RUN npm install
 
+# Copy the rest of the frontend source code
 COPY . .
 
-EXPOSE 3000
+# Vite's default dev port is 5173
+EXPOSE 5173
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"]
-
-# Build Stage
-FROM node:18-alpine AS build
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm install --silent
-
-COPY . .
-RUN npm run build
-
-# Production Stage
-FROM nginx:alpine AS production
-
-COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
+# Start the dev server
+CMD ["npm", "run", "dev"]

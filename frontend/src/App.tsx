@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Shield, Award, Search } from 'lucide-react';
-import Navbar from './components/Navbar';
+import Navbar from './components/Header';
 import Dashboard from './pages/Dashboard';
 import IssueCertificate from './pages/IssueCertificate';
 import VerifyCertificate from './pages/VerifyCertificate';
@@ -31,9 +31,9 @@ function App() {
               <Route path="/revoke" element={<RevokeCertificatePage />} />
             </Route>
           </Routes>
-        
+
         </div>
-        
+
         {/* Feature Overview Section */}
         <section className="bg-white py-12 mt-8">
           <div className="container mx-auto px-4">

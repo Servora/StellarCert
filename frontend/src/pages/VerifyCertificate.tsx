@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { verifyCertificate, type VerificationResponse } from '../utils/api';
+import { certificateApi, VerificationResult } from '../api';
 
 type VerificationState = {
   loading: boolean;
-  result: VerificationResponse | null;
+  result: VerificationResult | null;
   error: string | null;
 };
 
@@ -44,11 +44,11 @@ export default function VerifyCertificate(): JSX.Element {
     });
 
     try {
-      const response = await verifyCertificate(serialNumber);
+      const response = await certificateApi.verify(serialNumber);
       setState({
         loading: false,
         result: response,
-        error: response.success ? null : response.message || 'Verification failed',
+        error: response.isValid ? null : response.message || 'Verification failed',
       });
     } catch (error) {
       setState({
@@ -260,7 +260,7 @@ export default function VerifyCertificate(): JSX.Element {
             </div>
           )}
 
-          {!state.loading && state.result?.success && state.result.certificate && (
+          {!state.loading && state.result?.isValid && state.result.certificate && (
             <div className="space-y-6">
               {/* Success Header */}
               <div className="flex items-center gap-3">
@@ -326,7 +326,7 @@ export default function VerifyCertificate(): JSX.Element {
                     Certificate Number
                   </p>
                   <p className="text-sm font-medium text-white break-all">
-                    {state.result.certificate.certificateId || state.result.certificate.id || 'N/A'}
+                    {state.result.certificate.id || 'N/A'}
                   </p>
                 </div>
 
@@ -341,7 +341,7 @@ export default function VerifyCertificate(): JSX.Element {
                   >
                     {state.result.certificate.status
                       ? state.result.certificate.status.charAt(0).toUpperCase() +
-                        state.result.certificate.status.slice(1)
+                      state.result.certificate.status.slice(1)
                       : 'Unknown'}
                   </span>
                 </div>

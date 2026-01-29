@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Wallet, Download, Eye, Clock } from 'lucide-react';
-import type { Certificate } from '../types';
-import { getUserCertificates } from '../api/endpoints';
+import { Certificate, getUserCertificates } from '../api';
 
 const CertificateWallet = () => {
   const [certificates, setCertificates] = useState<Certificate[]>([]);
@@ -9,17 +8,17 @@ const CertificateWallet = () => {
   // const userId = "b3a1863c-15a9-4df1-989e-a9d4e4f3840e";
   useEffect(() => {
     const user = localStorage.getItem('user');
-    
+
     if (!user) {
       setLoading(false);
       return;
     }
-  
+
     const parsedUser = JSON.parse(user); // Parse the stored string into an object
-  
+
     const fetchCertificates = async () => {
       try {
-        const data = await getUserCertificates(parsedUser.id); 
+        const data = await getUserCertificates(parsedUser.id);
         if (data) {
           setCertificates(data);
         }
@@ -29,7 +28,7 @@ const CertificateWallet = () => {
         setLoading(false);
       }
     };
-  
+
     fetchCertificates();
   }, []);
 
@@ -57,9 +56,8 @@ const CertificateWallet = () => {
             <div key={cert.id} className="bg-white rounded-lg shadow-md p-6">
               <div className="flex justify-between items-start mb-4">
                 <h3 className="text-xl font-semibold text-gray-800">{cert.title}</h3>
-                <span className={`px-2 py-1 rounded text-sm ${
-                  cert.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                }`}>
+                <span className={`px-2 py-1 rounded text-sm ${cert.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  }`}>
                   {cert.status}
                 </span>
               </div>

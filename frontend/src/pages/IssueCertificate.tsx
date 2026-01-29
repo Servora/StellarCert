@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Award, Upload, XCircle } from 'lucide-react';
-import { createCertificate, fetchDefaultTemplate, fetchUserByEmail } from '../api/endpoints';
+import { createCertificate, fetchDefaultTemplate, fetchUserByEmail } from '../api';
 import { useNavigate } from 'react-router-dom';
 
 const IssueCertificate = () => {
@@ -55,11 +55,12 @@ const IssueCertificate = () => {
       const certificateData = {
         title: `${formData.courseName} Certificate`,
         description: `This certificate is awarded for completing the ${formData.courseName} course`,
+        courseName: formData.courseName,
         issuerName: formData.issuerName,
         recipientName: formData.recipientName,
         recipientEmail: formData.recipientEmail,
         issueDate: formData.issueDate,
-        expiryDate: formData.expiryDate || null,
+        expiryDate: formData.expiryDate || undefined,
         issuerId: issuer.id,
         recipientId: recipient.id,
         templateId: template.id,
@@ -71,8 +72,8 @@ const IssueCertificate = () => {
 
       console.log('Request Payload:', certificateData);
       const res = await createCertificate(certificateData);
-      
-      if(!res){
+
+      if (!res) {
         setError("Failed to create Certificate");
         return;
       }

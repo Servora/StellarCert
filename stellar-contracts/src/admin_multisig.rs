@@ -86,6 +86,7 @@ impl AdminMultisigContract {
         signers: Vec<Address>,
         proposal_window: u32,
     ) {
+        crate::persistent::extend_instance_ttl(&env, None);
         Self::validate_config(&signers, threshold, proposal_window);
 
         if env
@@ -108,6 +109,7 @@ impl AdminMultisigContract {
     }
 
     pub fn get_config(env: Env) -> AdminMultisigConfig {
+        crate::persistent::extend_instance_ttl(&env, None);
         env.storage()
             .instance()
             .get(&AdminMultisigDataKey::AdminConfig)
@@ -120,6 +122,7 @@ impl AdminMultisigContract {
         proposer: Address,
         action: AdminAction,
     ) -> AdminProposal {
+        crate::persistent::extend_instance_ttl(&env, None);
         proposer.require_auth();
 
         let config = Self::get_config(env.clone());
@@ -157,6 +160,7 @@ impl AdminMultisigContract {
     }
 
     pub fn approve_action(env: Env, proposal_id: String, approver: Address) -> AdminProposalStatus {
+        crate::persistent::extend_instance_ttl(&env, None);
         approver.require_auth();
 
         let config = Self::get_config(env.clone());
@@ -217,6 +221,7 @@ impl AdminMultisigContract {
     }
 
     pub fn cancel_proposal(env: Env, proposal_id: String, proposer: Address) {
+        crate::persistent::extend_instance_ttl(&env, None);
         proposer.require_auth();
 
         let proposal_key = AdminMultisigDataKey::AdminProposal(proposal_id.clone());
@@ -247,6 +252,7 @@ impl AdminMultisigContract {
     }
 
     pub fn get_proposal(env: Env, proposal_id: String) -> AdminProposal {
+        crate::persistent::extend_instance_ttl(&env, None);
         env.storage()
             .instance()
             .get(&AdminMultisigDataKey::AdminProposal(proposal_id))
@@ -254,6 +260,7 @@ impl AdminMultisigContract {
     }
 
     pub fn is_issuer_removed(env: Env, issuer: Address) -> bool {
+        crate::persistent::extend_instance_ttl(&env, None);
         env.storage()
             .instance()
             .get(&AdminMultisigDataKey::RemovedIssuer(issuer))
@@ -266,6 +273,7 @@ impl AdminMultisigContract {
         proposer: Address,
         action: AdminAction,
     ) -> AdminProposal {
+        // TTL extended inside propose_action
         Self::propose_action(env, proposal_id, proposer, action)
     }
 
@@ -274,10 +282,12 @@ impl AdminMultisigContract {
         proposal_id: String,
         approver: Address,
     ) -> AdminProposalStatus {
+        // TTL extended inside approve_action
         Self::approve_action(env, proposal_id, approver)
     }
 
     pub fn set_certificate_contract(env: Env, signer: Address, certificate_contract: Address) {
+        crate::persistent::extend_instance_ttl(&env, None);
         signer.require_auth();
 
         let config = Self::get_config(env.clone());
@@ -291,6 +301,7 @@ impl AdminMultisigContract {
     }
 
     pub fn get_certificate_contract(env: Env) -> Address {
+        crate::persistent::extend_instance_ttl(&env, None);
         env.storage()
             .instance()
             .get(&AdminMultisigDataKey::CertificateContractId)

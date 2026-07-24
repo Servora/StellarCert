@@ -61,6 +61,7 @@ impl CRLContract {
     {
         env.storage().persistent().set(key, value);
         crate::persistent::extend_ttl(env, key, None);
+        crate::persistent::extend_instance_ttl(env, None);
     }
 
     fn set_instance<K, V>(env: &Env, key: &K, value: &V)
@@ -73,6 +74,7 @@ impl CRLContract {
     }
 
     pub fn initialize(env: Env, issuer: Address, certificate_contract: Address) {
+        crate::persistent::extend_instance_ttl(&env, None);
         if env.storage().persistent().has(&DataKey::Issuer) {
             panic!("CRL already initialized");
         }
@@ -107,6 +109,7 @@ impl CRLContract {
         reason: RevocationReason,
         _serial_number: Option<String>,
     ) {
+        crate::persistent::extend_instance_ttl(&env, None);
         let issuer = Self::get_issuer(&env);
         // Allow either the configured issuer or an admin to authorize revocations
         let mut authorized = false;
@@ -165,26 +168,34 @@ impl CRLContract {
     }
 
     pub fn is_revoked(env: Env, certificate_id: String) -> bool {
-        env.storage()
-            .persistent()
-            .has(&DataKey::Revocation(certificate_id))
+        crate::persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::Revocation(certificate_id);
+        crate::persistent::extend_ttl(&env, &key, None);
+        env.storage().persistent().has(&key)
     }
 
     pub fn get_revocation_info(env: Env, certificate_id: String) -> Option<RevocationInfo> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Revocation(certificate_id))
+        crate::persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::Revocation(certificate_id);
+        crate::persistent::extend_ttl(&env, &key, None);
+        env.storage().persistent().get(&key)
     }
 
     pub fn get_revoked_count(env: Env) -> u32 {
+        crate::persistent::extend_instance_ttl(&env, None);
+        crate::persistent::extend_ttl(&env, &DataKey::Info, None);
         Self::get_crl_info_internal(&env).revoked_count
     }
 
     pub fn get_crl_info(env: Env) -> CRLInfo {
+        crate::persistent::extend_instance_ttl(&env, None);
+        crate::persistent::extend_ttl(&env, &DataKey::Info, None);
         Self::get_crl_info_internal(&env)
     }
 
     pub fn get_revoked_certificates(env: Env, page: u32, limit: u32) -> Vec<RevocationInfo> {
+        crate::persistent::extend_instance_ttl(&env, None);
+        crate::persistent::extend_ttl(&env, &DataKey::RevokedCertificates, None);
         let revoked_certificates = Self::get_revoked_certificate_ids(&env);
         let mut page_of_revocations = Vec::new(&env);
 
@@ -217,20 +228,24 @@ impl CRLContract {
     }
 
     pub fn verify_certificate(env: Env, certificate_id: String) -> (bool, u64) {
+        crate::persistent::extend_instance_ttl(&env, None);
+        crate::persistent::extend_ttl(&env, &DataKey::Info, None);
+        let rev_key = DataKey::Revocation(certificate_id);
+        crate::persistent::extend_ttl(&env, &rev_key, None);
         let crl_info = Self::get_crl_info_internal(&env);
-        let is_revoked = env
-            .storage()
-            .persistent()
-            .has(&DataKey::Revocation(certificate_id));
+        let is_revoked = env.storage().persistent().has(&rev_key);
 
         (is_revoked, crl_info.crl_number)
     }
 
     pub fn get_merkle_root(env: Env) -> String {
+        crate::persistent::extend_instance_ttl(&env, None);
+        crate::persistent::extend_ttl(&env, &DataKey::Info, None);
         Self::get_crl_info_internal(&env).merkle_root
     }
 
     pub fn update_crl_metadata(env: Env, next_update: Option<u64>, _issuer: Option<Address>) {
+        crate::persistent::extend_instance_ttl(&env, None);
         let issuer = Self::get_issuer(&env);
         issuer.require_auth();
 
@@ -252,6 +267,8 @@ impl CRLContract {
     }
 
     pub fn needs_update(env: Env) -> bool {
+        crate::persistent::extend_instance_ttl(&env, None);
+        crate::persistent::extend_ttl(&env, &DataKey::Info, None);
         env.ledger().timestamp() >= Self::get_crl_info_internal(&env).next_update
     }
 

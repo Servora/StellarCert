@@ -43,10 +43,12 @@ impl CertificateContract {
     {
         env.storage().persistent().set(key, value);
         persistent::extend_ttl(env, key, None);
+        persistent::extend_instance_ttl(env, None);
     }
 
     /// Initialize the contract with an admin account
     pub fn initialize(env: Env, admin: Address) {
+        persistent::extend_instance_ttl(&env, None);
         if env.storage().persistent().has(&DataKey::Admin) {
             panic!("Admin already initialized");
         }
@@ -54,6 +56,7 @@ impl CertificateContract {
     }
 
     pub fn add_issuer(env: Env, issuer: Address) {
+        persistent::extend_instance_ttl(&env, None);
         let admin: Address = env
             .storage()
             .persistent()
@@ -83,14 +86,16 @@ impl CertificateContract {
 
     /// Check if an address is an authorized issuer
     pub fn is_issuer(env: Env, address: Address) -> bool {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Issuer(address))
-            .unwrap_or(false)
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::Issuer(address);
+        persistent::extend_ttl(&env, &key, None);
+        env.storage().persistent().get(&key).unwrap_or(false)
     }
 
     /// Get the total number of authorized issuers
     pub fn get_issuer_count(env: Env) -> u32 {
+        persistent::extend_instance_ttl(&env, None);
+        persistent::extend_ttl(&env, &DataKey::IssuerCount, None);
         env.storage()
             .persistent()
             .get(&DataKey::IssuerCount)
@@ -99,6 +104,8 @@ impl CertificateContract {
 
     /// Get the list of all authorized issuers
     pub fn get_issuers(env: Env) -> Vec<Address> {
+        persistent::extend_instance_ttl(&env, None);
+        persistent::extend_ttl(&env, &DataKey::Issuers, None);
         env.storage()
             .persistent()
             .get(&DataKey::Issuers)
@@ -107,6 +114,7 @@ impl CertificateContract {
 
     /// Remove an authorized issuer (only admin can call)
     pub fn remove_issuer(env: Env, issuer: Address) {
+        persistent::extend_instance_ttl(&env, None);
         let admin: Address = env
             .storage()
             .persistent()
@@ -145,6 +153,7 @@ impl CertificateContract {
     }
 
     /// Issue a new certificate
+    #[allow(clippy::too_many_arguments)]
     pub fn issue_certificate(
         env: Env,
         id: String,
@@ -153,6 +162,7 @@ impl CertificateContract {
         metadata_uri: String,
         expires_at: Option<u64>,
     ) {
+        persistent::extend_instance_ttl(&env, None);
         issuer.require_auth();
 
         // Authorization check
@@ -209,6 +219,7 @@ impl CertificateContract {
 
     /// Revoke an existing certificate (only the original issuer can revoke)
     pub fn revoke_certificate(env: Env, id: String, reason: String) {
+        persistent::extend_instance_ttl(&env, None);
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -233,16 +244,23 @@ impl CertificateContract {
 
     /// Check if a certificate exists
     pub fn certificate_exists(env: Env, id: String) -> bool {
-        env.storage().persistent().has(&DataKey::Certificate(id))
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::Certificate(id);
+        persistent::extend_ttl(&env, &key, None);
+        env.storage().persistent().has(&key)
     }
 
     /// Get certificate details
     pub fn get_certificate(env: Env, id: String) -> Option<Certificate> {
-        env.storage().persistent().get(&DataKey::Certificate(id))
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::Certificate(id);
+        persistent::extend_ttl(&env, &key, None);
+        env.storage().persistent().get(&key)
     }
 
     /// Suspend a certificate (temporarily disable with reason)
     pub fn suspend_certificate(env: Env, id: String, reason: String) {
+        persistent::extend_instance_ttl(&env, None);
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -267,6 +285,7 @@ impl CertificateContract {
 
     /// Reinstate a suspended certificate
     pub fn reinstate_certificate(env: Env, id: String, _reason: String) {
+        persistent::extend_instance_ttl(&env, None);
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -290,6 +309,7 @@ impl CertificateContract {
 
     /// Freeze a certificate
     pub fn freeze_certificate(env: Env, id: String, reason: String) {
+        persistent::extend_instance_ttl(&env, None);
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -314,6 +334,7 @@ impl CertificateContract {
 
     /// Unfreeze a certificate
     pub fn unfreeze_certificate(env: Env, id: String) {
+        persistent::extend_instance_ttl(&env, None);
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -337,11 +358,10 @@ impl CertificateContract {
 
     /// Verify if a certificate is valid (active and not expired)
     pub fn is_valid(env: Env, id: String) -> bool {
-        if let Some(cert) = env
-            .storage()
-            .persistent()
-            .get::<_, Certificate>(&DataKey::Certificate(id))
-        {
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::Certificate(id);
+        persistent::extend_ttl(&env, &key, None);
+        if let Some(cert) = env.storage().persistent().get::<_, Certificate>(&key) {
             if cert.status != CertificateStatus::Active {
                 return false;
             }
@@ -358,6 +378,7 @@ impl CertificateContract {
 
     /// Update certificate metadata (requires issuer auth)
     pub fn update_certificate_metadata(env: Env, id: String, new_metadata_uri: String) {
+        persistent::extend_instance_ttl(&env, None);
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -386,6 +407,7 @@ impl CertificateContract {
         new_metadata_uri: String,
         new_expires_at: Option<u64>,
     ) {
+        persistent::extend_instance_ttl(&env, None);
         issuer.require_auth();
 
         // Verify issuer is authorized
@@ -468,6 +490,7 @@ impl CertificateContract {
         transfer_fee: u64,
         memo: Option<String>,
     ) {
+        persistent::extend_instance_ttl(&env, None);
         from_owner.require_auth();
 
         // Get certificate
@@ -535,6 +558,7 @@ impl CertificateContract {
 
     /// Accept a pending certificate transfer
     pub fn accept_transfer(env: Env, transfer_id: String, to_owner: Address) {
+        persistent::extend_instance_ttl(&env, None);
         to_owner.require_auth();
 
         let mut transfer: CertificateTransfer = env
@@ -580,6 +604,7 @@ impl CertificateContract {
 
     /// Complete a certificate transfer (requires original owner auth)
     pub fn complete_transfer(env: Env, transfer_id: String, from_owner: Address) {
+        persistent::extend_instance_ttl(&env, None);
         from_owner.require_auth();
 
         let mut transfer: CertificateTransfer = env
@@ -598,31 +623,31 @@ impl CertificateContract {
             panic!("Transfer must be accepted before completion");
         }
 
-         let mut cert: Certificate = env
-    .storage()
-    .persistent()
-    .get(&DataKey::Certificate(transfer.certificate_id.clone()))
-    .expect("Certificate not found");
+        let mut cert: Certificate = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Certificate(transfer.certificate_id.clone()))
+            .expect("Certificate not found");
 
-let previous_owner = cert.owner.clone();
-let new_owner = transfer.to_owner.clone();
+        let previous_owner = cert.owner.clone();
+        let new_owner = transfer.to_owner.clone();
 
-// Remove certificate from old owner's index
-Self::remove_cert_id(
-    &env,
-    DataKey::OwnerCertIds(previous_owner),
-    transfer.certificate_id.clone(),
-);
+        // Remove certificate from old owner's index
+        Self::remove_cert_id(
+            &env,
+            DataKey::OwnerCertIds(previous_owner),
+            transfer.certificate_id.clone(),
+        );
 
-// Add certificate to new owner's index
-Self::append_cert_id(
-    &env,
-    DataKey::OwnerCertIds(new_owner.clone()),
-    transfer.certificate_id.clone(),
-);
+        // Add certificate to new owner's index
+        Self::append_cert_id(
+            &env,
+            DataKey::OwnerCertIds(new_owner.clone()),
+            transfer.certificate_id.clone(),
+        );
 
-// Update certificate ownership
-cert.owner = new_owner;
+        // Update certificate ownership
+        cert.owner = new_owner;
 
         // Revoke if required
         if transfer.require_revocation {
@@ -666,6 +691,7 @@ cert.owner = new_owner;
 
     /// Reject a pending certificate transfer
     pub fn reject_transfer(env: Env, transfer_id: String, to_owner: Address) {
+        persistent::extend_instance_ttl(&env, None);
         to_owner.require_auth();
 
         let mut transfer: CertificateTransfer = env
@@ -699,6 +725,7 @@ cert.owner = new_owner;
 
     /// Cancel a pending certificate transfer
     pub fn cancel_transfer(env: Env, transfer_id: String, from_owner: Address) {
+        persistent::extend_instance_ttl(&env, None);
         from_owner.require_auth();
 
         let mut transfer: CertificateTransfer = env
@@ -760,24 +787,35 @@ cert.owner = new_owner;
 
     /// Get transfer details
     pub fn get_transfer(env: Env, transfer_id: String) -> CertificateTransfer {
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::Transfer(transfer_id);
+        persistent::extend_ttl(&env, &key, None);
         env.storage()
             .persistent()
-            .get(&DataKey::Transfer(transfer_id))
+            .get(&key)
             .expect("Transfer not found")
     }
 
     /// Get transfer history for a certificate (public wrapper)
     pub fn get_transfer_history_public(env: Env, certificate_id: String) -> Vec<String> {
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::CertificateTransfers(certificate_id.clone());
+        persistent::extend_ttl(&env, &key, None);
         Self::get_transfer_history(&env, certificate_id)
     }
 
     /// Get pending transfers for an address (public wrapper)
     pub fn get_pending_transfers_public(env: Env, address: Address) -> Vec<String> {
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::PendingTransfers(address.clone());
+        persistent::extend_ttl(&env, &key, None);
         Self::get_pending_transfers(&env, address)
     }
 
     /// Get total transfer count (public wrapper)
     pub fn get_transfer_count_public(env: Env) -> u32 {
+        persistent::extend_instance_ttl(&env, None);
+        persistent::extend_ttl(&env, &DataKey::TransferCount, None);
         Self::get_transfer_count(&env)
     }
 
@@ -791,6 +829,7 @@ cert.owner = new_owner;
         max_signers: u32,
         admin: Address,
     ) {
+        persistent::extend_instance_ttl(&env, None);
         admin.require_auth();
         #[allow(clippy::unnecessary_cast)]
         if threshold == 0
@@ -819,6 +858,7 @@ cert.owner = new_owner;
         new_signers: Option<Vec<Address>>,
         new_max_signers: Option<u32>,
     ) {
+        persistent::extend_instance_ttl(&env, None);
         let admin: Address = env
             .storage()
             .persistent()
@@ -854,7 +894,6 @@ cert.owner = new_owner;
         Self::set_persistent(&env, &DataKey::MultisigConfig(issuer), &config);
     }
 
-    issuer.require_auth();
     pub fn propose_certificate(
         env: Env,
         request_id: String,
@@ -863,6 +902,8 @@ cert.owner = new_owner;
         metadata: String,
         expiration_days: u32,
     ) -> PendingRequest {
+        persistent::extend_instance_ttl(&env, None);
+        issuer.require_auth();
         let config: MultisigConfig = env
             .storage()
             .persistent()
@@ -902,6 +943,7 @@ cert.owner = new_owner;
     }
 
     pub fn approve_request(env: Env, request_id: String, approver: Address) -> SignatureResult {
+        persistent::extend_instance_ttl(&env, None);
         approver.require_auth();
         let mut request: PendingRequest = env
             .storage()
@@ -968,6 +1010,7 @@ cert.owner = new_owner;
         rejector: Address,
         reason: Option<String>,
     ) -> SignatureResult {
+        persistent::extend_instance_ttl(&env, None);
         rejector.require_auth();
         let mut request: PendingRequest = env
             .storage()
@@ -1013,6 +1056,7 @@ cert.owner = new_owner;
     }
 
     pub fn issue_approved_certificate(env: Env, request_id: String) -> bool {
+        persistent::extend_instance_ttl(&env, None);
         let mut request: PendingRequest = env
             .storage()
             .persistent()
@@ -1039,6 +1083,7 @@ cert.owner = new_owner;
     }
 
     pub fn get_multisig_config(env: Env, issuer: Address) -> MultisigConfig {
+        persistent::extend_instance_ttl(&env, None);
         // Only the issuer or the contract admin may read the multisig config
         let admin: Address = env
             .storage()
@@ -1049,18 +1094,23 @@ cert.owner = new_owner;
         if !caller_is_admin {
             issuer.require_auth();
         }
+        let key = DataKey::MultisigConfig(issuer);
+        persistent::extend_ttl(&env, &key, None);
         env.storage()
             .persistent()
-            .get(&DataKey::MultisigConfig(issuer))
+            .get(&key)
             .expect("Multisig.config not found")
     }
 
     pub fn get_pending_request(env: Env, request_id: String, caller: Address) -> PendingRequest {
+        persistent::extend_instance_ttl(&env, None);
         caller.require_auth();
+        let request_key = DataKey::PendingRequest(request_id);
+        persistent::extend_ttl(&env, &request_key, None);
         let request: PendingRequest = env
             .storage()
             .persistent()
-            .get(&DataKey::PendingRequest(request_id))
+            .get(&request_key)
             .expect("Request not found");
         // Only the issuer, proposer, or an authorized signer may read the request
         let admin: Address = env
@@ -1084,10 +1134,13 @@ cert.owner = new_owner;
     }
 
     pub fn is_expired(env: Env, request_id: String) -> bool {
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::PendingRequest(request_id);
+        persistent::extend_ttl(&env, &key, None);
         let request: PendingRequest = env
             .storage()
             .persistent()
-            .get(&DataKey::PendingRequest(request_id))
+            .get(&key)
             .expect("Request not found");
         env.ledger().timestamp() > request.expires_at
     }
@@ -1097,11 +1150,10 @@ cert.owner = new_owner;
         issuer: Address,
         pagination: Pagination,
     ) -> PaginatedResult {
-        Self::paginate_requests(
-            &env,
-            Self::get_request_ids(&env, DataKey::IssuerRequestIds(issuer)),
-            pagination,
-        )
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::IssuerRequestIds(issuer);
+        persistent::extend_ttl(&env, &key, None);
+        Self::paginate_requests(&env, Self::get_request_ids(&env, key), pagination)
     }
 
     pub fn get_pending_requests_for_signer(
@@ -1109,14 +1161,14 @@ cert.owner = new_owner;
         signer: Address,
         pagination: Pagination,
     ) -> PaginatedResult {
-        Self::paginate_requests(
-            &env,
-            Self::get_request_ids(&env, DataKey::SignerRequestIds(signer)),
-            pagination,
-        )
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::SignerRequestIds(signer);
+        persistent::extend_ttl(&env, &key, None);
+        Self::paginate_requests(&env, Self::get_request_ids(&env, key), pagination)
     }
 
     pub fn cancel_request(env: Env, request_id: String, requester: Address) -> bool {
+        persistent::extend_instance_ttl(&env, None);
         requester.require_auth();
         let mut request: PendingRequest = env
             .storage()
@@ -1133,6 +1185,7 @@ cert.owner = new_owner;
 
     /// Upgrade the contract WASM. Only callable by the stored admin (i.e. AdminMultisigContract).
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        persistent::extend_instance_ttl(&env, None);
         let admin: Address = env
             .storage()
             .persistent()
@@ -1158,6 +1211,8 @@ cert.owner = new_owner;
 
     /// Get the current contract version info
     pub fn get_version(env: Env) -> ContractVersion {
+        persistent::extend_instance_ttl(&env, None);
+        persistent::extend_ttl(&env, &DataKey::ContractVersion, None);
         env.storage()
             .persistent()
             .get(&DataKey::ContractVersion)
@@ -1169,6 +1224,7 @@ cert.owner = new_owner;
 
     /// Batch verify multiple certificates
     pub fn batch_verify_certificates(env: Env, ids: Vec<String>) -> VerificationReport {
+        persistent::extend_instance_ttl(&env, None);
         const MAX_BATCH_SIZE: u32 = 100;
         if ids.len() > MAX_BATCH_SIZE {
             panic!("Exceeded max batch size");
@@ -1229,6 +1285,7 @@ cert.owner = new_owner;
 
     /// Set certificate expiry (only admin can call)
     pub fn set_certificate_expiry(env: Env, id: String, expiry_time: u64, admin: Address) {
+        persistent::extend_instance_ttl(&env, None);
         let stored_admin: Address = env
             .storage()
             .persistent()
@@ -1252,11 +1309,10 @@ cert.owner = new_owner;
 
     /// Get certificate expiry time
     pub fn get_certificate_expiry(env: Env, id: String) -> Option<u64> {
-        if let Some(cert) = env
-            .storage()
-            .persistent()
-            .get::<_, Certificate>(&DataKey::Certificate(id))
-        {
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::Certificate(id);
+        persistent::extend_ttl(&env, &key, None);
+        if let Some(cert) = env.storage().persistent().get::<_, Certificate>(&key) {
             cert.expires_at
         } else {
             None
@@ -1269,10 +1325,13 @@ cert.owner = new_owner;
         issuer: Address,
         pagination: Pagination,
     ) -> CertPaginatedResult {
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::IssuerCertIds(issuer);
+        persistent::extend_ttl(&env, &key, None);
         let ids: Vec<String> = env
             .storage()
             .persistent()
-            .get(&DataKey::IssuerCertIds(issuer))
+            .get(&key)
             .unwrap_or(Vec::<String>::new(&env));
         Self::paginate_certificates(&env, ids, pagination)
     }
@@ -1283,10 +1342,13 @@ cert.owner = new_owner;
         owner: Address,
         pagination: Pagination,
     ) -> CertPaginatedResult {
+        persistent::extend_instance_ttl(&env, None);
+        let key = DataKey::OwnerCertIds(owner);
+        persistent::extend_ttl(&env, &key, None);
         let ids: Vec<String> = env
             .storage()
             .persistent()
-            .get(&DataKey::OwnerCertIds(owner))
+            .get(&key)
             .unwrap_or(Vec::<String>::new(&env));
         Self::paginate_certificates(&env, ids, pagination)
     }
@@ -1345,24 +1407,24 @@ cert.owner = new_owner;
             Self::set_persistent(env, &key, &ids);
         }
     }
-    
+
     fn remove_cert_id(env: &Env, key: DataKey, cert_id: String) {
-    let ids: Vec<String> = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(Vec::<String>::new(env));
+        let ids: Vec<String> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::<String>::new(env));
 
-    let mut updated = Vec::<String>::new(env);
+        let mut updated = Vec::<String>::new(env);
 
-    for id in ids.iter() {
-        if id != cert_id {
-            updated.push_back(id);
+        for id in ids.iter() {
+            if id != cert_id {
+                updated.push_back(id);
+            }
         }
-    }
 
-    Self::set_persistent(env, &key, &updated);
-}
+        Self::set_persistent(env, &key, &updated);
+    }
 
     fn append_request_id(env: &Env, key: DataKey, request_id: String) {
         let mut request_ids = Self::get_request_ids(env, key.clone());

@@ -34,10 +34,13 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "ci:check": "npm run lint && npm run typecheck && npm run test",
     "ci:build": "npm run build && npm run build:contracts",
-    "security:audit": "npm audit && cd backend && npm audit && cd ../frontend && npm audit"
+    "security:audit": "npm audit && cd backend && npm audit && cd ../frontend && npm audit",
+    "prepare": "husky"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.2.0",
     "prettier": "^3.0.0"
   },
   "dependencies": {
@@ -47,5 +50,14 @@
     "handlebars": "^4.7.9",
     "nodemailer": "^7.0.12",
     "puppeteer": "^24.42.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
   }
 }

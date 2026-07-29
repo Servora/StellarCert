@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from './email.service';
+import { LoggingService } from '../../common/logging/logging.service';
 
 describe('EmailService', () => {
   let service: EmailService;
@@ -25,6 +26,10 @@ describe('EmailService', () => {
               return config[key];
             }),
           },
+        },
+        {
+          provide: LoggingService,
+          useValue: { log: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() },
         },
       ],
     }).compile();

@@ -279,6 +279,8 @@ export class DuplicateDetectionService {
     matches: DuplicateMatch[],
     action: 'block' | 'warn' | 'allow',
   ): string {
+    if (matches.length === 0) return '';
+
     const count = matches.length;
     const highestMatch = matches.reduce((prev, current) =>
       prev.similarityScore > current.similarityScore ? prev : current,

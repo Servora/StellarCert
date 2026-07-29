@@ -8,6 +8,9 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UserFilterDto } from './dto/pagination.dto';
 import { UpdateUserRoleDto, UpdateUserStatusDto } from './dto/admin-user.dto';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from './guards/roles.guard';
+import { StorageService } from '../files/services/storage.service';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -67,8 +70,17 @@ describe('UsersController', () => {
           provide: UsersService,
           useValue: mockUsersService,
         },
+        {
+          provide: StorageService,
+          useValue: { uploadFile: jest.fn(), deleteFile: jest.fn(), getSignedUrl: jest.fn() },
+        },
       ],
-    }).compile();
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .overrideGuard(RolesGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<UsersController>(UsersController);
     usersService = module.get(UsersService);

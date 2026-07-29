@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { TwoFactorService } from './services/two-factor.service';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -16,8 +18,22 @@ describe('AuthController', () => {
             register: jest.fn(),
           },
         },
+        {
+          provide: TwoFactorService,
+          useValue: {
+            generateSecret: jest.fn(),
+            verifyToken: jest.fn(),
+            generateQrCode: jest.fn(),
+            enable: jest.fn(),
+            disable: jest.fn(),
+            verify: jest.fn(),
+          },
+        },
       ],
-    }).compile();
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<AuthController>(AuthController);
   });

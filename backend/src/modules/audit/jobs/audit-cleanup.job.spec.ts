@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { AuditCleanupJob } from './audit-cleanup.job';
 import { AuditService } from '../services';
 import { AuditAction, AuditResourceType } from '../constants';
+import { LoggingService } from '../../../common/logging/logging.service';
 
 describe('AuditCleanupJob', () => {
   let job: AuditCleanupJob;
@@ -29,6 +30,10 @@ describe('AuditCleanupJob', () => {
               return defaultValue;
             }),
           },
+        },
+        {
+          provide: LoggingService,
+          useValue: { log: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() },
         },
       ],
     }).compile();

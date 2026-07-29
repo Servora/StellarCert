@@ -6,7 +6,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { UserRole } from '../../../common/constants/roles.js';
+import { UserRole } from '../../../common/constants/roles';
 
 export { UserRole };
 

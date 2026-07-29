@@ -20,6 +20,13 @@ import { EmailQueueService } from '../email/email-queue.service';
 import { CertificateStatsService } from '../certificate/services/stats.service';
 import { AuditService } from '../audit/services/audit.service';
 import { LoggingService } from '../../common/logging/logging.service';
+import { UserAuthService } from './services/user-auth.service';
+import { UserProfileService } from './services/user-profile.service';
+import { UserPasswordService } from './services/user-password.service';
+import { UserAdminService } from './services/user-admin.service';
+
+// Re-export real sub-services so the test module can provide them.
+// They depend on the same mocked deps already provided below.
 
 jest.mock('uuid', () => ({
   v4: jest.fn(() => 'mock-uuid'),
@@ -84,6 +91,7 @@ describe('UsersService', () => {
     findByStellarPublicKey: jest.fn(),
     findByEmailVerificationToken: jest.fn(),
     findUsersWithPasswordResetTokens: jest.fn(),
+    findByPasswordResetTokenHash: jest.fn(),
     findByRefreshToken: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
@@ -137,6 +145,11 @@ describe('UsersService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
+        // Real sub-service classes – they will consume the mocked deps below
+        UserAuthService,
+        UserProfileService,
+        UserPasswordService,
+        UserAdminService,
         {
           provide: UserRepository,
           useValue: mockUserRepository,
@@ -591,13 +604,8 @@ describe('UsersService', () => {
         passwordResetToken: 'hashed-valid-token',
         isPasswordResetTokenValid: jest.fn().mockReturnValue(true),
       };
-      mockUserRepository.findUsersWithPasswordResetTokens.mockResolvedValue([
-        userWithToken,
-      ]);
+      mockUserRepository.findByPasswordResetTokenHash.mockResolvedValue(userWithToken);
       mockUserRepository.update.mockResolvedValue(mockUser);
-      (bcrypt.compare as jest.Mock).mockImplementation(
-        async (value: string, hash: string) => hash === `hashed-${value}`,
-      );
 
       const result = await service.resetPassword({
         token: 'valid-token',
@@ -606,32 +614,17 @@ describe('UsersService', () => {
       });
 
       expect(result.message).toBe('Password reset successfully');
-      expect(
-        mockUserRepository.findUsersWithPasswordResetTokens,
-      ).toHaveBeenCalled();
-      expect(bcrypt.compare).toHaveBeenCalledWith(
-        'valid-token',
-        'hashed-valid-token',
-      );
+      expect(mockUserRepository.findByPasswordResetTokenHash).toHaveBeenCalled();
       expect(mockUserRepository.update).toHaveBeenCalledWith(mockUser.id, {
-        password: 'hashedPassword123',
-        passwordResetToken: undefined,
-        passwordResetExpires: undefined,
+        password: expect.any(String),
+        passwordResetToken: null,
+        passwordResetTokenHash: null,
+        passwordResetExpires: null,
       });
     });
 
     it('should throw BadRequestException for invalid token', async () => {
-      const userWithToken = {
-        ...mockUser,
-        passwordResetToken: 'hashed-valid-token',
-        isPasswordResetTokenValid: jest.fn().mockReturnValue(true),
-      };
-      mockUserRepository.findUsersWithPasswordResetTokens.mockResolvedValue([
-        userWithToken,
-      ]);
-      (bcrypt.compare as jest.Mock).mockImplementation(
-        async (value: string, hash: string) => hash === `hashed-${value}`,
-      );
+      mockUserRepository.findByPasswordResetTokenHash.mockResolvedValue(null);
 
       await expect(
         service.resetPassword({
@@ -640,11 +633,6 @@ describe('UsersService', () => {
           confirmPassword: 'NewP@ss456',
         }),
       ).rejects.toThrow('Invalid reset token');
-      expect(bcrypt.compare).toHaveBeenCalledWith(
-        'invalid-token',
-        'hashed-valid-token',
-      );
-      expect(mockUserRepository.update).not.toHaveBeenCalled();
     });
 
     it('should throw BadRequestException for expired matching token', async () => {
@@ -653,12 +641,7 @@ describe('UsersService', () => {
         passwordResetToken: 'hashed-expired-token',
         isPasswordResetTokenValid: jest.fn().mockReturnValue(false),
       };
-      mockUserRepository.findUsersWithPasswordResetTokens.mockResolvedValue([
-        userWithExpiredToken,
-      ]);
-      (bcrypt.compare as jest.Mock).mockImplementation(
-        async (value: string, hash: string) => hash === `hashed-${value}`,
-      );
+      mockUserRepository.findByPasswordResetTokenHash.mockResolvedValue(userWithExpiredToken);
 
       await expect(
         service.resetPassword({

@@ -9,6 +9,7 @@ import {
 import { MetadataSchemaService } from './metadata-schema.service';
 import { MetadataSchema, FieldType } from '../entities/metadata-schema.entity';
 import { CreateMetadataSchemaDto } from '../dto/metadata-schema.dto';
+import { LoggingService } from '../../../common/logging/logging.service';
 
 describe('MetadataSchemaService', () => {
   let service: MetadataSchemaService;
@@ -28,7 +29,7 @@ describe('MetadataSchemaService', () => {
       },
       {
         name: 'grade',
-        type: FieldType.STRING,
+        type: FieldType.ENUM,
         required: false,
         enumValues: ['A', 'B', 'C', 'D', 'F'],
       },
@@ -87,6 +88,10 @@ describe('MetadataSchemaService', () => {
           provide: getRepositoryToken(MetadataSchema),
           useValue: mockRepository,
         },
+        {
+          provide: LoggingService,
+          useValue: { log: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -135,9 +140,9 @@ describe('MetadataSchemaService', () => {
 
   describe('upgradeSchema', () => {
     it('should reject downgrade', async () => {
-      mockRepository.findOne
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(savedSchema);
+      // upgradeSchema calls findLatestByName first and should find an existing schema.
+      // Version 0.9.0 < 1.0.0, so it throws BadRequestException before calling create().
+      mockRepository.findOne.mockResolvedValueOnce(savedSchema);
 
       const downgradeDto = { ...baseSchemaDto, version: '0.9.0' };
       await expect(

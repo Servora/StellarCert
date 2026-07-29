@@ -4,6 +4,8 @@ import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { JwtManagementService } from './services/jwt.service';
+import { TwoFactorService } from './services/two-factor.service';
+import { UserRepository } from '../users/repositories/user.repository';
 import { RegisterDto } from './dto/register.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { CreateUserDto } from '../users/dto/create-user.dto';
@@ -80,6 +82,14 @@ describe('AuthService - Registration', () => {
           provide: JwtManagementService,
           useValue: mockJwtManagementService,
         },
+        {
+          provide: TwoFactorService,
+          useValue: { generateSecret: jest.fn(), verifyToken: jest.fn(), generateQrCode: jest.fn() },
+        },
+        {
+          provide: UserRepository,
+          useValue: { findByEmailWithPassword: jest.fn(), findById: jest.fn(), save: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -99,11 +109,14 @@ describe('AuthService - Registration', () => {
         accessToken: 'mock-access-token',
         refreshToken: 'mock-refresh-token',
         expiresIn: 3600,
+        requiresEmailVerification: true,
         user: {
           id: 'user-123',
           email: 'test@example.com',
           firstName: 'John',
           lastName: 'Doe',
+          role: 'USER',
+          isEmailVerified: false,
         },
       });
     });
@@ -142,25 +155,26 @@ describe('AuthService - Registration', () => {
 
       const result = await authService.register(mockRegisterDto);
 
-      // Verify the transformation includes only the fields expected by AuthResponseDto
+      // Verify the transformation matches the actual AuthResponseDto shape
       expect(result).toEqual({
         accessToken: 'access-token-456',
         refreshToken: 'refresh-token-456',
         expiresIn: 7200,
+        requiresEmailVerification: false,
         user: {
           id: 'user-456',
           email: 'jane@example.com',
           firstName: 'Jane',
           lastName: 'Smith',
+          role: 'USER',
+          isEmailVerified: true,
         },
       });
 
-      // Ensure no extra fields are included in the user object
+      // Ensure only the expected fields are in the user object
       expect(result.user).not.toHaveProperty('username');
       expect(result.user).not.toHaveProperty('profilePicture');
-      expect(result.user).not.toHaveProperty('role');
       expect(result.user).not.toHaveProperty('stellarPublicKey');
-      expect(result.user).not.toHaveProperty('isEmailVerified');
       expect(result.user).not.toHaveProperty('createdAt');
     });
 

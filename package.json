@@ -38,7 +38,7 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "prettier": "^3.0.0"
+    "prettier": "^3.9.6"
   },
   "dependencies": {
     "@nestjs/bull": "^11.0.4",

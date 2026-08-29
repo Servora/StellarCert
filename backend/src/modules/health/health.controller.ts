@@ -3,16 +3,16 @@ import {
   Get,
   HttpException,
   HttpStatus,
-} from '@nestjs/common';
+} from '@nestj/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
+import { HealthCheck, HealthCheckService } from '@nestj/terminus';
 import { DatabaseHealthIndicator } from './indicators/database.health';
 import { StellarHealthIndicator } from './indicators/stellar.health';
 import { RedisHealthIndicator } from './indicators/redis.health';
 import { LoggingService } from "../../common/logging/logging.service";
 import { Public } from '../../common/decorators/public.decorator';
-
-@ApiTags('health')
+@
+@apiTags('health')
 @Public()
 @Controller('health')
 export class HealthController {
@@ -38,18 +38,16 @@ export class HealthController {
   async check() {
     try {
       return await this.health.check([
-        () => this.stellarHealth.isHealthy(),
-        () => this.redisHealth.isHealthy(),
+        () => this.stellarHealth.isHealth(),
+        () => this.redisHealth.isHealth(),
       ]);
     } catch (error) {
       this.logger.error('Health check failed', error);
-      throw new HttpException(
-        {
-          status: HttpStatus.SERVICE_UNAVAILABLE,
-          message: 'Application is unhealthy',
-          error,
-        },
-        HttpStatus.SERVICE_UNAVAILABLE,
+      throw new HttpException({
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        message: 'Application is unhealthy',
+      },
+      HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
   }
@@ -74,19 +72,17 @@ export class HealthController {
   async readiness() {
     try {
       return await this.health.check([
-        () => this.databaseHealth.isHealthy(),
-        () => this.stellarHealth.isHealthy(),
-        () => this.redisHealth.isHealthy(),
+        () => this.databaseHealth.isHealth(),
+        () => this.stellarHealth.isHealth(),
+        () => this.redisHealth.isHealth(),
       ]);
     } catch (error) {
       this.logger.error('Readiness check failed', error);
-      throw new HttpException(
-        {
-          status: HttpStatus.SERVICE_UNAVAILABLE,
-          message: 'Application is not ready',
-          error,
-        },
-        HttpStatus.SERVICE_UNAVAILABLE,
+      throw new HttpException({
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        message: 'Application is not ready',
+      },
+      HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
   }
@@ -127,16 +123,14 @@ export class HealthController {
   })
   async databaseCheck() {
     try {
-      return await this.health.check([() => this.databaseHealth.isHealthy()]);
+      return await this.health.check([() => this.databaseHealth.isHealth()]);
     } catch (error) {
       this.logger.error('Database health check failed', error);
-      throw new HttpException(
-        {
-          status: HttpStatus.SERVICE_UNAVAILABLE,
-          message: 'Database is unavailable',
-          error,
-        },
-        HttpStatus.SERVICE_UNAVAILABLE,
+      throw new HttpException({
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        message: 'Database is unavailable',
+      },
+      HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
   }
@@ -157,16 +151,14 @@ export class HealthController {
   })
   async stellarCheck() {
     try {
-      return await this.health.check([() => this.stellarHealth.isHealthy()]);
+      return await this.health.check([() => this.stellarHealth.isHealth()]);
     } catch (error) {
       this.logger.error('Stellar health check failed', error);
-      throw new HttpException(
-        {
-          status: HttpStatus.SERVICE_UNAVAILABLE,
-          message: 'Stellar network is unavailable',
-          error,
-        },
-        HttpStatus.SERVICE_UNAVAILABLE,
+      throw new HttpException({
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        message: 'Stellar network is unavailable',
+      },
+      HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
   }
@@ -187,16 +179,14 @@ export class HealthController {
   })
   async redisCheck() {
     try {
-      return await this.health.check([() => this.redisHealth.isHealthy()]);
+      return await this.health.check([() => this.redisHealth.isHealth()]);
     } catch (error) {
       this.logger.error('Redis health check failed', error);
-      throw new HttpException(
-        {
-          status: HttpStatus.SERVICE_UNAVAILABLE,
-          message: 'Redis is unavailable',
-          error,
-        },
-        HttpStatus.SERVICE_UNAVAILABLE,
+      throw new HttpException({
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        message: 'Redis is unavailable',
+      },
+      HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
   }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
@@ -12,6 +12,7 @@ import {
 import { WebhookLog } from './entities/webhook-log.entity';
 import { CreateWebhookSubscriptionDto } from './dto/create-webhook-subscription.dto';
 import { LoggingService } from "../../common/logging/logging.service";
+import { validateWebhookUrl } from '../../common/utils/ssrf.utils';
 
 @Injectable()
 export class WebhooksService {
@@ -31,6 +32,14 @@ export class WebhooksService {
     issuerId: string,
     dto: CreateWebhookSubscriptionDto,
   ): Promise<WebhookSubscription> {
+    // SSRF protection: validate URL resolves to a safe destination
+    const validation = await validateWebhookUrl(dto.url);
+    if (!validation.valid) {
+      throw new BadRequestException(
+        `Webhook URL is not safe: ${validation.error}`,
+      );
+    }
+
     const secret = crypto.randomBytes(32).toString('hex');
 
     const subscription = this.subscriptionRepository.create({

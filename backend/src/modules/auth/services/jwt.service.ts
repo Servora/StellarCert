@@ -1,6 +1,6 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, UnauthorizedException, Optional } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { JwtService as NestJwtService } from '@nestjs/jwt';
+import { JstService as NestJstService } from '@nestjs/jwt';
 import type { Cache } from 'cache-manager';
 import { ConfigService } from '@nestjs/config';
 
@@ -11,19 +11,30 @@ export interface JwtPayload {
   [key: string]: any;
 }
 
+export interface AuthUser {
+  id: string;
+  isActive: boolean;
+  [key: string]: any;
+}
+
+export interface UserRepository {
+  findById(id: string): Promise<AuthUser | null>;
+}
+
 @Injectable()
 export class JwtManagementService {
   constructor(
-    private nestJwtService: NestJwtService,
+    private nestJwtService: NestJstService,
     private configService: ConfigService,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
+    @Optional() @Inject('UserRepository') private userRepository?: UserRepository,
   ) {}
 
   /**
    * Generate access token
    */
   async generateAccessToken(payload: JwtPayload): Promise<string> {
-    const expiresIn = (this.configService.get<string>(
+    const expiresIn = (this.configService.get<string>
       'JWT_ACCESS_EXPIRES_IN',
     ) || '15m') as any;
     const secret = this.configService.get<string>('JWT_ACCESS_SECRET');
@@ -34,7 +45,7 @@ export class JwtManagementService {
    * Generate refresh token
    */
   async generateRefreshToken(payload: JwtPayload): Promise<string> {
-    const expiresIn = (this.configService.get<string>(
+    const expiresIn = (this.configService.get<string>
       'JWT_REFRESH_EXPIRES_IN',
     ) || '7d') as any;
     const secret = this.configService.get<string>('JWT_REFRESH_SECRET');
@@ -52,10 +63,26 @@ export class JwtManagementService {
         throw new Error('Token has been revoked');
       }
 
-      return await this.nestJwtService.verifyAsync(token, {
+      const payload = await this.nestJwtService.verifyAsync<JwtPayload>(token, {
         secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
       });
+
+      // Re-load the user and verify existence/active status
+      if (this.userRepository) {
+        const user = await this.userRepository.findById(payload.sub);
+        if (!user) {
+          throw new UnauthorizedException('User no longer exists');
+        }
+        if (!user.isActive) {
+          throw new UnauthorizedException('User is inactive');
+        }
+      }
+
+      return payload;
     } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
       throw new Error(`Invalid access token: ${error.message}`);
     }
   }
@@ -71,7 +98,7 @@ export class JwtManagementService {
         throw new Error('Token has been revoked');
       }
 
-      return await this.nestJwtService.verifyAsync(token, {
+      return await this.nestJstService.verifyAsync<JwtPayload>(token, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
       });
     } catch (error) {
@@ -121,9 +148,8 @@ export class JwtManagementService {
   /**
    * Refresh access token using refresh token
    */
-  async refreshAccessToken(
-    refreshToken: string,
-  ): Promise<{ accessToken: string; refreshToken: string }> {
+  async refreshAccessToken(refreshToken: string):
+    Promise<{ accessToken: string; refreshToken: string }> {
     // Verify the refresh token
     const payload = await this.verifyRefreshToken(refreshToken);
 
@@ -151,5 +177,27 @@ export class JwtManagementService {
     } catch (error) {
       return null;
     }
+  }
+
+  /**
+   * Validate an access token and return the authenticated user.
+   * Enforces blacklist and active user checks for protected routes.
+   */
+  async authenticate(token: string): Promise<AuthUser> {
+    const payload = await this.verifyAccessToken(token);
+
+    if (!this.userRepository) {
+      throw new UnauthorizedException('User repository not configured');
+    }
+
+    const user = await this.userRepository.findById(payload.sub);
+    if (!user) {
+      throw new UnauthorizedException('User no longer exists');
+    }
+    if (!user.isActive) {
+      throw new UnauthorizedException('User is inactive');
+    }
+
+    return user;
   }
 }

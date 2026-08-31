@@ -9,12 +9,11 @@ import { JwtManagementService } from './services/jwt.service';
 import { TwoFactorService } from './services/two-factor.service';
 import { UsersModule } from '../users/users.module';
 import { User } from '../users/entities/user.entity';
-import { CacheModule } from '@nestjs/cache-manager';
+import { JwtStrategy } from './strategies/jwt.strategy';
 import { AuthRateLimitMiddleware } from './middleware/auth-rate-limit.middleware';
 
 @Module({
   imports: [
-    CacheModule.register(),
     ConfigModule,
     TypeOrmModule.forFeature([User]),
     JwtModule.registerAsync({
@@ -45,6 +44,7 @@ import { AuthRateLimitMiddleware } from './middleware/auth-rate-limit.middleware
     JwtManagementService,
     TwoFactorService,
     AuthRateLimitMiddleware,
+    JwtStrategy,
   ],
   exports: [AuthService, JwtModule, JwtManagementService, TwoFactorService],
 })

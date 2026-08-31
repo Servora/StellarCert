@@ -25,7 +25,7 @@ export class UserRepository {
   }
 
   async findById(id: string): Promise<User | null> {
-    return this.repository.findOne({ where: { id } });
+    return this.repository.findOne({ where: { id, isActive: true } });
   }
 
   async findByIdWithPassword(id: string): Promise<User | null> {
@@ -82,7 +82,7 @@ export class UserRepository {
 
   async update(id: string, userData: Partial<User>): Promise<User | null> {
     await this.repository.update(id, userData);
-    return this.findById(id);
+    return this.repository.findOne({ where: { id } });
   }
 
   async delete(id: string): Promise<boolean> {
@@ -95,7 +95,7 @@ export class UserRepository {
       isActive: false,
       status: UserStatus.INACTIVE,
     });
-    return this.findById(id);
+    return this.repository.findOne({ where: { id } });
   }
 
   async findAll(): Promise<User[]> {

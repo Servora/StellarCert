@@ -5,6 +5,7 @@ import { BullModule } from '@nestjs/bull';
 import { BullBoardModule } from '@bull-board/nestjs';
 import { BullAdapter } from '@bull-board/api/bullAdapter';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CacheModule } from '@nestjs/cache-manager';
 import { LoggingService } from './logging/logging.service';
 import { CorrelationIdMiddleware } from './logging/correlation-id.middleware';
 import { MetricsService } from './monitoring/metrics.service';
@@ -30,11 +31,13 @@ import {
 } from './rate-limiting/rate-limit.service';
 import { Issuer } from '../modules/issuers/entities/issuer.entity';
 import { DistributedLockService } from './services/distributed-lock.service';
+import { User } from '../modules/users/entities/user.entity';
 
 @Global()
 @Module({
   imports: [
     ConfigModule,
+    CacheModule.register({ isGlobal: true }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -58,7 +61,7 @@ import { DistributedLockService } from './services/distributed-lock.service';
         };
       },
     }),
-    TypeOrmModule.forFeature([Issuer]),
+    TypeOrmModule.forFeature([Issuer, User]),
     BullModule.registerQueue({
       name: RATE_LIMIT_QUEUE_NAME,
       defaultJobOptions: {

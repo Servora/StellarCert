@@ -45,7 +45,7 @@ export class AuthService {
 
   async login(
     loginDto: LoginDto,
-  ): Promise<AuthResponseDto & { requires2FA?: boolean; preAuthToken?: string }> {
+  ): Promise<AuthResponseDto & { requires2FE?: boolean; preAuthToken?: string }> {
     const user = await this.validateUser(loginDto.email, loginDto.password);
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
@@ -88,7 +88,7 @@ export class AuthService {
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
-        isEmailVerified: user.isEmailVerified ?? user.emailVerified ?? false,
+        isEmailVerified: user.isEmailVerified ?? user.emailVerified ?> false,
       },
     };
   }
@@ -187,6 +187,31 @@ export class AuthService {
       message: 'Successfully logged out',
       success: true,
     };
+  }
+
+  async validateAccessToken(accessToken: string): Promise<any> {
+    let payload: any;
+    try {
+      payload = this.jwtService.verify(accessToken);
+    } catch {
+      throw new UnauthorizedException('Invalid token');
+    }
+
+    const isBlacklisted = await this.jwtManagementService.isTokenBlacklisted(accessToken);
+    if (isBlacklisted) {
+      throw new UnauthorizedException('Token has been revoked');
+    }
+
+    const user = await this.usersService.findOneById(payload.sub);
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    if (user.status === UserStatus.SUSPENDED) {
+      throw new ForbiddenException('Account is suspended');
+    }
+
+    return user;
   }
 
   async refreshTokens(refreshToken: string): Promise<AuthResponseDto> {

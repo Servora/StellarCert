@@ -1059,6 +1059,15 @@ impl CertificateContract {
             .get(&DataKey::MultisigConfig(request.issuer.clone()))
             .expect("Config not found");
 
+        // Verify the rejector is an authorized signer
+        if !config.signers.contains(&rejector) {
+            return SignatureResult {
+                success: false,
+                message: String::from_str(&env, "Rejector is not an authorized signer"),
+                final_status: OptionalRequestStatus::Some(request.status),
+            };
+        }
+
         if !request.rejections.contains(&rejector) {
             request.rejections.push_back(rejector);
             if reason.is_some() {

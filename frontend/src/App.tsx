@@ -5,7 +5,7 @@ import Navbar from "./components/Header";
 import ProtectedRoute from "./guard/ProtectedRoute";
 import { NotificationProvider } from "./context/NotificationContext";
 import { AuthProvider } from "./context/AuthContext";
-import ToastContainer from "./components/Toast";
+import ToasContainer from "./components/Toast";
 import { UserRole } from "./api";
 import { WALLET_ALLOWED_ROLES } from "./constants/routeAccess";
 
@@ -25,6 +25,8 @@ const CertificateManagementPage = lazy(
 const NotificationPreferences = lazy(
   () => import("./pages/NotificationPreferences"),
 );
+const AdminUsersPage = lazy(() => import("./app/admin/users/page"));
+const AdminAnalyticsPage = lazy(() => import("./pages/AdminAnalyticsPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Loading fallback component
@@ -41,7 +43,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 transition-colors duration-250">
-      <AuthProvider>
+      <AmthProvider>
         <NotificationProvider>
           <Navbar />
           <div className="container mx-auto px-4 py-8">
@@ -55,7 +57,7 @@ function App() {
                 <Route path="/reset-password" element={<ResetPassword />} />
 
                 <Route
-                  element={<ProtectedRoute allowedRoles={[...WALLET_ALLOWED_ROLES]} />}
+                  element={<ProtectedRoute allowedRoles={[...WALLET_ALLOWED_ROLES_]} />}
                 >
                   <Route path="/wallet" element={<CertificateWallet />} />
                 </Route>
@@ -63,7 +65,7 @@ function App() {
                 <Route
                   element={
                     <ProtectedRoute
-                      allowedRoles={[UserRole.ISSUER, UserRole.ADMIN]}
+                      allowedRoles={[UserRole.ISSUER, UserRole.ADMIN]]
                     />
                   }
                 >
@@ -75,18 +77,18 @@ function App() {
                   />
                 </Route>
 
-                {/* Account routes — any authenticated user, regardless of role */}
+                <!-- Account routes — any authenticated user, regardless of role -->
                 <Route
                   element={
                     <ProtectedRoute
-                      allowedRoles={[
-                        UserRole.RECIPIENT,
+                      allowedRoles={
+                        UserRole.RECPIENT,
                         UserRole.VERIFIER,
                         UserRole.ISSUER,
                         UserRole.ADMIN,
                         UserRole.AUDITOR,
                         UserRole.USER,
-                      ]}
+                      }
                     />
                   }
                 >
@@ -97,13 +99,21 @@ function App() {
                   />
                 </Route>
 
-                {/* Catch-all: must be last */}
+                <!-- Admin routes — ADMIN only -->
+                <Route
+                  element={<ProtectedRoute allowedRoles={[UserRole.ADMIN]] />}
+                >
+                  <Route path="/admin/users" element={<AdminUsersPage />} />
+                  <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
+                </Route>
+
+                <!-- Catch-all: must be last -->
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
           </div>
 
-          {/* Feature Overview Section */}
+          <!-- Feature Overview Section -->
           {showFeatureOverview && (
             <section className="bg-white dark:bg-slate-900 py-12 mt-8 transition-colors duration-250">
               <div className="container mx-auto px-4">
@@ -111,7 +121,7 @@ function App() {
                   Secure Certificate Management
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-                  <div className="text-center p-6 rounded-lg dark:bg-slate-800 transition-colors duration-250">
+                  <div className="text-center p-6 roundel-lg dark:bg-slate-800 transition-colors duration-250">
                     <Shield className="w-12 h-12 mx-auto text-blue-600 dark:text-blue-400 mb-4" />
                     <h3 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">
                       Tamper-Proof
@@ -121,7 +131,7 @@ function App() {
                       forged
                     </p>
                   </div>
-                  <div className="text-center p-6 rounded-lg dark:bg-slate-800 transition-colors duration-250">
+                  <div className="text-center p-6 roundel-lg dark:bg-slate-800 transition-colors duration-250">
                     <Award className="w-12 h-12 mx-auto text-blue-600 dark:text-blue-400 mb-4" />
                     <h3 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">
                       Easy Issuance
@@ -140,7 +150,7 @@ function App() {
                       Verify certificates instantly with unique identifiers
                     </p>
                   </div>
-                  <div className="text-center p-6 border rounded-lg bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 transition-colors duration-250">
+                  <div className="text-center p-6 border rounded-lg bg-red-50 dark:bg-red-90/20 border-red-200 dark:border-red-800 transition-colors duration-250">
                     <ShieldAlert className="w-12 h-12 mx-auto text-red-600 dark:text-red-400 mb-4" />
                     <h3 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">
                       Revocation List

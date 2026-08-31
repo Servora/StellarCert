@@ -1,0 +1,752 @@
+// input-sanitization.middleware.ts
+
+import {
+  Injectable,
+  NestMiddleware,
+  BadRequestException,
+} from '@nestjs/common';
+
+import { Request, Response, NextFunction } from 'express';
+
+// ============================================================
+// TYPES
+// ============================================================
+
+type SanitizationMode =
+  | 'strict'
+  | 'text'
+  | 'preserve-whitespace';
+
+interface SanitizationOptions {
+  mode?: SanitizationMode;
+  preserveNewlines?: boolean;
+  preserveTabs?: boolean;
+  preserveCarriageReturns?: boolean;
+  maxDepth?: number;
+}
+
+// ============================================================
+// DEFAULT CONFIGURATION
+// ============================================================
+
+const DEFAULT_OPTIONS: Required<SanitizationOptions> = {
+  mode: 'preserve-whitespace',
+  preserveNewlines: true,
+  preserveTabs: true,
+  preserveCarriageReturns: true,
+  maxDepth: 20,
+};
+
+// ============================================================
+// CONTROL CHARACTER DEFINITIONS
+// ============================================================
+
+/*
+ * ASCII control characters occupy U+0000 through U+001F.
+ *
+ * Some of these characters are legitimate data:
+ *
+ *   \n  Line Feed       -> newline
+ *   \r  Carriage Return
+ *   \t  Horizontal Tab
+ *
+ * The old implementation commonly does something like:
+ *
+ *   value.replace(/[\x00-\x1F\x7F]/g, '')
+ *
+ * That removes ALL control characters, including:
+ *
+ *   \n
+ *   \r
+ *   \t
+ *
+ * This corrupts multi-line and tab-delimited data.
+ *
+ * Instead, we explicitly preserve formatting characters and
+ * remove only the characters that should not normally appear
+ * in application input.
+ */
+
+// ============================================================
+// SANITIZATION FUNCTIONS
+// ============================================================
+
+function isAllowedWhitespaceCharacter(
+  character: string,
+  options: Required<SanitizationOptions>,
+): boolean {
+  if (
+    character === '\n' &&
+    options.preserveNewlines
+  ) {
+    return true;
+  }
+
+  if (
+    character === '\r' &&
+    options.preserveCarriageReturns
+  ) {
+    return true;
+  }
+
+  if (
+    character === '\t' &&
+    options.preserveTabs
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+// ------------------------------------------------------------
+// CONTROL CHARACTER CHECK
+// ------------------------------------------------------------
+
+function isControlCharacter(
+  character: string,
+): boolean {
+  const code = character.charCodeAt(0);
+
+  return (
+    (code >= 0x00 && code <= 0x1f) ||
+    code === 0x7f
+  );
+}
+
+// ------------------------------------------------------------
+// SANITIZE STRING
+// ------------------------------------------------------------
+
+function sanitizeString(
+  value: string,
+  options: Required<SanitizationOptions>,
+): string {
+
+  let result = '';
+
+  for (const character of value) {
+
+    // Preserve legitimate formatting characters.
+    if (
+      isAllowedWhitespaceCharacter(
+        character,
+        options,
+      )
+    ) {
+      result += character;
+      continue;
+    }
+
+    // Remove unwanted ASCII control characters.
+    if (isControlCharacter(character)) {
+      continue;
+    }
+
+    // Preserve normal characters.
+    result += character;
+  }
+
+  return result;
+}
+
+// ============================================================
+// STRICT STRING SANITIZATION
+// ============================================================
+
+function sanitizeStrictString(
+  value: string,
+): string {
+
+  let result = '';
+
+  for (const character of value) {
+
+    if (isControlCharacter(character)) {
+      continue;
+    }
+
+    result += character;
+  }
+
+  return result;
+}
+
+// ============================================================
+// RECURSIVE SANITIZATION
+// ============================================================
+
+function sanitizeValue(
+  value: unknown,
+  options: Required<SanitizationOptions>,
+  depth = 0,
+): unknown {
+
+  // ----------------------------------------------------------
+  // DEPTH PROTECTION
+  // ----------------------------------------------------------
+
+  if (depth > options.maxDepth) {
+    throw new BadRequestException(
+      'Input nesting exceeds the maximum allowed depth',
+    );
+  }
+
+  // ----------------------------------------------------------
+  // NULL / UNDEFINED
+  // ----------------------------------------------------------
+
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return value;
+  }
+
+  // ----------------------------------------------------------
+  // STRING
+  // ----------------------------------------------------------
+
+  if (typeof value === 'string') {
+
+    if (options.mode === 'strict') {
+      return sanitizeStrictString(value);
+    }
+
+    return sanitizeString(
+      value,
+      options,
+    );
+  }
+
+  // ----------------------------------------------------------
+  // NUMBER
+  // ----------------------------------------------------------
+
+  if (typeof value === 'number') {
+    return value;
+  }
+
+  // ----------------------------------------------------------
+  // BOOLEAN
+  // ----------------------------------------------------------
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  // ----------------------------------------------------------
+  // BIGINT
+  // ----------------------------------------------------------
+
+  if (typeof value === 'bigint') {
+    return value;
+  }
+
+  // ----------------------------------------------------------
+  // ARRAY
+  // ----------------------------------------------------------
+
+  if (Array.isArray(value)) {
+
+    return value.map(
+      (item) =>
+        sanitizeValue(
+          item,
+          options,
+          depth + 1,
+        ),
+    );
+  }
+
+  // ----------------------------------------------------------
+  // OBJECT
+  // ----------------------------------------------------------
+
+  if (
+    typeof value === 'object'
+  ) {
+
+    const sanitized: Record<string, unknown> = {};
+
+    for (
+      const [key, childValue]
+      of Object.entries(
+        value as Record<string, unknown>,
+      )
+    ) {
+
+      // Sanitize object keys as well.
+      const sanitizedKey =
+        sanitizeString(
+          key,
+          options,
+        );
+
+      sanitized[sanitizedKey] =
+        sanitizeValue(
+          childValue,
+          options,
+          depth + 1,
+        );
+    }
+
+    return sanitized;
+  }
+
+  // ----------------------------------------------------------
+  // FALLBACK
+  // ----------------------------------------------------------
+
+  return value;
+}
+
+// ============================================================
+// REQUEST BODY SANITIZATION
+// ============================================================
+
+function sanitizeRequestBody(
+  body: unknown,
+  options: Required<SanitizationOptions>,
+): unknown {
+
+  if (
+    body === undefined ||
+    body === null
+  ) {
+    return body;
+  }
+
+  return sanitizeValue(
+    body,
+    options,
+  );
+}
+
+// ============================================================
+// QUERY SANITIZATION
+// ============================================================
+
+function sanitizeQuery(
+  query: Record<string, unknown>,
+  options: Required<SanitizationOptions>,
+): Record<string, unknown> {
+
+  return sanitizeValue(
+    query,
+    options,
+  ) as Record<string, unknown>;
+}
+
+// ============================================================
+// PARAMETER SANITIZATION
+// ============================================================
+
+function sanitizeParams(
+  params: Record<string, unknown>,
+  options: Required<SanitizationOptions>,
+): Record<string, unknown> {
+
+  return sanitizeValue(
+    params,
+    options,
+  ) as Record<string, unknown>;
+}
+
+// ============================================================
+// GLOBAL INPUT SANITIZATION MIDDLEWARE
+// ============================================================
+
+@Injectable()
+export class InputSanitizationMiddleware
+  implements NestMiddleware {
+
+  private readonly options:
+    Required<SanitizationOptions>;
+
+  constructor(
+    options: SanitizationOptions = {},
+  ) {
+
+    this.options = {
+      ...DEFAULT_OPTIONS,
+      ...options,
+    };
+  }
+
+  use(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): void {
+
+    try {
+
+      // ------------------------------------------------------
+      // BODY
+      // ------------------------------------------------------
+
+      if (
+        req.body !== undefined &&
+        req.body !== null
+      ) {
+
+        req.body =
+          sanitizeRequestBody(
+            req.body,
+            this.options,
+          );
+      }
+
+      // ------------------------------------------------------
+      // QUERY
+      // ------------------------------------------------------
+
+      if (req.query) {
+
+        req.query =
+          sanitizeQuery(
+            req.query as Record<
+              string,
+              unknown
+            >,
+            this.options,
+          ) as any;
+      }
+
+      // ------------------------------------------------------
+      // ROUTE PARAMETERS
+      // ------------------------------------------------------
+
+      if (req.params) {
+
+        req.params =
+          sanitizeParams(
+            req.params as Record<
+              string,
+              unknown
+            >,
+            this.options,
+          ) as any;
+      }
+
+      next();
+
+    } catch (error) {
+
+      if (
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+
+      throw new BadRequestException(
+        'Invalid request input',
+      );
+    }
+  }
+}
+
+// ============================================================
+// TEXT-SPECIFIC SANITIZATION
+// ============================================================
+
+/*
+ * Some endpoints intentionally accept large blocks of text.
+ *
+ * Examples:
+ *
+ * - Markdown
+ * - source code
+ * - CSV
+ * - TSV
+ * - logs
+ * - configuration files
+ * - smart-contract source
+ * - documentation
+ * - multi-line messages
+ *
+ * These endpoints should not use an aggressive global
+ * sanitizer that removes formatting characters.
+ */
+
+export function sanitizeText(
+  value: string,
+): string {
+
+  return sanitizeString(
+    value,
+    {
+      mode: 'text',
+      preserveNewlines: true,
+      preserveTabs: true,
+      preserveCarriageReturns: true,
+      maxDepth: 20,
+    },
+  );
+}
+
+// ============================================================
+// TABULAR DATA SANITIZATION
+// ============================================================
+
+export function sanitizeTabularData(
+  value: string,
+): string {
+
+  return sanitizeString(
+    value,
+    {
+      mode: 'preserve-whitespace',
+      preserveNewlines: true,
+      preserveTabs: true,
+      preserveCarriageReturns: true,
+      maxDepth: 20,
+    },
+  );
+}
+
+// ============================================================
+// SINGLE-LINE INPUT SANITIZATION
+// ============================================================
+
+export function sanitizeSingleLine(
+  value: string,
+): string {
+
+  return sanitizeString(
+    value,
+    {
+      mode: 'preserve-whitespace',
+      preserveNewlines: false,
+      preserveTabs: false,
+      preserveCarriageReturns: false,
+      maxDepth: 20,
+    },
+  );
+}
+
+// ============================================================
+// EXAMPLE CONTROLLER
+// ============================================================
+
+/*
+ * Example endpoint demonstrating the correct behavior.
+ */
+
+import {
+  Controller,
+  Post,
+  Body,
+} from '@nestjs/common';
+
+@Controller('documents')
+export class DocumentController {
+
+  @Post()
+  createDocument(
+    @Body('content') content: string,
+  ) {
+
+    if (
+      typeof content !== 'string'
+    ) {
+      throw new BadRequestException(
+        'Content must be a string',
+      );
+    }
+
+    // Newlines and tabs are preserved.
+    const sanitized =
+      sanitizeText(content);
+
+    return {
+      content: sanitized,
+      length: sanitized.length,
+    };
+  }
+}
+
+// ============================================================
+// EXAMPLE INPUT
+// ============================================================
+
+export const EXAMPLE_INPUT =
+`First line
+Second line
+	Indented line
+	Another tabbed line
+
+Final paragraph`;
+
+// ============================================================
+// EXPECTED OUTPUT
+// ============================================================
+
+export const EXPECTED_OUTPUT =
+`First line
+Second line
+	Indented line
+	Another tabbed line
+
+Final paragraph`;
+
+// ============================================================
+// SANITIZATION TEST CASES
+// ============================================================
+
+export const SANITIZATION_TEST_CASES = [
+
+  {
+    name: 'Plain text',
+    input: 'Hello world',
+    expected: 'Hello world',
+  },
+
+  {
+    name: 'Newline preservation',
+    input: 'Hello\nWorld',
+    expected: 'Hello\nWorld',
+  },
+
+  {
+    name: 'Tab preservation',
+    input: 'Name\tAge\tCountry',
+    expected: 'Name\tAge\tCountry',
+  },
+
+  {
+    name: 'Multi-line tabular data',
+    input:
+      'Name\tAge\nJohn\t25\nJane\t30',
+    expected:
+      'Name\tAge\nJohn\t25\nJane\t30',
+  },
+
+  {
+    name: 'Carriage return preservation',
+    input: 'First\r\nSecond',
+    expected: 'First\r\nSecond',
+  },
+
+  {
+    name: 'Null byte removal',
+    input: 'Hello\0World',
+    expected: 'HelloWorld',
+  },
+
+  {
+    name: 'Bell character removal',
+    input: 'Hello\x07World',
+    expected: 'HelloWorld',
+  },
+
+  {
+    name: 'Escape control character removal',
+    input: 'Hello\x1bWorld',
+    expected: 'HelloWorld',
+  },
+
+  {
+    name: 'Mixed formatting',
+    input:
+      'Title\n\tIndented content\n\tMore content',
+    expected:
+      'Title\n\tIndented content\n\tMore content',
+  },
+
+];
+
+// ============================================================
+// SELF TEST
+// ============================================================
+
+export function runSanitizationTests(): void {
+
+  for (
+    const test
+    of SANITIZATION_TEST_CASES
+  ) {
+
+    const actual =
+      sanitizeText(test.input);
+
+    if (
+      actual !== test.expected
+    ) {
+
+      throw new Error(
+        `Sanitization test failed: ${test.name}`,
+      );
+    }
+  }
+}
+
+// ============================================================
+// SECURITY NOTES
+// ============================================================
+
+/*
+ * IMPORTANT:
+ *
+ * Sanitization is NOT a replacement for validation,
+ * authorization, encoding, or parameterized database queries.
+ *
+ * This middleware only addresses unwanted control characters.
+ *
+ * It should NOT be used as the primary defense against:
+ *
+ * - SQL injection
+ * - XSS
+ * - CSRF
+ * - command injection
+ * - path traversal
+ * - authentication bypass
+ *
+ * Those concerns should be handled by their appropriate
+ * security controls.
+ *
+ * The purpose of this middleware is specifically to avoid
+ * corrupting legitimate structured input while removing
+ * characters that the application does not support.
+ */
+
+// ============================================================
+// RECOMMENDED MODULE CONFIGURATION
+// ============================================================
+
+/*
+ *
+ * In your AppModule:
+ *
+ * import {
+ *   MiddlewareConsumer,
+ *   Module,
+ *   NestModule,
+ * } from '@nestjs/common';
+ *
+ * @Module({
+ *   controllers: [
+ *     DocumentController,
+ *   ],
+ * })
+ * export class AppModule
+ *   implements NestModule {
+ *
+ *   configure(
+ *     consumer: MiddlewareConsumer,
+ *   ) {
+ *
+ *     consumer
+ *       .apply(
+ *         InputSanitizationMiddleware,
+ *       )
+ *       .forRoutes('*');
+ *   }
+ * }
+ *
+ */
+
+// ============================================================
+// END
+// ============================================================

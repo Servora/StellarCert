@@ -1,0 +1,847 @@
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+
+import {
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
+
+// ============================================================
+// METADATA SCHEMA TYPES
+// ============================================================
+
+export interface MetadataSchema {
+  id: string;
+  name: string;
+  version: number;
+  description?: string;
+  schema: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============================================================
+// CREATE DTO
+// ============================================================
+
+export class CreateMetadataSchemaDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name!: string;
+
+  @IsInt()
+  @Min(1)
+  version!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsNotEmpty()
+  schema!: Record<string, unknown>;
+}
+
+// ============================================================
+// UPDATE DTO
+// ============================================================
+
+export class UpdateMetadataSchemaDto {
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  version?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  schema?: Record<string, unknown>;
+}
+
+// ============================================================
+// REPOSITORY CONTRACT
+// ============================================================
+
+export interface MetadataSchemaRepository {
+  findById(
+    id: string,
+  ): Promise<MetadataSchema | null>;
+
+  findByNameAndVersion(
+    name: string,
+    version: number,
+  ): Promise<MetadataSchema | null>;
+
+  create(
+    schema: MetadataSchema,
+  ): Promise<MetadataSchema>;
+
+  update(
+    id: string,
+    schema: Partial<MetadataSchema>,
+  ): Promise<MetadataSchema>;
+
+  delete(
+    id: string,
+  ): Promise<void>;
+}
+
+// ============================================================
+// IN-MEMORY REPOSITORY
+// ============================================================
+
+@Injectable()
+export class InMemoryMetadataSchemaRepository
+  implements MetadataSchemaRepository {
+
+  private readonly records =
+    new Map<string, MetadataSchema>();
+
+  // ----------------------------------------------------------
+  // FIND BY ID
+  // ----------------------------------------------------------
+
+  async findById(
+    id: string,
+  ): Promise<MetadataSchema | null> {
+
+    return this.records.get(id) ?? null;
+  }
+
+  // ----------------------------------------------------------
+  // FIND BY NAME + VERSION
+  // ----------------------------------------------------------
+
+  async findByNameAndVersion(
+    name: string,
+    version: number,
+  ): Promise<MetadataSchema | null> {
+
+    for (const record of this.records.values()) {
+
+      if (
+        record.name === name &&
+        record.version === version
+      ) {
+        return record;
+      }
+    }
+
+    return null;
+  }
+
+  // ----------------------------------------------------------
+  // CREATE
+  // ----------------------------------------------------------
+
+  async create(
+    schema: MetadataSchema,
+  ): Promise<MetadataSchema> {
+
+    this.records.set(
+      schema.id,
+      schema,
+    );
+
+    return schema;
+  }
+
+  // ----------------------------------------------------------
+  // UPDATE
+  // ----------------------------------------------------------
+
+  async update(
+    id: string,
+    changes: Partial<MetadataSchema>,
+  ): Promise<MetadataSchema> {
+
+    const existing =
+      this.records.get(id);
+
+    if (!existing) {
+      throw new NotFoundException(
+        `Metadata schema ${id} not found`,
+      );
+    }
+
+    const updated: MetadataSchema = {
+      ...existing,
+      ...changes,
+      updatedAt: new Date(),
+    };
+
+    this.records.set(
+      id,
+      updated,
+    );
+
+    return updated;
+  }
+
+  // ----------------------------------------------------------
+  // DELETE
+  // ----------------------------------------------------------
+
+  async delete(
+    id: string,
+  ): Promise<void> {
+
+    this.records.delete(id);
+  }
+}
+
+// ============================================================
+// METADATA SCHEMA SERVICE
+// ============================================================
+
+@Injectable()
+export class MetadataSchemaService {
+
+  constructor(
+    private readonly repository:
+      MetadataSchemaRepository,
+  ) {}
+
+  // ==========================================================
+  // CREATE
+  // ==========================================================
+
+  async create(
+    dto: CreateMetadataSchemaDto,
+  ): Promise<MetadataSchema> {
+
+    // --------------------------------------------------------
+    // NORMALIZE UNIQUE FIELDS
+    // --------------------------------------------------------
+
+    const name =
+      this.normalizeName(dto.name);
+
+    const version =
+      this.normalizeVersion(dto.version);
+
+    // --------------------------------------------------------
+    // UNIQUENESS CHECK
+    // --------------------------------------------------------
+
+    await this.ensureUniqueNameAndVersion(
+      name,
+      version,
+    );
+
+    // --------------------------------------------------------
+    // CREATE ENTITY
+    // --------------------------------------------------------
+
+    const now = new Date();
+
+    const schema: MetadataSchema = {
+      id: this.generateId(),
+      name,
+      version,
+      description: dto.description,
+      schema: dto.schema,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    return this.repository.create(
+      schema,
+    );
+  }
+
+  // ==========================================================
+  // UPDATE
+  // ==========================================================
+
+  async update(
+    id: string,
+    dto: UpdateMetadataSchemaDto,
+  ): Promise<MetadataSchema> {
+
+    // --------------------------------------------------------
+    // LOAD EXISTING RECORD
+    // --------------------------------------------------------
+
+    const existing =
+      await this.repository.findById(id);
+
+    if (!existing) {
+      throw new NotFoundException(
+        `Metadata schema ${id} not found`,
+      );
+    }
+
+    // --------------------------------------------------------
+    // DETERMINE FINAL VALUES
+    // --------------------------------------------------------
+
+    /*
+     * This is the important part.
+     *
+     * We cannot only validate dto.name and dto.version,
+     * because either field may be omitted during a partial
+     * update.
+     *
+     * Instead, calculate the FINAL (name, version) pair that
+     * the record will have after the update.
+     */
+
+    const finalName =
+      dto.name !== undefined
+        ? this.normalizeName(dto.name)
+        : existing.name;
+
+    const finalVersion =
+      dto.version !== undefined
+        ? this.normalizeVersion(dto.version)
+        : existing.version;
+
+    // --------------------------------------------------------
+    // UNIQUENESS CHECK
+    // --------------------------------------------------------
+
+    /*
+     * The old implementation might have done:
+     *
+     *   repository.update(id, dto)
+     *
+     * without checking whether another schema already owns
+     * the resulting (name, version) pair.
+     *
+     * That allows:
+     *
+     *   schema A -> users / v1
+     *   schema B -> orders / v1
+     *
+     * to become:
+     *
+     *   schema A -> orders / v1
+     *
+     * resulting in two records with:
+     *
+     *   (orders, 1)
+     *
+     * The update must therefore perform the SAME uniqueness
+     * validation as create().
+     */
+
+    await this.ensureUniqueNameAndVersion(
+      finalName,
+      finalVersion,
+      id,
+    );
+
+    // --------------------------------------------------------
+    // BUILD UPDATE PAYLOAD
+    // --------------------------------------------------------
+
+    const changes: Partial<MetadataSchema> = {
+      name: finalName,
+      version: finalVersion,
+    };
+
+    if (
+      dto.description !== undefined
+    ) {
+      changes.description =
+        dto.description;
+    }
+
+    if (
+      dto.schema !== undefined
+    ) {
+      changes.schema =
+        dto.schema;
+    }
+
+    // --------------------------------------------------------
+    // PERSIST
+    // --------------------------------------------------------
+
+    return this.repository.update(
+      id,
+      changes,
+    );
+  }
+
+  // ==========================================================
+  // UNIQUENESS GUARD
+  // ==========================================================
+
+  private async ensureUniqueNameAndVersion(
+    name: string,
+    version: number,
+    currentId?: string,
+  ): Promise<void> {
+
+    const conflicting =
+      await this.repository
+        .findByNameAndVersion(
+          name,
+          version,
+        );
+
+    // --------------------------------------------------------
+    // NO CONFLICT
+    // --------------------------------------------------------
+
+    if (!conflicting) {
+      return;
+    }
+
+    // --------------------------------------------------------
+    // SAME RECORD
+    // --------------------------------------------------------
+
+    /*
+     * Updating a record without changing its unique key must
+     * remain valid.
+     *
+     * Example:
+     *
+     * id: 123
+     * name: users
+     * version: 1
+     *
+     * update:
+     *
+     * description: "Updated"
+     *
+     * The lookup finds the same record, but this is NOT a
+     * uniqueness violation.
+     */
+
+    if (
+      currentId !== undefined &&
+      conflicting.id === currentId
+    ) {
+      return;
+    }
+
+    // --------------------------------------------------------
+    // ACTUAL CONFLICT
+    // --------------------------------------------------------
+
+    throw new ConflictException(
+      `Metadata schema "${name}" version ${version} already exists`,
+    );
+  }
+
+  // ==========================================================
+  // GET BY ID
+  // ==========================================================
+
+  async findById(
+    id: string,
+  ): Promise<MetadataSchema> {
+
+    const schema =
+      await this.repository.findById(id);
+
+    if (!schema) {
+      throw new NotFoundException(
+        `Metadata schema ${id} not found`,
+      );
+    }
+
+    return schema;
+  }
+
+  // ==========================================================
+  // DELETE
+  // ==========================================================
+
+  async delete(
+    id: string,
+  ): Promise<void> {
+
+    const existing =
+      await this.repository.findById(id);
+
+    if (!existing) {
+      throw new NotFoundException(
+        `Metadata schema ${id} not found`,
+      );
+    }
+
+    await this.repository.delete(id);
+  }
+
+  // ==========================================================
+  // NORMALIZE NAME
+  // ==========================================================
+
+  private normalizeName(
+    name: string,
+  ): string {
+
+    return name.trim();
+  }
+
+  // ==========================================================
+  // NORMALIZE VERSION
+  // ==========================================================
+
+  private normalizeVersion(
+    version: number,
+  ): number {
+
+    if (
+      !Number.isInteger(version) ||
+      version < 1
+    ) {
+      throw new ConflictException(
+        'Version must be a positive integer',
+      );
+    }
+
+    return version;
+  }
+
+  // ==========================================================
+  // ID GENERATOR
+  // ==========================================================
+
+  private generateId(): string {
+
+    return [
+      'schema',
+      Date.now(),
+      Math.random()
+        .toString(36)
+        .slice(2),
+    ].join('_');
+  }
+}
+
+// ============================================================
+// EXAMPLE CONTROLLER
+// ============================================================
+
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
+
+@Controller('metadata-schemas')
+export class MetadataSchemaController {
+
+  constructor(
+    private readonly service:
+      MetadataSchemaService,
+  ) {}
+
+  // ----------------------------------------------------------
+  // CREATE
+  // ----------------------------------------------------------
+
+  @Post()
+  async create(
+    @Body()
+    dto: CreateMetadataSchemaDto,
+  ) {
+
+    return this.service.create(dto);
+  }
+
+  // ----------------------------------------------------------
+  // UPDATE
+  // ----------------------------------------------------------
+
+  @Patch(':id')
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateMetadataSchemaDto,
+  ) {
+
+    return this.service.update(
+      id,
+      dto,
+    );
+  }
+
+  // ----------------------------------------------------------
+  // GET
+  // ----------------------------------------------------------
+
+  @Get(':id')
+  async findById(
+    @Param('id') id: string,
+  ) {
+
+    return this.service.findById(id);
+  }
+}
+
+// ============================================================
+// TEST SCENARIOS
+// ============================================================
+
+/*
+ * These scenarios describe the expected behavior.
+ *
+ * ------------------------------------------------------------
+ * TEST 1: CREATE UNIQUE SCHEMA
+ * ------------------------------------------------------------
+ *
+ * Existing:
+ *
+ *   users / 1
+ *
+ * Create:
+ *
+ *   orders / 1
+ *
+ * Expected:
+ *
+ *   SUCCESS
+ *
+ *
+ * ------------------------------------------------------------
+ * TEST 2: CREATE DUPLICATE
+ * ------------------------------------------------------------
+ *
+ * Existing:
+ *
+ *   users / 1
+ *
+ * Create:
+ *
+ *   users / 1
+ *
+ * Expected:
+ *
+ *   409 Conflict
+ *
+ *
+ * ------------------------------------------------------------
+ * TEST 3: UPDATE DESCRIPTION ONLY
+ * ------------------------------------------------------------
+ *
+ * Existing:
+ *
+ *   id=1
+ *   users / 1
+ *
+ * Update:
+ *
+ *   description = "New description"
+ *
+ * Expected:
+ *
+ *   SUCCESS
+ *
+ *
+ * ------------------------------------------------------------
+ * TEST 4: UPDATE TO EXISTING PAIR
+ * ------------------------------------------------------------
+ *
+ * Existing:
+ *
+ *   id=1 -> users / 1
+ *   id=2 -> orders / 1
+ *
+ * Update id=1:
+ *
+ *   name = orders
+ *   version = 1
+ *
+ * Expected:
+ *
+ *   409 Conflict
+ *
+ *
+ * ------------------------------------------------------------
+ * TEST 5: UPDATE VERSION
+ * ------------------------------------------------------------
+ *
+ * Existing:
+ *
+ *   id=1 -> users / 1
+ *
+ * Update:
+ *
+ *   version = 2
+ *
+ * Expected:
+ *
+ *   SUCCESS
+ *
+ *
+ * ------------------------------------------------------------
+ * TEST 6: UPDATE NAME
+ * ------------------------------------------------------------
+ *
+ * Existing:
+ *
+ *   id=1 -> users / 1
+ *
+ * Update:
+ *
+ *   name = accounts
+ *
+ * Expected:
+ *
+ *   SUCCESS
+ *
+ *
+ * ------------------------------------------------------------
+ * TEST 7: UPDATE SAME NAME + VERSION
+ * ------------------------------------------------------------
+ *
+ * Existing:
+ *
+ *   id=1 -> users / 1
+ *
+ * Update:
+ *
+ *   name = users
+ *   version = 1
+ *
+ * Expected:
+ *
+ *   SUCCESS
+ *
+ * The existing record must be excluded from the conflict.
+ */
+
+// ============================================================
+// OPTIONAL UNIT TESTS
+// ============================================================
+
+/*
+ * Example Jest test:
+ *
+ * describe(
+ *   'MetadataSchemaService.update',
+ *   () => {
+ *
+ *     let service: MetadataSchemaService;
+ *     let repository:
+ *       InMemoryMetadataSchemaRepository;
+ *
+ *     beforeEach(() => {
+ *
+ *       repository =
+ *         new InMemoryMetadataSchemaRepository();
+ *
+ *       service =
+ *         new MetadataSchemaService(
+ *           repository,
+ *         );
+ *     });
+ *
+ *     it(
+ *       'rejects duplicate name/version',
+ *       async () => {
+ *
+ *         const first =
+ *           await service.create({
+ *             name: 'users',
+ *             version: 1,
+ *             schema: {
+ *               id: 'string',
+ *             },
+ *           });
+ *
+ *         const second =
+ *           await service.create({
+ *             name: 'orders',
+ *             version: 1,
+ *             schema: {
+ *               id: 'string',
+ *             },
+ *           });
+ *
+ *         await expect(
+ *           service.update(
+ *             first.id,
+ *             {
+ *               name: 'orders',
+ *               version: 1,
+ *             },
+ *           ),
+ *         ).rejects.toThrow(
+ *           ConflictException,
+ *         );
+ *       },
+ *     );
+ *
+ *     it(
+ *       'allows updating the same record',
+ *       async () => {
+ *
+ *         const schema =
+ *           await service.create({
+ *             name: 'users',
+ *             version: 1,
+ *             schema: {},
+ *           });
+ *
+ *         const updated =
+ *           await service.update(
+ *             schema.id,
+ *             {
+ *               description: 'Updated',
+ *             },
+ *           );
+ *
+ *         expect(
+ *           updated.description,
+ *         ).toBe('Updated');
+ *       },
+ *     );
+ *   },
+ * );
+ */
+
+// ============================================================
+// IMPORTANT DATABASE NOTE
+// ============================================================
+
+/*
+ * Application-level validation is necessary, but it should
+ * NOT be the only protection if the application uses a
+ * relational database.
+ *
+ * The database should also enforce:
+ *
+ *   UNIQUE(name, version)
+ *
+ * For example, with PostgreSQL:
+ *
+ *   CREATE UNIQUE INDEX
+ *   metadata_schema_name_version_unique
+ *   ON metadata_schemas (name, version);
+ *
+ * The service-level check provides a friendly 409 response,
+ * while the database constraint protects against concurrent
+ * requests racing between the lookup and update.
+ */
+
+// ============================================================
+// END
+// ============================================================

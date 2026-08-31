@@ -1,18 +1,17 @@
-import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, Inject } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PUBLIC_KEY } from '../decorators/public.decorator';
 import { Reflector } from '@nestjs/core';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { AuthException } from '../exceptions';
 import { ErrorCode } from '../constants/error-codes';
 import { Request } from 'express';
+import { User, UserStatus } from '../../modules/users/entities/user.entity';
 
-/**
- * Canonical shape attached to `req.user` by JwtAuthGuard.
- * `id` and `sub` are aliases for the same user id so both
- * `@CurrentUser('id')` and `@CurrentUser('sub')` resolve correctly,
- * regardless of which guard authenticated the request.
- */
 export interface AuthenticatedUser {
   id: string;
   sub: string;
@@ -24,20 +23,17 @@ interface RequestWithUser extends Request {
   user: AuthenticatedUser;
 }
 
-/**
- * JWT Authentication Guard
- * Validates JWT tokens from the Authorization header
- */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private jwtService: JwtService,
     private reflector: Reflector,
     private configService: ConfigService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+    @InjectRepository(User) private userRepository: Repository<User>,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
-    // Check if the route is public
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -67,18 +63,35 @@ export class JwtAuthGuard implements CanActivate {
         );
       }
 
-      const payload = this.jwtService.verify(token, {
-        secret,
+      const payload = this.jwtService.verify(token, { secret });
+
+      const isBlacklisted = await this.cacheManager.get(
+        `blacklisted_token:${token}`,
+      );
+      if (isBlacklisted) {
+        throw new AuthException(ErrorCode.TOKEN_INVALID, 'Token has been revoked');
+      }
+
+      const user = await this.userRepository.findOne({
+        where: { id: payload.sub },
       });
-      // Single canonical req.user shape: id and sub are aliases of the same
-      // user id, so @CurrentUser('id') and @CurrentUser('sub') both resolve.
+      if (!user || !user.isActive || user.status === UserStatus.SUSPENDED) {
+        throw new AuthException(
+          ErrorCode.UNAUTHORIZED,
+          'User not found or inactive',
+        );
+      }
+
       request.user = {
-        id: payload.sub,
-        sub: payload.sub,
-        email: payload.email,
-        role: payload.role,
+        id: user.id,
+        sub: user.id,
+        email: user.email,
+        role: user.role,
       };
     } catch (error: unknown) {
+      if (error instanceof AuthException) {
+        throw error;
+      }
       if (error instanceof Error && error.name === 'TokenExpiredError') {
         throw new AuthException(ErrorCode.TOKEN_EXPIRED, 'Token has expired');
       }

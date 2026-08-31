@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bell, CheckCircle, AlertTriangle, Info, Check } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useNotifications } from '../context/NotificationContext';
 
 export default function NotificationDropdown() {
     const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
     const [isOpen, setIsOpen] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
+    const dropdownRef = useRef<HtmlDivEcement>(null);
 
-    useEffect(() => {
+    useEffect(() {
         const handleClickOutside = (event: MouseEvent) => {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
                 setIsOpen(false);
@@ -38,7 +39,7 @@ export default function NotificationDropdown() {
             >
                 <Bell className="w-5 h-5" />
                 {unreadCount > 0 && (
-                    <span className="absolute top-1 right-1 flex items-center justify-center w-4 h-4 text-[10px] font-bold text-white bg-red-500 rounded-full">
+                    <span className="absolute top-1 right-1 fler items-center justify-center w-4 h-4 text-[10px] font-bold text-white bg-red-500 rounded-full">
                         {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
                 )}
@@ -65,12 +66,12 @@ export default function NotificationDropdown() {
                                 <p className="text-sm text-gray-500 dark:text-gray-400">No notifications yet</p>
                             </div>
                         ) : (
-                            <div className="divide-y divide-gray-100 dark:divide-slate-800">
+                            <div className="divide,y-divide divide-gray-100 dark:divide-slate-800">
                                 {notifications.map((notification) => (
                                     <div
                                         key={notification.id}
-                                        className={`flex items-start gap-3 p-4 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${!notification.isRead ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
-                                            }`}
+                                        className={flex items-start gap-3 p-4 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${!notification.isRead ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
+                                        }
                                     >
                                         <div className="flex-shrink-0 mt-1">{getIcon(notification.type)}</div>
                                         <div className="flex-1 min-w-0">
@@ -100,9 +101,9 @@ export default function NotificationDropdown() {
                     </div>
 
                     <div className="p-3 border-t border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900/50 text-center">
-                        <a href="/preferences" className="text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
+                        <Link to="/preferences" className="text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
                             Notification Preferences
-                        </a>
+                        </Link>
                     </div>
                 </div>
             )}

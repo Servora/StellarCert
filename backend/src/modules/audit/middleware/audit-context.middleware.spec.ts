@@ -31,7 +31,10 @@ describe('AuditContextMiddleware', () => {
   });
 
   afterEach(() => {
-    if (requestContextService && typeof requestContextService.clearContext === 'function') {
+    if (
+      requestContextService &&
+      typeof requestContextService.clearContext === 'function'
+    ) {
       requestContextService.clearContext();
     }
   });

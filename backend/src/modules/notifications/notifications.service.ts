@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { Notification, NotificationType } from './entities/notification.entity';
 import { NotificationPreference } from './entities/notification-preference.entity';
 import { NotificationsGateway } from './notifications.gateway';
-import { LoggingService } from "../../common/logging/logging.service";
+import { LoggingService } from '../../common/logging/logging.service';
 
 @Injectable()
 export class NotificationsService {
@@ -13,7 +13,8 @@ export class NotificationsService {
     private readonly notificationRepository: Repository<Notification>,
     @InjectRepository(NotificationPreference)
     private readonly preferenceRepository: Repository<NotificationPreference>,
-    private readonly notificationsGateway: NotificationsGateway, private readonly logger: LoggingService
+    private readonly notificationsGateway: NotificationsGateway,
+    private readonly logger: LoggingService,
   ) {}
 
   async createNotification(
@@ -61,7 +62,12 @@ export class NotificationsService {
     userId: string,
     page = 1,
     limit = 20,
-  ): Promise<{ data: Notification[]; total: number; page: number; limit: number }> {
+  ): Promise<{
+    data: Notification[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     const [data, total] = await this.notificationRepository.findAndCount({
       where: { userId },
       order: { createdAt: 'DESC' },

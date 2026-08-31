@@ -302,7 +302,7 @@ describe('UsersController', () => {
   describe('Profile Management Endpoints', () => {
     describe('getProfile', () => {
       it('should get user profile', async () => {
-        mockUsersService.getProfile.mockResolvedValue(mockUser as User);
+        mockUsersService.getProfile.mockResolvedValue(mockUser);
 
         const result = await controller.getProfile(mockUser.id!);
 
@@ -319,7 +319,7 @@ describe('UsersController', () => {
         };
         const updatedUser = { ...mockUser, ...updateProfileDto };
 
-        mockUsersService.updateProfile.mockResolvedValue(updatedUser as User);
+        mockUsersService.updateProfile.mockResolvedValue(updatedUser);
 
         const result = await controller.updateProfile(
           mockUser.id!,
@@ -405,7 +405,7 @@ describe('UsersController', () => {
 
     describe('findOne', () => {
       it('should return a user by ID', async () => {
-        mockUsersService.findUserById.mockResolvedValue(mockUser as User);
+        mockUsersService.findUserById.mockResolvedValue(mockUser);
 
         const result = await controller.findOne(mockUser.id!);
 
@@ -419,7 +419,7 @@ describe('UsersController', () => {
         const updateDto = { firstName: 'Updated' };
         const updatedUser = { ...mockUser, ...updateDto };
 
-        mockUsersService.adminUpdateUser.mockResolvedValue(updatedUser as User);
+        mockUsersService.adminUpdateUser.mockResolvedValue(updatedUser);
 
         const result = await controller.adminUpdate(
           adminId,
@@ -441,7 +441,7 @@ describe('UsersController', () => {
         const updateRoleDto: UpdateUserRoleDto = { role: UserRole.ISSUER };
         const updatedUser = { ...mockUser, role: UserRole.ISSUER };
 
-        mockUsersService.updateUserRole.mockResolvedValue(updatedUser as User);
+        mockUsersService.updateUserRole.mockResolvedValue(updatedUser);
 
         const result = await controller.updateRole(
           adminId,
@@ -465,9 +465,7 @@ describe('UsersController', () => {
         };
         const updatedUser = { ...mockUser, status: UserStatus.SUSPENDED };
 
-        mockUsersService.updateUserStatus.mockResolvedValue(
-          updatedUser as User,
-        );
+        mockUsersService.updateUserStatus.mockResolvedValue(updatedUser);
 
         const result = await controller.updateStatus(
           adminId,
@@ -493,9 +491,7 @@ describe('UsersController', () => {
           status: UserStatus.INACTIVE,
         };
 
-        mockUsersService.deactivateUser.mockResolvedValue(
-          deactivatedUser as User,
-        );
+        mockUsersService.deactivateUser.mockResolvedValue(deactivatedUser);
 
         const result = await controller.deactivate(
           adminId,
@@ -520,9 +516,7 @@ describe('UsersController', () => {
           status: UserStatus.ACTIVE,
         };
 
-        mockUsersService.reactivateUser.mockResolvedValue(
-          reactivatedUser as User,
-        );
+        mockUsersService.reactivateUser.mockResolvedValue(reactivatedUser);
 
         const result = await controller.reactivate(adminId, mockUser.id!);
 

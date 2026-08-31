@@ -2,7 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  UnauthorizedException
+  UnauthorizedException,
 } from '@nestjs/common';
 import { User } from '../entities/user.entity';
 import { UserRepository } from '../repositories/user.repository';
@@ -24,7 +24,7 @@ export class UserPasswordService {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly emailQueueService: EmailQueueService,
-    private readonly logger: LoggingService
+    private readonly logger: LoggingService,
   ) {}
 
   async changePassword(

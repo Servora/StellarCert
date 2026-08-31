@@ -2,12 +2,15 @@ import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { MetricsService } from '../../common/monitoring/metrics.service';
-import { LoggingService } from "../../common/logging/logging.service";
+import { LoggingService } from '../../common/logging/logging.service';
 
 @ApiTags('metrics')
 @Controller('metrics')
 export class MetricsController {
-  constructor(private metricsService: MetricsService, private readonly logger: LoggingService) {}
+  constructor(
+    private metricsService: MetricsService,
+    private readonly logger: LoggingService,
+  ) {}
 
   /**
    * Prometheus metrics endpoint

@@ -16,11 +16,16 @@ import { LoggingService } from '../../common/logging/logging.service';
   cors: {
     origin: (origin, callback) => {
       // Get ALLOWED_ORIGINS from config service or environment
-      const allowedOriginsEnv = process.env.ALLOWED_ORIGINS || 'http://localhost:5173';
+      const allowedOriginsEnv =
+        process.env.ALLOWED_ORIGINS || 'http://localhost:5173';
       const allowedOrigins = allowedOriginsEnv.split(',').map((o) => o.trim());
 
       // Allow non-browser requests (like mobile apps, curl, Postman) if origin is undefined/null
-      if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+      if (
+        !origin ||
+        allowedOrigins.includes('*') ||
+        allowedOrigins.includes(origin)
+      ) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'), false);
@@ -51,9 +56,13 @@ export class NotificationsGateway
           this.configService.get<string>('ALLOWED_ORIGINS') ||
           process.env.ALLOWED_ORIGINS ||
           'http://localhost:5173';
-        const allowedOrigins = allowedOriginsEnv.split(',').map((o) => o.trim());
+        const allowedOrigins = allowedOriginsEnv
+          .split(',')
+          .map((o) => o.trim());
         if (!allowedOrigins.includes('*') && !allowedOrigins.includes(origin)) {
-          this.logger.warn(`Rejected WebSocket connection from disallowed origin: ${origin}`);
+          this.logger.warn(
+            `Rejected WebSocket connection from disallowed origin: ${origin}`,
+          );
           client.disconnect();
           return;
         }
@@ -73,8 +82,14 @@ export class NotificationsGateway
 
       // Validate user active status / suspension / existence
       const user = await this.usersService.findOneById(userId);
-      if (!user || user.status === UserStatus.SUSPENDED || user.status === UserStatus.INACTIVE) {
-        this.logger.warn(`Rejected WebSocket connection for inactive/suspended user: ${userId}`);
+      if (
+        !user ||
+        user.status === UserStatus.SUSPENDED ||
+        user.status === UserStatus.INACTIVE
+      ) {
+        this.logger.warn(
+          `Rejected WebSocket connection for inactive/suspended user: ${userId}`,
+        );
         client.disconnect();
         return;
       }

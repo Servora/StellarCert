@@ -221,7 +221,9 @@ class EnvironmentVariables {
   DUPLICATE_DETECTION_TIME_WINDOW_DAYS?: number;
 }
 
-export function validateEnv(config: Record<string, unknown> = {}): EnvironmentVariables {
+export function validateEnv(
+  config: Record<string, unknown> = {},
+): EnvironmentVariables {
   const e = (key: string) => (config[key] as string) || process.env[key];
   const validatedEnv = plainToClass(
     EnvironmentVariables,
@@ -240,7 +242,8 @@ export function validateEnv(config: Record<string, unknown> = {}): EnvironmentVa
       JWT_ACCESS_EXPIRES_IN: e('JWT_ACCESS_EXPIRES_IN') || '15m',
       JWT_REFRESH_EXPIRES_IN: e('JWT_REFRESH_EXPIRES_IN') || '7d',
       STELLAR_NETWORK: e('STELLAR_NETWORK') || 'testnet',
-      STELLAR_HORIZON_URL: e('STELLAR_HORIZON_URL') || 'https://horizon-testnet.stellar.org',
+      STELLAR_HORIZON_URL:
+        e('STELLAR_HORIZON_URL') || 'https://horizon-testnet.stellar.org',
       STELLAR_ISSUER_SECRET_KEY: e('STELLAR_ISSUER_SECRET_KEY') || '',
       STELLAR_ISSUER_PUBLIC_KEY: e('STELLAR_ISSUER_PUBLIC_KEY') || '',
       ALLOWED_ORIGINS: e('ALLOWED_ORIGINS') || 'http://localhost:5173',
@@ -248,7 +251,9 @@ export function validateEnv(config: Record<string, unknown> = {}): EnvironmentVa
       ENABLE_SENTRY: e('ENABLE_SENTRY') === 'true',
       EMAIL_SERVICE: e('EMAIL_SERVICE'),
       EMAIL_HOST: e('EMAIL_HOST'),
-      EMAIL_PORT: e('EMAIL_PORT') ? parseInt(e('EMAIL_PORT') as string, 10) : undefined,
+      EMAIL_PORT: e('EMAIL_PORT')
+        ? parseInt(e('EMAIL_PORT') as string, 10)
+        : undefined,
       EMAIL_USERNAME: e('EMAIL_USERNAME'),
       EMAIL_PASSWORD: e('EMAIL_PASSWORD'),
       EMAIL_FROM: e('EMAIL_FROM'),
@@ -260,22 +265,51 @@ export function validateEnv(config: Record<string, unknown> = {}): EnvironmentVa
       STORAGE_SECRET_KEY: e('STORAGE_SECRET_KEY'),
       STORAGE_BUCKET: e('STORAGE_BUCKET'),
       STORAGE_REQUIRED: e('STORAGE_REQUIRED') !== 'false',
-      AUDIT_RETENTION_DAYS: e('AUDIT_RETENTION_DAYS') ? parseInt(e('AUDIT_RETENTION_DAYS') as string, 10) : undefined,
+      AUDIT_RETENTION_DAYS: e('AUDIT_RETENTION_DAYS')
+        ? parseInt(e('AUDIT_RETENTION_DAYS') as string, 10)
+        : undefined,
       REQUEST_SIZE_LIMIT: e('REQUEST_SIZE_LIMIT'),
-      RATE_LIMIT_DEFAULT_WINDOW_MS: e('RATE_LIMIT_DEFAULT_WINDOW_MS') ? parseInt(e('RATE_LIMIT_DEFAULT_WINDOW_MS') as string, 10) : undefined,
-      RATE_LIMIT_DEFAULT_MAX_REQUESTS: e('RATE_LIMIT_DEFAULT_MAX_REQUESTS') ? parseInt(e('RATE_LIMIT_DEFAULT_MAX_REQUESTS') as string, 10) : undefined,
-      AUTH_BRUTE_FORCE_WINDOW_MS: e('AUTH_BRUTE_FORCE_WINDOW_MS') ? parseInt(e('AUTH_BRUTE_FORCE_WINDOW_MS') as string, 10) : undefined,
-      AUTH_BRUTE_FORCE_MAX_ATTEMPTS: e('AUTH_BRUTE_FORCE_MAX_ATTEMPTS') ? parseInt(e('AUTH_BRUTE_FORCE_MAX_ATTEMPTS') as string, 10) : undefined,
-      VERIFICATION_RATE_LIMIT_WINDOW_MS: e('VERIFICATION_RATE_LIMIT_WINDOW_MS') ? parseInt(e('VERIFICATION_RATE_LIMIT_WINDOW_MS') as string, 10) : 60 * 1000,
-      VERIFICATION_RATE_LIMIT_MAX_REQUESTS: e('VERIFICATION_RATE_LIMIT_MAX_REQUESTS') ? parseInt(e('VERIFICATION_RATE_LIMIT_MAX_REQUESTS') as string, 10) : 100,
+      RATE_LIMIT_DEFAULT_WINDOW_MS: e('RATE_LIMIT_DEFAULT_WINDOW_MS')
+        ? parseInt(e('RATE_LIMIT_DEFAULT_WINDOW_MS') as string, 10)
+        : undefined,
+      RATE_LIMIT_DEFAULT_MAX_REQUESTS: e('RATE_LIMIT_DEFAULT_MAX_REQUESTS')
+        ? parseInt(e('RATE_LIMIT_DEFAULT_MAX_REQUESTS') as string, 10)
+        : undefined,
+      AUTH_BRUTE_FORCE_WINDOW_MS: e('AUTH_BRUTE_FORCE_WINDOW_MS')
+        ? parseInt(e('AUTH_BRUTE_FORCE_WINDOW_MS') as string, 10)
+        : undefined,
+      AUTH_BRUTE_FORCE_MAX_ATTEMPTS: e('AUTH_BRUTE_FORCE_MAX_ATTEMPTS')
+        ? parseInt(e('AUTH_BRUTE_FORCE_MAX_ATTEMPTS') as string, 10)
+        : undefined,
+      VERIFICATION_RATE_LIMIT_WINDOW_MS: e('VERIFICATION_RATE_LIMIT_WINDOW_MS')
+        ? parseInt(e('VERIFICATION_RATE_LIMIT_WINDOW_MS') as string, 10)
+        : 60 * 1000,
+      VERIFICATION_RATE_LIMIT_MAX_REQUESTS: e(
+        'VERIFICATION_RATE_LIMIT_MAX_REQUESTS',
+      )
+        ? parseInt(e('VERIFICATION_RATE_LIMIT_MAX_REQUESTS') as string, 10)
+        : 100,
       SECURITY_CSP: e('SECURITY_CSP'),
       SECURITY_FORCE_HSTS: e('SECURITY_FORCE_HSTS'),
-      DUPLICATE_DETECTION_THRESHOLD: e('DUPLICATE_DETECTION_THRESHOLD') ? parseFloat(e('DUPLICATE_DETECTION_THRESHOLD') as string) : undefined,
-      DUPLICATE_DETECTION_EMAIL_WEIGHT: e('DUPLICATE_DETECTION_EMAIL_WEIGHT') ? parseFloat(e('DUPLICATE_DETECTION_EMAIL_WEIGHT') as string) : undefined,
-      DUPLICATE_DETECTION_NAME_WEIGHT: e('DUPLICATE_DETECTION_NAME_WEIGHT') ? parseFloat(e('DUPLICATE_DETECTION_NAME_WEIGHT') as string) : undefined,
-      DUPLICATE_DETECTION_TITLE_WEIGHT: e('DUPLICATE_DETECTION_TITLE_WEIGHT') ? parseFloat(e('DUPLICATE_DETECTION_TITLE_WEIGHT') as string) : undefined,
-      DUPLICATE_DETECTION_FUZZY_MATCHING: e('DUPLICATE_DETECTION_FUZZY_MATCHING') === 'true',
-      DUPLICATE_DETECTION_TIME_WINDOW_DAYS: e('DUPLICATE_DETECTION_TIME_WINDOW_DAYS') ? parseInt(e('DUPLICATE_DETECTION_TIME_WINDOW_DAYS') as string, 10) : undefined,
+      DUPLICATE_DETECTION_THRESHOLD: e('DUPLICATE_DETECTION_THRESHOLD')
+        ? parseFloat(e('DUPLICATE_DETECTION_THRESHOLD') as string)
+        : undefined,
+      DUPLICATE_DETECTION_EMAIL_WEIGHT: e('DUPLICATE_DETECTION_EMAIL_WEIGHT')
+        ? parseFloat(e('DUPLICATE_DETECTION_EMAIL_WEIGHT') as string)
+        : undefined,
+      DUPLICATE_DETECTION_NAME_WEIGHT: e('DUPLICATE_DETECTION_NAME_WEIGHT')
+        ? parseFloat(e('DUPLICATE_DETECTION_NAME_WEIGHT') as string)
+        : undefined,
+      DUPLICATE_DETECTION_TITLE_WEIGHT: e('DUPLICATE_DETECTION_TITLE_WEIGHT')
+        ? parseFloat(e('DUPLICATE_DETECTION_TITLE_WEIGHT') as string)
+        : undefined,
+      DUPLICATE_DETECTION_FUZZY_MATCHING:
+        e('DUPLICATE_DETECTION_FUZZY_MATCHING') === 'true',
+      DUPLICATE_DETECTION_TIME_WINDOW_DAYS: e(
+        'DUPLICATE_DETECTION_TIME_WINDOW_DAYS',
+      )
+        ? parseInt(e('DUPLICATE_DETECTION_TIME_WINDOW_DAYS') as string, 10)
+        : undefined,
     },
     { enableImplicitConversion: true },
   );

@@ -49,7 +49,7 @@ export class AuthV2Controller {
         timestamp: new Date().toISOString(),
         expiresIn: 3600,
       },
-    } as Omit<AuthResponseDto, 'refreshToken'>;
+    };
   }
 
   @Post('register')

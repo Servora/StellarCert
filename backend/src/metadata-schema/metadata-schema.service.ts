@@ -7,7 +7,7 @@ export class MetadataSchemaService {
     { name: 'product', fields: [] },
   ];
 
-  async findByName(name: string) {
+  findByName(name: string) {
     return this.schemas.find((schema) => schema.name === name);
   }
 }

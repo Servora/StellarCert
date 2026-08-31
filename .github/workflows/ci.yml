@@ -59,6 +59,8 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install frontend dependencies
         run: npm ci
+      - name: Lint frontend
+        run: npm run lint -- --max-warnings 0
       - name: Typecheck frontend
         run: npm run typecheck
       - name: Build frontend
@@ -83,6 +85,8 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
         run: npm ci
+      - name: Lint backend
+        run: npm run lint -- --max-warnings 0
       - name: Typecheck backend
         run: npm run typecheck
       - name: Build backend

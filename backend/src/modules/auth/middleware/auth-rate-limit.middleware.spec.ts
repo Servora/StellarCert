@@ -4,8 +4,8 @@ describe('AuthRateLimitMiddleware', () => {
   const makeCache = (start = 0) => {
     const store = new Map<string, number>();
     return {
-      get: jest.fn(async (k: string) => store.get(k) || start),
-      set: jest.fn(async (k: string, v: number, opts?: any) => {
+      get: jest.fn((k: string) => store.get(k) || start),
+      set: jest.fn((k: string, v: number, opts?: any) => {
         store.set(k, v);
       }),
     } as any;
@@ -15,7 +15,11 @@ describe('AuthRateLimitMiddleware', () => {
     const cache = makeCache(0);
     const mw = new AuthRateLimitMiddleware(cache);
 
-    const req: any = { ip: '1.2.3.4', headers: {}, connection: { remoteAddress: '1.2.3.4' } };
+    const req: any = {
+      ip: '1.2.3.4',
+      headers: {},
+      connection: { remoteAddress: '1.2.3.4' },
+    };
     const res: any = {};
     const next = jest.fn();
 
@@ -34,7 +38,11 @@ describe('AuthRateLimitMiddleware', () => {
     const setHeader = jest.fn();
     const status = jest.fn(() => ({ json }));
 
-    const req: any = { ip: '9.9.9.9', headers: {}, connection: { remoteAddress: '9.9.9.9' } };
+    const req: any = {
+      ip: '9.9.9.9',
+      headers: {},
+      connection: { remoteAddress: '9.9.9.9' },
+    };
     const res: any = { status, setHeader };
     const next = jest.fn();
 

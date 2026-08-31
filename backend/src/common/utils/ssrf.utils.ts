@@ -50,7 +50,11 @@ const PRIVATE_IPV6_RANGES: Array<[bigint, bigint]> = [
 ];
 
 function ipToNumber(ip: string): number {
-  return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
+  return (
+    ip
+      .split('.')
+      .reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0
+  );
 }
 
 function ipv6ToBigInt(ip: string): bigint {
@@ -69,8 +73,14 @@ function expandIPv6(ip: string): string {
     const parts = ip.split(':');
     const ipv4 = parts[parts.length - 1];
     const ipv4Parts = ipv4.split('.');
-    const hex1 = ((parseInt(ipv4Parts[0]) << 8) + parseInt(ipv4Parts[1])).toString(16);
-    const hex2 = ((parseInt(ipv4Parts[2]) << 8) + parseInt(ipv4Parts[3])).toString(16);
+    const hex1 = (
+      (parseInt(ipv4Parts[0]) << 8) +
+      parseInt(ipv4Parts[1])
+    ).toString(16);
+    const hex2 = (
+      (parseInt(ipv4Parts[2]) << 8) +
+      parseInt(ipv4Parts[3])
+    ).toString(16);
     const prefix = parts.slice(0, -1).join(':');
     return prefix ? `${prefix}:${hex1}:${hex2}` : `::${hex1}:${hex2}`;
   }
@@ -130,7 +140,9 @@ export interface SsrfValidationResult {
  * - Hostnames that resolve to private IPs
  * - Data URIs, file URIs, and other non-HTTP schemes
  */
-export async function validateWebhookUrl(urlString: string): Promise<SsrfValidationResult> {
+export async function validateWebhookUrl(
+  urlString: string,
+): Promise<SsrfValidationResult> {
   let url: URL;
 
   try {

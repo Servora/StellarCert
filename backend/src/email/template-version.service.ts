@@ -61,7 +61,7 @@ export class TemplateVersionService {
    * Lists all available versions for a template, sorted ascending.
    */
   listVersions(templateName: string): TemplateVersion[] {
-    const pattern = new RegExp(`^${templateName}\.v(\d+)\.hbs$`);
+    const pattern = new RegExp(String.raw`^${templateName}\.v(\d+)\.hbs$`);
     let files: string[] = [];
 
     try {
@@ -79,7 +79,12 @@ export class TemplateVersionService {
         const filePath = path.join(this.templatesDir, file);
         const content = fs.readFileSync(filePath, 'utf8');
         const { birthtime } = fs.statSync(filePath);
-        return { name: templateName, version, createdAt: birthtime, content } satisfies TemplateVersion;
+        return {
+          name: templateName,
+          version,
+          createdAt: birthtime,
+          content,
+        } satisfies TemplateVersion;
       })
       .filter((v): v is TemplateVersion => v !== null)
       .sort((a, b) => a.version - b.version);

@@ -21,8 +21,14 @@ export class IpRateLimitGuard implements CanActivate {
 
   constructor(private readonly configService: ConfigService) {
     // Default: 100 requests per minute
-    this.windowMs = this.configService.get<number>('VERIFICATION_RATE_LIMIT_WINDOW_MS', 60 * 1000);
-    this.maxRequests = this.configService.get<number>('VERIFICATION_RATE_LIMIT_MAX_REQUESTS', 100);
+    this.windowMs = this.configService.get<number>(
+      'VERIFICATION_RATE_LIMIT_WINDOW_MS',
+      60 * 1000,
+    );
+    this.maxRequests = this.configService.get<number>(
+      'VERIFICATION_RATE_LIMIT_MAX_REQUESTS',
+      100,
+    );
   }
 
   canActivate(context: ExecutionContext): boolean {
@@ -68,7 +74,10 @@ export class IpRateLimitGuard implements CanActivate {
     // Set rate limit headers
     const response = context.switchToHttp().getResponse();
     response.header('X-RateLimit-Limit', this.maxRequests.toString());
-    response.header('X-RateLimit-Remaining', Math.max(0, this.maxRequests - entry.count).toString());
+    response.header(
+      'X-RateLimit-Remaining',
+      Math.max(0, this.maxRequests - entry.count).toString(),
+    );
     response.header('X-RateLimit-Reset', entry.resetTime.toString());
 
     return true;
@@ -88,7 +97,11 @@ export class IpRateLimitGuard implements CanActivate {
     }
 
     // Fallback to connection remote address
-    return request.connection.remoteAddress || request.socket.remoteAddress || 'unknown';
+    return (
+      request.connection.remoteAddress ||
+      request.socket.remoteAddress ||
+      'unknown'
+    );
   }
 
   private cleanupExpiredEntries(now: number): void {
@@ -102,13 +115,19 @@ export class IpRateLimitGuard implements CanActivate {
   /**
    * Get current rate limit status for an IP (useful for monitoring)
    */
-  getRateLimitStatus(ip: string): { count: number; resetTime: number; remaining: number } | null {
+  getRateLimitStatus(
+    ip: string,
+  ): { count: number; resetTime: number; remaining: number } | null {
     const entry = this.rateLimits.get(ip);
     if (!entry) return null;
 
     const now = Date.now();
     if (now > entry.resetTime) {
-      return { count: 0, resetTime: entry.resetTime, remaining: this.maxRequests };
+      return {
+        count: 0,
+        resetTime: entry.resetTime,
+        remaining: this.maxRequests,
+      };
     }
 
     return {

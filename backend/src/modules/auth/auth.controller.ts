@@ -49,10 +49,19 @@ export class AuthController {
   async login(
     @Body() loginDto: LoginDto,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<Omit<AuthResponseDto, 'refreshToken'> & { requires2FA?: boolean; preAuthToken?: string }> {
+  ): Promise<
+    Omit<AuthResponseDto, 'refreshToken'> & {
+      requires2FA?: boolean;
+      preAuthToken?: string;
+    }
+  > {
     const result = await this.authService.login(loginDto);
     if (!result.requires2FA && result.refreshToken) {
-      res.cookie(REFRESH_COOKIE, result.refreshToken, refreshCookieOptions(this.isProduction));
+      res.cookie(
+        REFRESH_COOKIE,
+        result.refreshToken,
+        refreshCookieOptions(this.isProduction),
+      );
     }
     const { refreshToken: _, ...response } = result;
     return response;
@@ -68,7 +77,11 @@ export class AuthController {
   ): Promise<Omit<AuthResponseDto, 'refreshToken'>> {
     const result = await this.authService.register(registerDto);
     if (result.refreshToken) {
-      res.cookie(REFRESH_COOKIE, result.refreshToken, refreshCookieOptions(this.isProduction));
+      res.cookie(
+        REFRESH_COOKIE,
+        result.refreshToken,
+        refreshCookieOptions(this.isProduction),
+      );
     }
     const { refreshToken: _, ...response } = result;
     return response;
@@ -99,7 +112,11 @@ export class AuthController {
       throw new UnauthorizedException('No refresh token');
     }
     const result = await this.authService.refreshTokens(refreshToken);
-    res.cookie(REFRESH_COOKIE, result.refreshToken, refreshCookieOptions(this.isProduction));
+    res.cookie(
+      REFRESH_COOKIE,
+      result.refreshToken,
+      refreshCookieOptions(this.isProduction),
+    );
     const { refreshToken: _, ...response } = result;
     return response;
   }
@@ -137,9 +154,16 @@ export class AuthController {
     @Body() dto: TwoFactorVerifyDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<Omit<AuthResponseDto, 'refreshToken'>> {
-    const result = await this.authService.verifyTwoFactor(dto.preAuthToken, dto.token);
+    const result = await this.authService.verifyTwoFactor(
+      dto.preAuthToken,
+      dto.token,
+    );
     if (result.refreshToken) {
-      res.cookie(REFRESH_COOKIE, result.refreshToken, refreshCookieOptions(this.isProduction));
+      res.cookie(
+        REFRESH_COOKIE,
+        result.refreshToken,
+        refreshCookieOptions(this.isProduction),
+      );
     }
     const { refreshToken: _, ...response } = result;
     return response;

@@ -12,7 +12,7 @@ import { AuditLog } from '../entities';
 import { AuditAction, AuditResourceType } from '../constants';
 import { AuditSearchDto, AuditStatisticsDto } from '../dto';
 import { RequestContextService } from './request-context.service';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 export interface LogAuditParams {
   action: AuditAction;
@@ -41,7 +41,8 @@ export class AuditService {
   constructor(
     @InjectRepository(AuditLog)
     private auditLogRepository: Repository<AuditLog>,
-    private requestContextService: RequestContextService, private readonly logger: LoggingService
+    private requestContextService: RequestContextService,
+    private readonly logger: LoggingService,
   ) {}
 
   async log(params: LogAuditParams): Promise<AuditLog | null> {

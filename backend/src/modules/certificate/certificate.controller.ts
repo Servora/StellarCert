@@ -81,9 +81,17 @@ export class CertificateController {
   ) {
     const pageNum = +page;
     const limitNum = +limit;
-    const result = await this.certificateService.findAll(pageNum, limitNum, issuerId, status);
+    const result = await this.certificateService.findAll(
+      pageNum,
+      limitNum,
+      issuerId,
+      status,
+    );
     // Service returns { certificates, total }; normalize to { data, total, page, limit, totalPages }
-    const certs: any[] = (result as any).certificates ?? (result as any).data ?? (Array.isArray(result) ? result : []);
+    const certs: any[] =
+      (result as any).certificates ??
+      (result as any).data ??
+      (Array.isArray(result) ? result : []);
     const total: number = (result as any).total ?? certs.length;
     return {
       data: certs.map((c: any) => this.mapper.toResponse(c)),
@@ -149,7 +157,7 @@ export class CertificateController {
         ipAddress,
         userAgent,
       );
-      return this.mapper.toVerificationResult(cert as any, code);
+      return this.mapper.toVerificationResult(cert, code);
     } catch {
       return this.mapper.toVerificationResult(null, code);
     }
@@ -252,7 +260,10 @@ export class CertificateController {
     const certificate = await this.certificateService.findOne(id);
     const buffer = await this.pdfService.generate(certificate);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${certificate.certificateId}.pdf"`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${certificate.certificateId}.pdf"`,
+    );
     res.end(buffer);
   }
 
@@ -319,7 +330,12 @@ export class CertificateController {
     const ipAddress =
       (req.headers['x-forwarded-for'] as string) ?? req.ip ?? 'unknown';
     const userAgent = req.headers['user-agent'] ?? 'unknown';
-    const cert = await this.certificateService.issue(dto, user.id, ipAddress, userAgent);
+    const cert = await this.certificateService.issue(
+      dto,
+      user.id,
+      ipAddress,
+      userAgent,
+    );
     return this.mapper.toResponse(cert);
   }
 

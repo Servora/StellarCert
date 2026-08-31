@@ -9,7 +9,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID as uuidv4 } from 'crypto';
 import { extname } from 'path';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 @Injectable()
 export class StorageService implements OnModuleInit {
@@ -17,10 +17,14 @@ export class StorageService implements OnModuleInit {
   private readonly bucket: string;
   private readonly isStorageRequired: boolean;
 
-  constructor(private readonly configService: ConfigService, private readonly logger: LoggingService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly logger: LoggingService,
+  ) {
     this.bucket = this.configService.get<string>('STORAGE_BUCKET') ?? '';
     const storageRequiredValue = this.configService.get('STORAGE_REQUIRED');
-    this.isStorageRequired = storageRequiredValue !== false && storageRequiredValue !== 'false';
+    this.isStorageRequired =
+      storageRequiredValue !== false && storageRequiredValue !== 'false';
 
     const region = this.configService.get<string>('STORAGE_REGION');
     const endpoint = this.configService.get<string>('STORAGE_ENDPOINT');

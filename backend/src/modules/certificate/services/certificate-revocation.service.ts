@@ -79,7 +79,9 @@ export class CertificateRevocationService {
         ? Math.max(1, Math.trunc(durationDays))
         : undefined;
     const unfreezeAt = normalizedDurationDays
-      ? new Date(frozenAt.getTime() + normalizedDurationDays * 24 * 60 * 60 * 1000)
+      ? new Date(
+          frozenAt.getTime() + normalizedDurationDays * 24 * 60 * 60 * 1000,
+        )
       : undefined;
 
     certificate.status = CertificateStatus.FROZEN;
@@ -87,7 +89,9 @@ export class CertificateRevocationService {
       ...certificate.metadata,
       ...(reason ? { freezeReason: reason } : {}),
       frozenAt,
-      ...(normalizedDurationDays ? { freezeDurationDays: normalizedDurationDays } : {}),
+      ...(normalizedDurationDays
+        ? { freezeDurationDays: normalizedDurationDays }
+        : {}),
       ...(unfreezeAt ? { unfreezeAt } : {}),
     };
 
@@ -104,7 +108,9 @@ export class CertificateRevocationService {
         status: savedCertificate.status,
         ...(reason ? { freezeReason: reason } : {}),
         frozenAt,
-        ...(normalizedDurationDays ? { freezeDurationDays: normalizedDurationDays } : {}),
+        ...(normalizedDurationDays
+          ? { freezeDurationDays: normalizedDurationDays }
+          : {}),
         ...(unfreezeAt ? { unfreezeAt } : {}),
       },
     );

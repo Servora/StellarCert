@@ -16,7 +16,7 @@ import { AuditService } from '../../audit/services/audit.service';
 import { AuditAction, AuditResourceType } from '../../audit/constants';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { NotificationType } from '../../notifications/entities/notification.entity';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 import { UserRole } from '../../../common/constants/roles';
 
 @Injectable()
@@ -27,7 +27,8 @@ export class CertificateTransferService {
     @InjectRepository(Certificate)
     private readonly certificateRepository: Repository<Certificate>,
     private readonly auditService: AuditService,
-    private readonly notificationsService: NotificationsService, private readonly logger: LoggingService
+    private readonly notificationsService: NotificationsService,
+    private readonly logger: LoggingService,
   ) {}
 
   async initiateTransfer(
@@ -46,7 +47,10 @@ export class CertificateTransferService {
     }
 
     // Verify that only the certificate's issuer or an admin can initiate a transfer
-    if (initiator.role !== UserRole.ADMIN && certificate.issuerId !== initiator.id) {
+    if (
+      initiator.role !== UserRole.ADMIN &&
+      certificate.issuerId !== initiator.id
+    ) {
       throw new ForbiddenException(
         'You are not authorized to initiate a transfer for this certificate. Only the certificate issuer or an admin can perform this action.',
       );

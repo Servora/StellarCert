@@ -147,7 +147,7 @@ describe('AuthController e2e (Auth Flow Smoke Tests)', () => {
         .expect(401);
     });
 
-    it('should store the refreshToken for use in subsequent steps', async () => {
+    it('should store the refreshToken for use in subsequent steps', () => {
       expect(refreshToken).toBeDefined();
       expect(refreshToken.length).toBeGreaterThan(0);
     });
@@ -174,8 +174,8 @@ describe('AuthController e2e (Auth Flow Smoke Tests)', () => {
         .expect(401);
     });
 
-    it('should fail when no refresh token cookie is provided', async () => {
-      await request(app.getHttpServer())
+    it('should fail when no refresh token cookie is provided', () => {
+      return request(app.getHttpServer())
         .post('/api/v1/auth/refresh')
         .expect(401);
     });

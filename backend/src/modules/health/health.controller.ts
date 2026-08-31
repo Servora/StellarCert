@@ -1,15 +1,10 @@
-import {
-  Controller,
-  Get,
-  HttpException,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, Get, HttpException, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 import { DatabaseHealthIndicator } from './indicators/database.health';
 import { StellarHealthIndicator } from './indicators/stellar.health';
 import { RedisHealthIndicator } from './indicators/redis.health';
-import { LoggingService } from "../../common/logging/logging.service";
+import { LoggingService } from '../../common/logging/logging.service';
 import { Public } from '../../common/decorators/public.decorator';
 
 @ApiTags('health')
@@ -21,7 +16,7 @@ export class HealthController {
     private databaseHealth: DatabaseHealthIndicator,
     private stellarHealth: StellarHealthIndicator,
     private redisHealth: RedisHealthIndicator,
-    private readonly logger: LoggingService
+    private readonly logger: LoggingService,
   ) {}
 
   /**

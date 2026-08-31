@@ -1,13 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as Sentry from '@sentry/node';
-import { LoggingService } from "../logging/logging.service";
+import { LoggingService } from '../logging/logging.service';
 
 @Injectable()
 export class SentryService {
   private initialized: boolean = false;
 
-  constructor(private configService: ConfigService, private readonly logger: LoggingService) {
+  constructor(
+    private configService: ConfigService,
+    private readonly logger: LoggingService,
+  ) {
     this.initializeSentry();
   }
 

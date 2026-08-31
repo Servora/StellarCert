@@ -23,7 +23,7 @@ async function bootstrap() {
 
   loggingService.log('🚀 Starting application...');
   loggingService.log(
-    '📧 Email queue name: ' + (process.env.EMAIL_QUEUE_NAME || 'email-queue')
+    '📧 Email queue name: ' + (process.env.EMAIL_QUEUE_NAME || 'email-queue'),
   );
 
   const requestLimit = process.env.REQUEST_SIZE_LIMIT || '1mb';
@@ -71,7 +71,11 @@ async function bootstrap() {
 
   // Use global pipes and filters
   app.useGlobalFilters(
-    new GlobalExceptionFilter(app.get(ConfigService), sentryService, loggingService),
+    new GlobalExceptionFilter(
+      app.get(ConfigService),
+      sentryService,
+      loggingService,
+    ),
   );
 
   // Add global security and monitoring interceptors
@@ -123,8 +127,12 @@ async function bootstrap() {
   };
 
   // Listen for shutdown signals
-  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => {
+    void gracefulShutdown('SIGTERM');
+  });
+  process.on('SIGINT', () => {
+    void gracefulShutdown('SIGINT');
+  });
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);

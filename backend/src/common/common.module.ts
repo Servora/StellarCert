@@ -39,10 +39,11 @@ import { DistributedLockService } from './services/distributed-lock.service';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const secret = configService.get<string>('JWT_ACCESS_SECRET')
-          || configService.get<string>('JWT_SECRET')
-          || process.env.JWT_ACCESS_SECRET
-          || process.env.JWT_SECRET;
+        const secret =
+          configService.get<string>('JWT_ACCESS_SECRET') ||
+          configService.get<string>('JWT_SECRET') ||
+          process.env.JWT_ACCESS_SECRET ||
+          process.env.JWT_SECRET;
         const expiresIn = (configService.get<string>('JWT_ACCESS_EXPIRES_IN') ||
           '15m') as any;
 

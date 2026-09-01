@@ -289,6 +289,10 @@ export class CertificateService {
         verificationCode,
       })
       .andWhere('certificate.status = :status', { status: 'active' })
+      .andWhere(
+        '(certificate.expiresAt IS NULL OR certificate.expiresAt > :now)',
+        { now: new Date() },
+      )
       .getOne();
 
     if (!certificate) {

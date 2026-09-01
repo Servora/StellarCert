@@ -1,7 +1,0 @@
-# GitHub CODEOWNERS file for StellarCert
-# Configures directory ownership and review requests
-
-/backend/            @Servora/backend-maintainers
-/frontend/           @Servora/frontend-maintainers
-/stellar-contracts/  @Servora/contract-maintainers
-/.github/            @Servora/maintainers

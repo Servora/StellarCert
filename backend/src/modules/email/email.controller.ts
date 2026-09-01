@@ -6,14 +6,15 @@ import { SendCertificateIssuedDto } from './dto/send-certificate-issued.dto';
 import { SendVerificationDto } from './dto/send-verification.dto';
 import { SendPasswordResetDto } from './dto/send-password-reset.dto';
 import { SendRevocationNoticeDto } from './dto/send-revocation-notice.dto';
-import { LoggingService } from "../../common/logging/logging.service";
+import { LoggingService } from '../../common/logging/logging.service';
 
 @ApiTags('Email')
 @Controller('email')
 export class EmailController {
   constructor(
     private emailService: EmailService,
-    private emailQueueService: EmailQueueService, private readonly logger: LoggingService
+    private emailQueueService: EmailQueueService,
+    private readonly logger: LoggingService,
   ) {}
 
   @Post('send-certificate-issued')

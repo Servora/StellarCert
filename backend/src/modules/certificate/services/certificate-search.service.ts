@@ -101,11 +101,14 @@ export class CertificateSearchService {
     return queryBuilder.getMany();
   }
 
-  async search(query: string, filters?: {
-    issuerId?: string;
-    status?: string;
-    recipientEmail?: string;
-  }): Promise<Certificate[]> {
+  async search(
+    query: string,
+    filters?: {
+      issuerId?: string;
+      status?: string;
+      recipientEmail?: string;
+    },
+  ): Promise<Certificate[]> {
     const queryBuilder = this.certificateRepository
       .createQueryBuilder('certificate')
       .leftJoinAndSelect('certificate.issuer', 'issuer');
@@ -114,21 +117,27 @@ export class CertificateSearchService {
     if (query) {
       queryBuilder.andWhere(
         '(certificate.title LIKE :query OR certificate.recipientName LIKE :query OR certificate.recipientEmail LIKE :query)',
-        { query: `%${query}%` }
+        { query: `%${query}%` },
       );
     }
 
     // Apply filters
     if (filters?.issuerId) {
-      queryBuilder.andWhere('certificate.issuerId = :issuerId', { issuerId: filters.issuerId });
+      queryBuilder.andWhere('certificate.issuerId = :issuerId', {
+        issuerId: filters.issuerId,
+      });
     }
 
     if (filters?.status) {
-      queryBuilder.andWhere('certificate.status = :status', { status: filters.status });
+      queryBuilder.andWhere('certificate.status = :status', {
+        status: filters.status,
+      });
     }
 
     if (filters?.recipientEmail) {
-      queryBuilder.andWhere('certificate.recipientEmail = :recipientEmail', { recipientEmail: filters.recipientEmail });
+      queryBuilder.andWhere('certificate.recipientEmail = :recipientEmail', {
+        recipientEmail: filters.recipientEmail,
+      });
     }
 
     return queryBuilder.orderBy('certificate.issuedAt', 'DESC').getMany();

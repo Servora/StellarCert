@@ -6,13 +6,16 @@ import { AuditSearchDto, AuditStatisticsDto } from '../dto';
 import { AuditLog } from '../entities';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/constants/roles';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 @ApiTags('Audit')
 @Controller('audit')
 @Roles(UserRole.ADMIN)
 export class AuditController {
-  constructor(private auditService: AuditService, private readonly logger: LoggingService) {}
+  constructor(
+    private auditService: AuditService,
+    private readonly logger: LoggingService,
+  ) {}
 
   @Get('logs')
   @ApiOperation({ summary: 'Search audit logs' })

@@ -3,7 +3,7 @@ import { Process, Processor } from '@nestjs/bull';
 import type { Job } from 'bull';
 import { EmailService } from './email.service';
 import { SendEmailDto } from './dto/send-email.dto';
-import { LoggingService } from "../../common/logging/logging.service";
+import { LoggingService } from '../../common/logging/logging.service';
 
 export const EMAIL_QUEUE_NAME = 'stellar-email-queue';
 
@@ -18,7 +18,10 @@ export enum EmailJobType {
 @Processor(EMAIL_QUEUE_NAME)
 @Injectable()
 export class EmailQueueProcessor {
-  constructor(private emailService: EmailService, private readonly logger: LoggingService) {}
+  constructor(
+    private emailService: EmailService,
+    private readonly logger: LoggingService,
+  ) {}
 
   @Process(EmailJobType.SEND_EMAIL)
   async processSendEmail(job: Job<SendEmailDto>): Promise<void> {

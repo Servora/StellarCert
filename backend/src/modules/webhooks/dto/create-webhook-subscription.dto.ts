@@ -47,5 +47,4 @@ export class CreateWebhookSubscriptionDto {
   })
   @IsOptional()
   isActive?: boolean;
-  
 }

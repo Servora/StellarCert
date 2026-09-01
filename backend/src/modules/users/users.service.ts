@@ -4,7 +4,7 @@ import {
   ConflictException,
   BadRequestException,
   UnauthorizedException,
-  ForbiddenException
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -36,7 +36,7 @@ import { IAuthTokens, IUserPublic } from './interfaces/user.interface';
 import { CertificateStatsService } from '../certificate/services/stats.service';
 import { AuditService } from '../audit/services/audit.service';
 import { EmailQueueService } from '../email/email-queue.service';
-import { LoggingService } from "../../common/logging/logging.service";
+import { LoggingService } from '../../common/logging/logging.service';
 import { UserAuthService } from './services/user-auth.service';
 import { UserProfileService } from './services/user-profile.service';
 import { UserPasswordService } from './services/user-password.service';
@@ -61,7 +61,7 @@ export class UsersService {
     private readonly userAuthService: UserAuthService,
     private readonly userProfileService: UserProfileService,
     private readonly userPasswordService: UserPasswordService,
-    private readonly userAdminService: UserAdminService
+    private readonly userAdminService: UserAdminService,
   ) {}
 
   // ==================== Authentication Delegation ====================
@@ -110,7 +110,10 @@ export class UsersService {
     userId: string,
     changePasswordDto: ChangePasswordDto,
   ): Promise<{ message: string }> {
-    return await this.userPasswordService.changePassword(userId, changePasswordDto);
+    return await this.userPasswordService.changePassword(
+      userId,
+      changePasswordDto,
+    );
   }
 
   async forgotPassword(
@@ -203,7 +206,10 @@ export class UsersService {
     userId: string,
     updateProfileDto: UpdateProfileDto,
   ): Promise<User> {
-    return await this.userProfileService.updateProfile(userId, updateProfileDto);
+    return await this.userProfileService.updateProfile(
+      userId,
+      updateProfileDto,
+    );
   }
 
   async deleteProfile(userId: string): Promise<{ message: string }> {
@@ -227,7 +233,11 @@ export class UsersService {
     userId: string,
     updateDto: AdminUpdateUserDto,
   ): Promise<User> {
-    return await this.userAdminService.adminUpdateUser(adminId, userId, updateDto);
+    return await this.userAdminService.adminUpdateUser(
+      adminId,
+      userId,
+      updateDto,
+    );
   }
 
   async updateUserRole(
@@ -235,7 +245,11 @@ export class UsersService {
     userId: string,
     updateRoleDto: UpdateUserRoleDto,
   ): Promise<User> {
-    return await this.userAdminService.updateUserRole(adminId, userId, updateRoleDto);
+    return await this.userAdminService.updateUserRole(
+      adminId,
+      userId,
+      updateRoleDto,
+    );
   }
 
   async updateUserStatus(
@@ -243,7 +257,11 @@ export class UsersService {
     userId: string,
     updateStatusDto: UpdateUserStatusDto,
   ): Promise<User> {
-    return await this.userAdminService.updateUserStatus(adminId, userId, updateStatusDto);
+    return await this.userAdminService.updateUserStatus(
+      adminId,
+      userId,
+      updateStatusDto,
+    );
   }
 
   async deactivateUser(
@@ -251,7 +269,11 @@ export class UsersService {
     userId: string,
     deactivateDto: DeactivateUserDto,
   ): Promise<User> {
-    return await this.userAdminService.deactivateUser(adminId, userId, deactivateDto);
+    return await this.userAdminService.deactivateUser(
+      adminId,
+      userId,
+      deactivateDto,
+    );
   }
 
   async reactivateUser(adminId: string, userId: string): Promise<User> {
@@ -293,17 +315,25 @@ export class UsersService {
     certificateIssuanceCounts: Record<string, number>;
   }> {
     // This method is kept in UsersService as it aggregates data from multiple services
-    const [total, active, userCount, issuerCount, adminCount, recipientCount, verifierCount, auditorCount] =
-      await Promise.all([
-        this.userRepository.countTotal(),
-        this.userRepository.countActive(),
-        this.userRepository.countByRole(UserRole.USER),
-        this.userRepository.countByRole(UserRole.ISSUER),
-        this.userRepository.countByRole(UserRole.ADMIN),
-        this.userRepository.countByRole(UserRole.RECIPIENT),
-        this.userRepository.countByRole(UserRole.VERIFIER),
-        this.userRepository.countByRole(UserRole.AUDITOR),
-      ]);
+    const [
+      total,
+      active,
+      userCount,
+      issuerCount,
+      adminCount,
+      recipientCount,
+      verifierCount,
+      auditorCount,
+    ] = await Promise.all([
+      this.userRepository.countTotal(),
+      this.userRepository.countActive(),
+      this.userRepository.countByRole(UserRole.USER),
+      this.userRepository.countByRole(UserRole.ISSUER),
+      this.userRepository.countByRole(UserRole.ADMIN),
+      this.userRepository.countByRole(UserRole.RECIPIENT),
+      this.userRepository.countByRole(UserRole.VERIFIER),
+      this.userRepository.countByRole(UserRole.AUDITOR),
+    ]);
 
     const [activeStatus, inactiveStatus, suspendedStatus, pendingStatus] =
       await Promise.all([

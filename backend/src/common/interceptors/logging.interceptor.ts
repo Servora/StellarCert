@@ -42,8 +42,8 @@ export class LoggingInterceptor implements NestInterceptor {
               statusCode,
               duration,
               body: this.sanitizeBody(body as Record<string, unknown>),
-              query: query as Record<string, unknown>,
-              params: params as Record<string, unknown>,
+              query: query,
+              params: params,
               ...context_obj,
             },
           );

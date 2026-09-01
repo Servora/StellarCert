@@ -11,7 +11,7 @@ import {
   scValToNative,
 } from '@stellar/stellar-sdk';
 import { StellarService } from '../stellar/services/stellar.service';
-import { LoggingService } from "../../common/logging/logging.service";
+import { LoggingService } from '../../common/logging/logging.service';
 
 // Enums and interfaces matching the smart contract
 export enum RequestStatus {
@@ -81,7 +81,8 @@ export class MultisigService {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly stellarService: StellarService, private readonly logger: LoggingService
+    private readonly stellarService: StellarService,
+    private readonly logger: LoggingService,
   ) {
     this.initializeMultisig();
   }
@@ -818,12 +819,13 @@ export class MultisigService {
       proposer: r['proposer'] as string,
       approvals: (r['approvals'] as string[]) ?? [],
       rejections: (r['rejections'] as string[]) ?? [],
-      rejection_reason: r['rejection_reason'] != null
-        ? String(r['rejection_reason'])
-        : undefined,
+      rejection_reason:
+        r['rejection_reason'] != null
+          ? String(r['rejection_reason'])
+          : undefined,
       created_at: Number(r['created_at']),
       expires_at: Number(r['expires_at']),
-      status: Number(r['status']) as RequestStatus,
+      status: Number(r['status']),
     };
   }
 

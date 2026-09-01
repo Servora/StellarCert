@@ -5,11 +5,14 @@ import {
   HealthCheckError,
 } from '@nestjs/terminus';
 import { StellarService } from '../../../common/services/stellar.service';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 @Injectable()
 export class StellarHealthIndicator extends HealthIndicator {
-  constructor(private readonly stellarService: StellarService, private readonly logger: LoggingService) {
+  constructor(
+    private readonly stellarService: StellarService,
+    private readonly logger: LoggingService,
+  ) {
     super();
   }
 

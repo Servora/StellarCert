@@ -142,7 +142,8 @@ export class CertificateStatsService {
       .getRawMany();
 
     return topIssuersData.map((item) => {
-      const issuerName = [item.firstName, item.lastName].filter(Boolean).join(' ') || 'Unknown';
+      const issuerName =
+        [item.firstName, item.lastName].filter(Boolean).join(' ') || 'Unknown';
       return {
         issuerId: item.issuerId,
         issuerName,

@@ -97,12 +97,12 @@ const Login = () => {
             Check Your Email
           </h1>
           <p className="text-gray-600 dark:text-slate-300 text-center mb-6">
-            We've sent a verification link to <strong>{registeredEmail}</strong>.
+            We&apos;ve sent a verification link to <strong>{registeredEmail}</strong>.
             Please click the link in your email to verify your account before signing in.
           </p>
           <div className="space-y-4">
             <div className="bg-blue-50 dark:bg-slate-700 rounded-lg p-4">
-              <h3 className="font-medium text-blue-800 dark:text-blue-300 mb-2">What's next?</h3>
+              <h3 className="font-medium text-blue-800 dark:text-blue-300 mb-2">What&apos;s next?</h3>
               <ul className="text-sm text-blue-700 dark:text-blue-200 space-y-1">
                 <li>• Check your inbox (and spam folder) for our email</li>
                 <li>• Click the verification link in the email</li>

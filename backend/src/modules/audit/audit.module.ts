@@ -1,4 +1,9 @@
-import { Module, MiddlewareConsumer, NestModule, forwardRef } from '@nestjs/common';
+import {
+  Module,
+  MiddlewareConsumer,
+  NestModule,
+  forwardRef,
+} from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuditLog } from './entities';

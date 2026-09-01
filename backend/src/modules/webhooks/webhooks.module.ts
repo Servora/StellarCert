@@ -11,7 +11,9 @@ import { WebhookLog } from './entities/webhook-log.entity';
 import { AuthModule } from '../auth/auth.module';
 
 // Retry delays: 1min, 5min, 30min, 2hr, 12hr
-const WEBHOOK_RETRY_DELAYS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000];
+const WEBHOOK_RETRY_DELAYS = [
+  60_000, 300_000, 1_800_000, 7_200_000, 43_200_000,
+];
 
 @Global() // Make it global so it's available everywhere without importing
 @Module({
@@ -22,7 +24,9 @@ const WEBHOOK_RETRY_DELAYS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000]
       settings: {
         backoffStrategies: {
           webhookRetry: (attemptsMade: number) =>
-            WEBHOOK_RETRY_DELAYS[Math.min(attemptsMade, WEBHOOK_RETRY_DELAYS.length - 1)],
+            WEBHOOK_RETRY_DELAYS[
+              Math.min(attemptsMade, WEBHOOK_RETRY_DELAYS.length - 1)
+            ],
         },
       },
     }),

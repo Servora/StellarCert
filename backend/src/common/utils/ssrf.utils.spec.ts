@@ -52,7 +52,9 @@ describe('SSRF Protection', () => {
       });
 
       it('should reject data: URIs', async () => {
-        const result = await validateWebhookUrl('data:text/html,<script>alert(1)</script>');
+        const result = await validateWebhookUrl(
+          'data:text/html,<script>alert(1)</script>',
+        );
         expect(result.valid).toBe(false);
       });
     });
@@ -96,35 +98,45 @@ describe('SSRF Protection', () => {
     describe('should reject URLs resolving to private IPs', () => {
       it('should reject URL resolving to 127.0.0.1', async () => {
         mockDnsSuccess(['127.0.0.1']);
-        const result = await validateWebhookUrl('https://evil.example.com/webhook');
+        const result = await validateWebhookUrl(
+          'https://evil.example.com/webhook',
+        );
         expect(result.valid).toBe(false);
         expect(result.error).toContain('reserved/private');
       });
 
       it('should reject URL resolving to 10.0.0.1', async () => {
         mockDnsSuccess(['10.0.0.1']);
-        const result = await validateWebhookUrl('https://evil.example.com/webhook');
+        const result = await validateWebhookUrl(
+          'https://evil.example.com/webhook',
+        );
         expect(result.valid).toBe(false);
         expect(result.error).toContain('reserved/private');
       });
 
       it('should reject URL resolving to 169.254.169.254', async () => {
         mockDnsSuccess(['169.254.169.254']);
-        const result = await validateWebhookUrl('https://evil.example.com/webhook');
+        const result = await validateWebhookUrl(
+          'https://evil.example.com/webhook',
+        );
         expect(result.valid).toBe(false);
         expect(result.error).toContain('reserved/private');
       });
 
       it('should reject URL resolving to 192.168.1.1', async () => {
         mockDnsSuccess(['192.168.1.1']);
-        const result = await validateWebhookUrl('https://evil.example.com/webhook');
+        const result = await validateWebhookUrl(
+          'https://evil.example.com/webhook',
+        );
         expect(result.valid).toBe(false);
         expect(result.error).toContain('reserved/private');
       });
 
       it('should reject URL resolving to 172.16.0.1', async () => {
         mockDnsSuccess(['172.16.0.1']);
-        const result = await validateWebhookUrl('https://evil.example.com/webhook');
+        const result = await validateWebhookUrl(
+          'https://evil.example.com/webhook',
+        );
         expect(result.valid).toBe(false);
         expect(result.error).toContain('reserved/private');
       });

@@ -15,7 +15,6 @@ module.exports = {
     ecmaVersion: "latest",
     sourceType: "module",
   },
-  plugins: ["react-refresh"],
   settings: {
     react: {
       version: "detect",
@@ -24,10 +23,10 @@ module.exports = {
   rules: {
     "react/react-in-jsx-scope": "off",
     "react/prop-types": "off",
-    "react-refresh/only-export-components": [
-      "warn",
-      { allowConstantExport: true },
-    ],
   },
+  // This project intentionally mixes component exports with context/provider
+  // utilities in the same modules, and the React Refresh rule is only an HMR
+  // optimization. Keeping it disabled avoids false positives while preserving
+  // the rest of the React linting rules.
   ignorePatterns: ["dist", "node_modules"],
 };

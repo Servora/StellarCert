@@ -16,7 +16,7 @@ import {
   BulkAddressValidationResult,
   StellarNetwork,
 } from '../dto/address-validation.dto';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 @Injectable()
 export class AddressValidationService {
@@ -25,7 +25,8 @@ export class AddressValidationService {
   private readonly cache: Cache;
 
   constructor(
-    private readonly configService: ConfigService, private readonly logger: LoggingService
+    private readonly configService: ConfigService,
+    private readonly logger: LoggingService,
     // @Inject(CACHE_MANAGER) cache: Cache,
   ) {
     // this.cache = cache;

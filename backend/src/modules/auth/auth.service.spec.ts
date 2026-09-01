@@ -99,8 +99,8 @@ describe('AuthService - Registration', () => {
     }).compile();
 
     authService = module.get<AuthService>(AuthService);
-    usersService = module.get(UsersService) as any;
-    jwtService = module.get(JwtService) as any;
+    usersService = module.get(UsersService);
+    jwtService = module.get(JwtService);
   });
 
   describe('register', () => {
@@ -215,7 +215,7 @@ describe('AuthService - Registration', () => {
     it('should ensure AuthService does not duplicate user creation logic', async () => {
       // This test verifies that AuthService no longer implements its own
       // user creation logic and properly delegates to UsersService
-      
+
       usersService.register.mockResolvedValue(mockRegistrationResult as any);
 
       await authService.register(mockRegisterDto);
@@ -229,7 +229,7 @@ describe('AuthService - Registration', () => {
     it('should maintain the same interface as before refactoring', async () => {
       // Ensure backward compatibility - the method signature and return type
       // should remain the same for existing clients
-      
+
       usersService.register.mockResolvedValue(mockRegistrationResult as any);
 
       const result = await authService.register(mockRegisterDto);
@@ -239,7 +239,7 @@ describe('AuthService - Registration', () => {
       expect(result).toHaveProperty('refreshToken');
       expect(result).toHaveProperty('expiresIn');
       expect(result).toHaveProperty('user');
-      
+
       expect(result.user).toHaveProperty('id');
       expect(result.user).toHaveProperty('email');
       expect(result.user).toHaveProperty('firstName');

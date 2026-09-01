@@ -11,7 +11,11 @@ export class AuthRateLimitMiddleware implements NestMiddleware {
   constructor(@Inject(CACHE_MANAGER) private cacheManager: Cache) {}
 
   async use(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const ip = req.ip || (req.headers['x-forwarded-for'] as string) || req.connection.remoteAddress || 'unknown';
+    const ip =
+      req.ip ||
+      (req.headers['x-forwarded-for'] as string) ||
+      req.connection.remoteAddress ||
+      'unknown';
     const key = `rate:auth:${String(ip)}`;
 
     try {
@@ -34,7 +38,7 @@ export class AuthRateLimitMiddleware implements NestMiddleware {
     } catch (err) {
       // On cache errors, allow the request (fail-open) but log via console
       // so that auth isn't blocked by cache outages.
-      // eslint-disable-next-line no-console
+
       console.warn('AuthRateLimitMiddleware cache error', err);
       next();
     }

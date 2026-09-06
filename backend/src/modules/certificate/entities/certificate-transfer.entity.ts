@@ -59,7 +59,7 @@ export class CertificateTransfer {
   @Column({ nullable: true })
   rejectionReason?: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, unique: true })
   confirmationCode?: string;
 
   @Column({ nullable: true })

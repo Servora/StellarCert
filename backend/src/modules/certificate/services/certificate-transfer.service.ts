@@ -18,6 +18,7 @@ import { NotificationsService } from '../../notifications/notifications.service'
 import { NotificationType } from '../../notifications/entities/notification.entity';
 import { LoggingService } from '../../../common/logging/logging.service';
 import { UserRole } from '../../../common/constants/roles';
+import { CryptoUtils } from '../../../common/utils/crypto.utils';
 
 @Injectable()
 export class CertificateTransferService {
@@ -76,7 +77,7 @@ export class CertificateTransferService {
       );
     }
 
-    const confirmationCode = this.generateConfirmationCode();
+    const confirmationCode = await this.generateConfirmationCode();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7); // Transfer expires in 7 days
 
@@ -379,12 +380,18 @@ export class CertificateTransferService {
     });
   }
 
-  private generateConfirmationCode(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+  private async generateConfirmationCode(): Promise<string> {
+    const maxRetries = 10;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const code = CryptoUtils.generateAlphanumericCode(6);
+      const exists = await this.transferRepository.findOne({
+        where: { confirmationCode: code },
+        select: ['id'],
+      });
+      if (!exists) return code;
     }
-    return code;
+    throw new ConflictException(
+      'Failed to generate a unique confirmation code after multiple attempts',
+    );
   }
 }

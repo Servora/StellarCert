@@ -63,6 +63,8 @@ jobs:
         run: npm run lint -- --max-warnings 0
       - name: Typecheck frontend
         run: npm run typecheck
+      - name: Check import path case
+        run: npm run check:imports
       - name: Build frontend
         run: npm run build
 

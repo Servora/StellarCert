@@ -3,7 +3,11 @@
 extern crate std;
 
 use super::crl::*;
-use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env, String};
+use soroban_sdk::{
+    contract, contractimpl, symbol_short,
+    testutils::{Address as _, Events},
+    vec, Address, Env, IntoVal, String, Val, Vec,
+};
 use std::string::ToString;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -91,6 +95,35 @@ fn test_revoke_certificate() {
     let crl = client.get_crl_info();
     assert_eq!(crl.revoked_count, 1);
     assert_eq!(crl.crl_number, 2); // incremented by refresh_crl_info
+}
+
+#[test]
+fn test_revoke_certificate_emits_crl_revocation_added_event() {
+    let (env, issuer, cert_contract) = setup();
+    let (contract_id, client) = make_client(&env);
+    client.initialize(&issuer, &cert_contract);
+
+    let cert_id = String::from_str(&env, "CERT-EVT-001");
+    client.revoke_certificate(&issuer, &cert_id, &RevocationReason::KeyCompromise, &None);
+
+    let mut topics: Vec<Val> = Vec::new(&env);
+    topics.push_back(symbol_short!("crl_add").into_val(&env));
+    topics.push_back(cert_id.clone().into_val(&env));
+
+    let payload = CRLRevocationAddedEvent {
+        certificate_id: cert_id.clone(),
+        reason: RevocationReason::KeyCompromise as u32,
+        issuer: issuer.clone(),
+        revocation_date: env.ledger().timestamp(),
+        revoked_by: issuer.clone(),
+        revoked_count: 1,
+        crl_number: 2,
+    };
+
+    let expected: Vec<(Address, Vec<Val>, Val)> =
+        vec![&env, (contract_id.clone(), topics, payload.into_val(&env))];
+
+    assert_eq!(env.events().all(), expected);
 }
 
 #[test]

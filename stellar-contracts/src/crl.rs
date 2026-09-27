@@ -1,5 +1,6 @@
 use soroban_sdk::{
-    contract, contractimpl, contracttype, Address, Bytes, BytesN, Env, IntoVal, String, Val, Vec,
+    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, IntoVal,
+    String, Val, Vec,
 };
 
 const DEFAULT_UPDATE_WINDOW_SECONDS: u64 = 7 * 24 * 60 * 60;
@@ -25,6 +26,21 @@ pub struct RevocationInfo {
     pub issuer: Address,
     pub revocation_date: u64,
     pub revoked_by: Address,
+}
+
+/// Emitted by `revoke_certificate` whenever a revocation is appended to the
+/// CRL. Off-chain indexers and the backend webhook system consume this instead
+/// of polling `get_revoked_certificates`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CRLRevocationAddedEvent {
+    pub certificate_id: String,
+    pub reason: u32,
+    pub issuer: Address,
+    pub revocation_date: u64,
+    pub revoked_by: Address,
+    pub revoked_count: u32,
+    pub crl_number: u64,
 }
 
 #[contracttype]
@@ -162,6 +178,24 @@ impl CRLContract {
         crl_info.revoked_count += 1;
         Self::refresh_crl_info(&env, &mut crl_info, &revoked_certificates);
         Self::set_persistent(&env, &DataKey::Info, &crl_info);
+
+        // Emit a contract event so the backend and off-chain indexers can react
+        // to the new revocation without polling the whole CRL (#752).
+        env.events().publish(
+            (
+                symbol_short!("crl_add"),
+                revocation_info.certificate_id.clone(),
+            ),
+            CRLRevocationAddedEvent {
+                certificate_id: revocation_info.certificate_id.clone(),
+                reason: revocation_info.reason,
+                issuer: revocation_info.issuer.clone(),
+                revocation_date: revocation_info.revocation_date,
+                revoked_by: revocation_info.revoked_by.clone(),
+                revoked_count: crl_info.revoked_count,
+                crl_number: crl_info.crl_number,
+            },
+        );
     }
 
     pub fn is_revoked(env: Env, certificate_id: String) -> bool {

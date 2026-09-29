@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { CacheModule } from '@nestjs/cache-manager';
+import { Module } from '@controller/common';
+import { ConfigModule } from '@config/config';
+import { CacheModule } from '@cache/cache-manager';
 import { AddressValidationService } from './services/address-validation.service';
 import { StellarService } from './services/stellar.service';
 import { SorobanService } from './services/soroban.service';

@@ -1,35 +1,37 @@
-import {
-  Controller,
-  Post,
-  Body,
-  Get,
-  Param,
-  UseGuards
-} from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { SorobanService } from '../services/soroban.service';
 import { JwtAuthGuard } from 'src/common';
 import { RolesGuard } from '../../users/guards/roles.guard';
 import { Roles } from '../../users/decorators/roles.decorator';
 import { UserRole } from '../../users/entities/user.entity';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
+import { TtlService } from '../services/ttl.service';
 
 @ApiTags('Soroban')
 @Controller('soroban')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class SorobanController {
-  constructor(private readonly sorobanService: SorobanService, private readonly logger: LoggingService) {}
+  constructor(
+    private readonly sorobanService: SorobanService,
+    private readonly logger: LoggingService,
+    private readonly ttlService: TtlService,
+  ) {}
 
   @Post('initialize-contract')
   @ApiOperation({ summary: 'Initialize the certificate contract' })
-  @ApiResponse({ status: 200, description: 'Contract initialized successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Contract initialized successfully',
+  })
   @ApiResponse({ status: 500, description: 'Failed to initialize contract' })
   async initializeContract(@Body() body: { adminAddress: string }) {
     try {
       const success = await this.sorobanService.initializeCertificateContract(
         body.adminAddress,
       );
+      await this.ttlService.extendInstanceTtl();
 
       if (success) {
         return {
@@ -57,6 +59,7 @@ export class SorobanController {
   async addIssuer(@Body() body: { issuerAddress: string }) {
     try {
       const success = await this.sorobanService.addIssuer(body.issuerAddress);
+      await this.ttlService.extendInstanceTtl();
 
       if (success) {
         return {
@@ -80,13 +83,19 @@ export class SorobanController {
 
   @Post('init-multisig')
   @ApiOperation({ summary: 'Initialize multisig configuration for an issuer' })
-  @ApiResponse({ status: 200, description: 'Multisig initialized successfully' })
-  async initMultisig(@Body() body: {
-    issuerAddress: string;
-    threshold: number;
-    signers: string[];
-    maxSigners: number;
-  }) {
+  @ApiResponse({
+    status: 200,
+    description: 'Multisig initialized successfully',
+  })
+  async initMultisig(
+    @Body()
+    body: {
+      issuerAddress: string;
+      threshold: number;
+      signers: string[];
+      maxSigners: number;
+    },
+  ) {
     try {
       const success = await this.sorobanService.initMultisigConfig(
         body.issuerAddress,
@@ -94,6 +103,7 @@ export class SorobanController {
         body.signers,
         body.maxSigners,
       );
+      await this.ttlService.extendInstanceTtl();
 
       if (success) {
         return {
@@ -121,6 +131,7 @@ export class SorobanController {
   async getCertificate(@Param('id') id: string) {
     try {
       const certificate = await this.sorobanService.getCertificate(id);
+      await this.ttlService.extendInstanceTtl();
 
       if (certificate) {
         return {

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -11,12 +12,16 @@ import {
   TransferStatus,
 } from '../entities/certificate-transfer.entity';
 import { Certificate } from '../entities/certificate.entity';
+import { User } from '../../users/entities/user.entity';
+import { EmailService } from '../../email/email.service';
 import { InitiateTransferDto } from '../dto/transfer-certificate.dto';
 import { AuditService } from '../../audit/services/audit.service';
 import { AuditAction, AuditResourceType } from '../../audit/constants';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { NotificationType } from '../../notifications/entities/notification.entity';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
+import { UserRole } from '../../../common/constants/roles';
+import { CryptoUtils } from '../../../common/utils/crypto.utils';
 
 @Injectable()
 export class CertificateTransferService {
@@ -26,12 +31,18 @@ export class CertificateTransferService {
     @InjectRepository(Certificate)
     private readonly certificateRepository: Repository<Certificate>,
     private readonly auditService: AuditService,
-    private readonly notificationsService: NotificationsService, private readonly logger: LoggingService
+    private readonly notificationsService: NotificationsService,
+    private readonly logger: LoggingService,
+    @Optional()
+    @InjectRepository(User)
+    private readonly userRepository?: Repository<User>,
+    @Optional()
+    private readonly emailService?: EmailService,
   ) {}
 
   async initiateTransfer(
     dto: InitiateTransferDto,
-    initiatorId: string,
+    initiator: { id: string; role: string },
     ipAddress?: string,
   ): Promise<CertificateTransfer> {
     const certificate = await this.certificateRepository.findOne({
@@ -41,6 +52,16 @@ export class CertificateTransferService {
     if (!certificate) {
       throw new NotFoundException(
         `Certificate with ID ${dto.certificateId} not found`,
+      );
+    }
+
+    // Verify that only the certificate's issuer or an admin can initiate a transfer
+    if (
+      initiator.role !== UserRole.ADMIN &&
+      certificate.issuerId !== initiator.id
+    ) {
+      throw new ForbiddenException(
+        'You are not authorized to initiate a transfer for this certificate. Only the certificate issuer or an admin can perform this action.',
       );
     }
 
@@ -64,7 +85,7 @@ export class CertificateTransferService {
       );
     }
 
-    const confirmationCode = this.generateConfirmationCode();
+    const confirmationCode = await this.generateConfirmationCode();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7); // Transfer expires in 7 days
 
@@ -76,7 +97,7 @@ export class CertificateTransferService {
       toName: dto.newOwnerName,
       reason: dto.reason,
       confirmationCode,
-      initiatedBy: initiatorId,
+      initiatedBy: initiator.id,
       expiresAt,
       status: TransferStatus.PENDING,
     });
@@ -88,7 +109,7 @@ export class CertificateTransferService {
       action: AuditAction.CERTIFICATE_UPDATE,
       resourceType: AuditResourceType.CERTIFICATE,
       resourceId: dto.certificateId,
-      userId: initiatorId,
+      userId: initiator.id,
       ipAddress: ipAddress || 'unknown',
       metadata: {
         transferId: savedTransfer.id,
@@ -100,13 +121,47 @@ export class CertificateTransferService {
       status: 'success',
     });
 
-    // Notify the new owner
+    // Notify initiator (without exposing confirmation code)
     await this.notificationsService.createNotification(
-      initiatorId,
+      initiator.id,
       NotificationType.INFO,
       'Certificate Transfer Initiated',
-      `Transfer of certificate "${certificate.title}" to ${dto.newOwnerEmail} has been initiated. Confirmation code: ${confirmationCode}`,
+      `Transfer of certificate "${certificate.title}" to ${dto.newOwnerEmail} has been initiated.`,
     );
+
+    // Look up the new owner (toEmail) user account
+    const recipientUser = this.userRepository
+      ? await this.userRepository.findOne({
+          where: { email: dto.newOwnerEmail },
+        })
+      : null;
+
+    if (recipientUser) {
+      // Send notification with confirmation code to the intended new owner
+      await this.notificationsService.createNotification(
+        recipientUser.id,
+        NotificationType.INFO,
+        'Certificate Transfer Confirmation Code',
+        `A transfer of certificate "${certificate.title}" to your account has been initiated. Your confirmation code is: ${confirmationCode}`,
+      );
+    }
+
+    // Send confirmation email containing the secret code to the new owner (toEmail)
+    if (this.emailService) {
+      try {
+        await this.emailService.sendTransferConfirmationCode({
+          to: dto.newOwnerEmail,
+          recipientName: dto.newOwnerName || recipientUser?.firstName || 'User',
+          certificateTitle: certificate.title,
+          certificateId: certificate.id,
+          confirmationCode,
+        });
+      } catch (emailErr) {
+        this.logger.warn(
+          `Failed to send transfer confirmation email to ${dto.newOwnerEmail}: ${emailErr.message}`,
+        );
+      }
+    }
 
     this.logger.log(
       `Transfer initiated for certificate ${dto.certificateId} from ${certificate.recipientEmail} to ${dto.newOwnerEmail}`,
@@ -118,7 +173,7 @@ export class CertificateTransferService {
   async approveTransfer(
     transferId: string,
     confirmationCode: string,
-    approverId: string,
+    approver: { id: string; role: string },
     ipAddress?: string,
   ): Promise<CertificateTransfer> {
     const transfer = await this.transferRepository.findOne({
@@ -158,6 +213,18 @@ export class CertificateTransferService {
       throw new NotFoundException('Associated certificate not found');
     }
 
+    if (certificate.status !== 'active') {
+      throw new ConflictException(
+        `Cannot transfer certificate with status: ${certificate.status}. Only active certificates can be transferred.`,
+      );
+    }
+
+    if (certificate.recipientEmail !== transfer.fromEmail) {
+      throw new ConflictException(
+        'Certificate owner has changed since transfer was initiated',
+      );
+    }
+
     const previousEmail = certificate.recipientEmail;
     const previousName = certificate.recipientName;
 
@@ -190,11 +257,11 @@ export class CertificateTransferService {
     const savedTransfer = await this.transferRepository.save(transfer);
 
     // Log audit entry
-    await this.auditService.log({
+    await this.auditService.log( {
       action: AuditAction.CERTIFICATE_UPDATE,
       resourceType: AuditResourceType.CERTIFICATE,
       resourceId: transfer.certificateId,
-      userId: approverId,
+      userId: approver.id,
       ipAddress: ipAddress || 'unknown',
       metadata: {
         transferId: savedTransfer.id,
@@ -212,13 +279,45 @@ export class CertificateTransferService {
       status: 'success',
     });
 
-    // Notify both parties
+    // Notify approver
     await this.notificationsService.createNotification(
-      approverId,
+      approver.id,
       NotificationType.SUCCESS,
       'Certificate Transfer Completed',
       `Certificate "${certificate.title}" has been successfully transferred to ${transfer.toEmail}.`,
     );
+
+    // Look up the new owner (toEmail) user account and notify on completion
+    const recipientUser = this.userRepository
+      ? await this.userRepository.findOne({
+          where: { email: transfer.toEmail },
+        })
+      : null;
+
+    if (recipientUser) {
+      await this.notificationsService.createNotification(
+        recipientUser.id,
+        NotificationType.SUCCESS,
+        'Certificate Transfer Completed',
+        `Certificate "${certificate.title}" has been successfully transferred to your account.`,
+      );
+    }
+
+    // Send completion email to new owner (toEmail)
+    if (this.emailService) {
+      try {
+        await this.emailService.sendTransferCompletedNotice({
+          to: transfer.toEmail,
+          recipientName: transfer.toName || recipientUser?.firstName || 'User',
+          certificateTitle: certificate.title,
+          certificateId: certificate.id,
+        });
+      } catch (emailErr) {
+        this.logger.warn(
+          `Failed to send transfer completed email to ${transfer.toEmail}: ${emailErr.message}`,
+        );
+      }
+    }
 
     this.logger.log(
       `Transfer ${transferId} approved for certificate ${transfer.certificateId}`,
@@ -230,11 +329,12 @@ export class CertificateTransferService {
   async rejectTransfer(
     transferId: string,
     rejectionReason: string,
-    rejectorId: string,
+    rejector: { id: string; role: string },
     ipAddress?: string,
   ): Promise<CertificateTransfer> {
     const transfer = await this.transferRepository.findOne({
       where: { id: transferId },
+      relations: ['certificate'],
     });
 
     if (!transfer) {
@@ -244,6 +344,17 @@ export class CertificateTransferService {
     if (transfer.status !== TransferStatus.PENDING) {
       throw new ConflictException(
         `Transfer is not pending. Current status: ${transfer.status}`,
+      );
+    }
+
+    // Allow rejection if user is the initiator, the certificate's issuer, or an admin
+    if (
+      transfer.initiatedBy !== rejector.id &&
+      transfer.certificate.issuerId !== rejector.id &&
+      rejector.role !== UserRole.ADMIN
+    ) {
+      throw new ForbiddenException(
+        'Only the transfer initiator, the certificate issuer, or an admin can reject this transfer request',
       );
     }
 
@@ -257,92 +368,32 @@ export class CertificateTransferService {
       action: AuditAction.CERTIFICATE_UPDATE,
       resourceType: AuditResourceType.CERTIFICATE,
       resourceId: transfer.certificateId,
-      userId: rejectorId,
+      userId: rejector.id,
       ipAddress: ipAddress || 'unknown',
       metadata: {
         transferId: savedTransfer.id,
         operation: 'transfer_rejected',
-        rejectionReason,
+        reason: rejectionReason,
       },
       status: 'success',
     });
 
-    this.logger.log(`Transfer ${transferId} rejected`);
+    // Notify initiator
+    await this.notificationsService.createNotification(
+      transfer.initiatedBy,
+      NotificationType.WARNING,
+      'Certificate Transfer Rejected',
+      `Transfer of certificate "${transfer.certificate.title}" to ${transfer.toEmail} was rejected. Reason: ${rejectionReason}`,
+    );
+
+    this.logger.log(
+      `Transfer ${transferId} rejected for certificate ${transfer.certificateId}`,
+    );
 
     return savedTransfer;
   }
 
-  async cancelTransfer(
-    transferId: string,
-    userId: string,
-    ipAddress?: string,
-  ): Promise<CertificateTransfer> {
-    const transfer = await this.transferRepository.findOne({
-      where: { id: transferId },
-    });
-
-    if (!transfer) {
-      throw new NotFoundException(`Transfer with ID ${transferId} not found`);
-    }
-
-    if (transfer.status !== TransferStatus.PENDING) {
-      throw new ConflictException(
-        `Transfer is not pending. Current status: ${transfer.status}`,
-      );
-    }
-
-    if (transfer.initiatedBy !== userId) {
-      throw new ForbiddenException(
-        'Only the initiator can cancel a transfer request',
-      );
-    }
-
-    transfer.status = TransferStatus.CANCELLED;
-    transfer.completedAt = new Date();
-    const savedTransfer = await this.transferRepository.save(transfer);
-
-    await this.auditService.log({
-      action: AuditAction.CERTIFICATE_UPDATE,
-      resourceType: AuditResourceType.CERTIFICATE,
-      resourceId: transfer.certificateId,
-      userId,
-      ipAddress: ipAddress || 'unknown',
-      metadata: {
-        transferId: savedTransfer.id,
-        operation: 'transfer_cancelled',
-      },
-      status: 'success',
-    });
-
-    return savedTransfer;
-  }
-
-  async getTransferHistory(
-    certificateId: string,
-  ): Promise<CertificateTransfer[]> {
-    return this.transferRepository.find({
-      where: { certificateId },
-      order: { initiatedAt: 'DESC' },
-    });
-  }
-
-  async getPendingTransfers(userEmail: string): Promise<CertificateTransfer[]> {
-    return this.transferRepository.find({
-      where: [
-        { fromEmail: userEmail, status: TransferStatus.PENDING },
-        { toEmail: userEmail, status: TransferStatus.PENDING },
-      ],
-      relations: ['certificate'],
-      order: { initiatedAt: 'DESC' },
-    });
-  }
-
-  private generateConfirmationCode(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return code;
+  private async generateConfirmationCode(): Promise<string> {
+    return CryptoUtils.generateRandomString(12);
   }
 }

@@ -11,7 +11,7 @@ import {
   scValToNative,
   StrKey,
 } from '@stellar/stellar-sdk';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 export interface ContractDeploymentResult {
   contractId: string;
@@ -50,8 +50,12 @@ export class SorobanService implements OnModuleInit {
   private certificateContractId: string;
   private multisigContractId: string;
   private crlContractId: string;
+  private readonly ttlLedgers: number = 100000;
 
-  constructor(private readonly configService: ConfigService, private readonly logger: LoggingService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly logger: LoggingService,
+  ) {}
 
   onModuleInit() {
     this.initializeSoroban();
@@ -61,9 +65,12 @@ export class SorobanService implements OnModuleInit {
     const rpcUrl = this.configService.get<string>('SOROBAN_RPC_URL');
     const network = this.configService.get<string>('STELLAR_NETWORK');
     const adminSecret = this.configService.get<string>('SOROBAN_ADMIN_SECRET');
-    this.certificateContractId = this.configService.get<string>('CERTIFICATE_CONTRACT_ID') || '';
-    this.multisigContractId = this.configService.get<string>('MULTISIG_CONTRACT_ID') || '';
-    this.crlContractId = this.configService.get<string>('CRL_CONTRACT_ID') || '';
+    this.certificateContractId =
+      this.configService.get<string>('CERTIFICATE_CONTRACT_ID') || '';
+    this.multisigContractId =
+      this.configService.get<string>('MULTISIG_CONTRACT_ID') || '';
+    this.crlContractId =
+      this.configService.get<string>('CRL_CONTRACT_ID') || '';
 
     if (!rpcUrl || !network || !adminSecret) {
       this.logger.warn(
@@ -72,8 +79,7 @@ export class SorobanService implements OnModuleInit {
       return;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    this.server = new (require('@stellar/stellar-sdk') as any).rpc.Server(rpcUrl, {
+    this.server = new (require('@stellar/stellar-sdk').rpc.Server)(rpcUrl, {
       allowHttp: rpcUrl.includes('localhost'),
     });
     this.networkPassphrase =
@@ -89,6 +95,54 @@ export class SorobanService implements OnModuleInit {
   }
 
   /**
+   * Extend the TTL of instance storage entries for a contract.
+   * Soroban requires explicit TTL extension for persistent and instance
+   * storage entries, otherwise they expire and become archived.
+   */
+  private async extendInstanceTtl(contractId: string): Promise<void> {
+    try {
+      if (!contractId) {
+        return;
+      }
+
+      const contract = new Contract(contractId);
+      const sourceAccount = await this.server.getAccount(
+        this.adminKeypair.publicKey(),
+      );
+
+      const transaction = new TransactionBuilder(sourceAccount, {
+        fee: '100',
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(
+          contract.call(
+            'extend_ttl',
+            nativeToScVal(this.ttlLedgers, { type: 'u32' }),
+            nativeToScVal(this.ttlLedgers, { type: 'u32' }),
+          ),
+        )
+        .setTimeout(30)
+        .build();
+
+      transaction.sign(this.adminKeypair);
+
+      const result = await this.server.sendTransaction(transaction);
+
+      if (result.status !== 'PENDING') {
+        this.logger.warn(
+          `TTL extension transaction failed to submit: ${result.status}`,
+        );
+        return;
+      }
+
+      await this.pollTransaction(result.hash);
+    } catch (error: any) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`TTL extension failed for ${contractId}: ${message}`);
+    }
+  }
+
+  /**
    * Deploy a new contract instance
    */
   async deployContract(wasmHash: string): Promise<ContractDeploymentResult> {
@@ -97,7 +151,9 @@ export class SorobanService implements OnModuleInit {
         throw new Error('Admin keypair not configured.');
       }
 
-      const sourceAccount = await this.server.getAccount(this.adminKeypair.publicKey());
+      const sourceAccount = await this.server.getAccount(
+        this.adminKeypair.publicKey(),
+      );
 
       const contract = new Contract(wasmHash);
 
@@ -105,9 +161,11 @@ export class SorobanService implements OnModuleInit {
         fee: '100',
         networkPassphrase: this.networkPassphrase,
       })
-        .addOperation((contract as any).deploy({
-          wasmHash: Buffer.from(wasmHash, 'hex'),
-        }))
+        .addOperation(
+          (contract as any).deploy({
+            wasmHash: Buffer.from(wasmHash, 'hex'),
+          }),
+        )
         .setTimeout(30)
         .build();
 
@@ -126,7 +184,8 @@ export class SorobanService implements OnModuleInit {
         throw new Error(`Transaction failed: ${txResponse.status}`);
       }
 
-      const contractId = txResponse.returnValue?._value?._value?.toString('hex');
+      const contractId =
+        txResponse.returnValue?._value?._value?.toString('hex');
 
       return {
         contractId: contractId || '',
@@ -156,7 +215,9 @@ export class SorobanService implements OnModuleInit {
       const contract = new Contract(this.certificateContractId);
       const admin = Address.fromString(adminAddress);
 
-      const sourceAccount = await this.server.getAccount(this.adminKeypair.publicKey());
+      const sourceAccount = await this.server.getAccount(
+        this.adminKeypair.publicKey(),
+      );
 
       const transaction = new TransactionBuilder(sourceAccount, {
         fee: '100',
@@ -177,10 +238,16 @@ export class SorobanService implements OnModuleInit {
       // Poll until the ledger confirms the transaction
       const txResponse = await this.pollTransaction(result.hash);
 
+      if (txResponse.status === 'SUCCESS') {
+        await this.extendInstanceTtl(this.certificateContractId);
+      }
+
       return txResponse.status === 'SUCCESS';
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Certificate contract initialization failed: ${message}`);
+      this.logger.error(
+        `Certificate contract initialization failed: ${message}`,
+      );
       return false;
     }
   }
@@ -197,7 +264,9 @@ export class SorobanService implements OnModuleInit {
       const contract = new Contract(this.certificateContractId);
       const issuer = Address.fromString(issuerAddress);
 
-      const sourceAccount = await this.server.getAccount(this.adminKeypair.publicKey());
+      const sourceAccount = await this.server.getAccount(
+        this.adminKeypair.publicKey(),
+      );
 
       const transaction = new TransactionBuilder(sourceAccount, {
         fee: '100',
@@ -218,6 +287,10 @@ export class SorobanService implements OnModuleInit {
       // Poll until the ledger confirms the transaction
       const txResponse = await this.pollTransaction(result.hash);
 
+      if (txResponse.status === 'SUCCESS') {
+        await this.extendInstanceTtl(this.certificateContractId);
+      }
+
       return txResponse.status === 'SUCCESS';
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
@@ -227,7 +300,11 @@ export class SorobanService implements OnModuleInit {
   }
 
   /**
-   * Issue a certificate on-chain
+   * Issue a certificate on-chain.
+   *
+   * @returns the Soroban transaction hash once the ledger confirms the
+   *   transaction with `SUCCESS`, or `null` when issuance failed. Callers must
+   *   treat `null` as a failure and must not record a transaction hash.
    */
   async issueCertificate(
     id: string,
@@ -235,7 +312,7 @@ export class SorobanService implements OnModuleInit {
     ownerAddress: string,
     metadataUri: string,
     expiresAt?: number,
-  ): Promise<boolean> {
+  ): Promise<string | null> {
     try {
       if (!this.certificateContractId) {
         throw new Error('Certificate contract ID not configured.');
@@ -247,7 +324,9 @@ export class SorobanService implements OnModuleInit {
 
       // Get issuer's keypair for signing (this would need to be passed or retrieved)
       const issuerKeypair = this.getIssuerKeypair(issuerAddress);
-      const sourceAccount = await this.server.getAccount(issuerKeypair.publicKey());
+      const sourceAccount = await this.server.getAccount(
+        issuerKeypair.publicKey(),
+      );
 
       const args = [
         nativeToScVal(id),
@@ -276,18 +355,31 @@ export class SorobanService implements OnModuleInit {
       // Poll until the ledger confirms the transaction
       const txResponse = await this.pollTransaction(result.hash);
 
-      return txResponse.status === 'SUCCESS';
+      if (txResponse.status !== 'SUCCESS') {
+        this.logger.error(
+          `Certificate issuance transaction ${result.hash} ended with status ${txResponse.status}`,
+        );
+        return null;
+      }
+
+      await this.extendInstanceTtl(this.certificateContractId);
+
+      return result.hash;
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Certificate issuance failed: ${message}`);
-      return false;
+      return null;
     }
   }
 
   /**
    * Revoke a certificate on-chain
    */
-  async revokeCertificate(id: string, issuerAddress: string, reason: string): Promise<boolean> {
+  async revokeCertificate(
+    id: string,
+    issuerAddress: string,
+    reason: string,
+  ): Promise<boolean> {
     try {
       if (!this.certificateContractId) {
         throw new Error('Certificate contract ID not configured.');
@@ -296,12 +388,11 @@ export class SorobanService implements OnModuleInit {
       const contract = new Contract(this.certificateContractId);
 
       const issuerKeypair = this.getIssuerKeypair(issuerAddress);
-      const sourceAccount = await this.server.getAccount(issuerKeypair.publicKey());
+      const sourceAccount = await this.server.getAccount(
+        issuerKeypair.publicKey(),
+      );
 
-      const args = [
-        nativeToScVal(id),
-        nativeToScVal(reason),
-      ];
+      const args = [nativeToScVal(id), nativeToScVal(reason)];
 
       const transaction = new TransactionBuilder(sourceAccount, {
         fee: '100',
@@ -322,6 +413,10 @@ export class SorobanService implements OnModuleInit {
       // Poll until the ledger confirms the transaction
       const txResponse = await this.pollTransaction(result.hash);
 
+      if (txResponse.status === 'SUCCESS') {
+        await this.extendInstanceTtl(this.certificateContractId);
+      }
+
       return txResponse.status === 'SUCCESS';
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
@@ -341,7 +436,9 @@ export class SorobanService implements OnModuleInit {
 
       const contract = new Contract(this.certificateContractId);
 
-      const sourceAccount = await this.server.getAccount(this.adminKeypair.publicKey());
+      const sourceAccount = await this.server.getAccount(
+        this.adminKeypair.publicKey(),
+      );
 
       const transaction = new TransactionBuilder(sourceAccount, {
         fee: '100',
@@ -365,6 +462,8 @@ export class SorobanService implements OnModuleInit {
       if (txResponse.status !== 'SUCCESS' || !txResponse.returnValue) {
         return null;
       }
+
+      await this.extendInstanceTtl(this.certificateContractId);
 
       const certificateData = scValToNative(txResponse.returnValue);
 
@@ -401,9 +500,11 @@ export class SorobanService implements OnModuleInit {
       const contract = new Contract(this.multisigContractId);
       const issuer = Address.fromString(issuerAddress);
       const admin = Address.fromString(this.adminKeypair.publicKey());
-      const signerAddresses = signers.map(s => Address.fromString(s));
+      const signerAddresses = signers.map((s) => Address.fromString(s));
 
-      const sourceAccount = await this.server.getAccount(this.adminKeypair.publicKey());
+      const sourceAccount = await this.server.getAccount(
+        this.adminKeypair.publicKey(),
+      );
 
       const args = [
         nativeToScVal(issuer),
@@ -504,10 +605,6 @@ export class SorobanService implements OnModuleInit {
    * Check if Soroban service is properly configured
    */
   isConfigured(): boolean {
-    return !!(
-      this.server &&
-      this.adminKeypair &&
-      this.certificateContractId
-    );
+    return !!(this.server && this.adminKeypair && this.certificateContractId);
   }
 }

@@ -19,6 +19,7 @@ export class CertificateVerificationService {
   ) {}
 
   async findByVerificationCode(verificationCode: string): Promise<Certificate> {
+    // TTL handling for Soroban storage is enforced on-chain; this service only reads.
     const certificate = await this.certificateRepository
       .createQueryBuilder('certificate')
       .leftJoinAndSelect('certificate.issuer', 'issuer')
@@ -38,6 +39,7 @@ export class CertificateVerificationService {
   }
 
   async verifyCertificate(verificationCode: string): Promise<Certificate> {
+    // TTL handling for Soroban storage is enforced on-chain; this service only reads.
     try {
       const certificate = await this.findByVerificationCode(verificationCode);
 

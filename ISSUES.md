@@ -214,6 +214,8 @@
 **Labels:** `bug` `contract`
 **Body:** Pagination in `crl.rs` is 0-indexed (page 0 = first page). In `lib.rs`, pagination is 1-indexed with a `page.saturating_sub(1)` offset. A client that correctly uses 1-indexed pagination for certificates will skip the first page of CRL results. Unify pagination to 1-indexed across all contract functions.
 
+**Status: RESOLVED** — `get_revoked_certificates` now uses the same 1-indexed convention as `lib.rs` (`page.saturating_sub(1).saturating_mul(limit)`, page 0 normalized to the first page) and enforces a `MAX_PAGE_SIZE` of 100 matching the certificate listings. See `crl_test.rs::test_get_revoked_certificates_pagination`.
+
 ---
 
 **Title:** `crl.rs` `revoke_certificate` emits no event — backend cannot detect CRL changes
@@ -267,12 +269,6 @@
 **Title:** `multisig.rs` stores all `PendingRequest` entries in `instance()` storage — unbounded growth
 **Labels:** `bug` `contract`
 **Body:** `multisig.rs` stores `PendingRequest`, `IssuerRequestIds`, and `SignerRequestIds` in `env.storage().instance()`. Instance storage is size-limited and grows unboundedly with every new request. Once the size limit is exceeded, all writes fail. Each pending request should be stored in `persistent()` storage under a unique key.
-
----
-
-**Title:** `multisig.rs` `init_multisig_config` panics if already initialized — no upgrade or reconfiguration path
-**Labels:** `bug` `contract`
-**Body:** Once the multisig contract is initialized it cannot be reconfigured — not even by the admin. There is no `update_config` function. If the threshold or signer list needs to change after deployment, the entire contract must be redeployed, losing all pending request history. Add an `update_multisig_config` function gated by admin auth.
 
 ---
 
@@ -360,6 +356,7 @@
 
 **Title:** Two divergent JWT auth guards produce inconsistent `req.user` shapes
 **Labels:** `tech-debt` `backend`
+**Status:** ✅ Fixed 2026-08-31 — deleted the unused passport `JwtStrategy` (only `JwtAuthGuard` remains) and made `JwtAuthGuard` set a single canonical `req.user` shape: `{ id, sub, email, role }` with `id` and `sub` as aliases of the same user id, so both `@CurrentUser('id')` and `@CurrentUser('sub')` resolve regardless of guard.
 **Body:** `JwtAuthGuard` sets `req.user = { ...payload, id: payload.sub }` (raw claims + `sub` + `id`), while passport `JwtStrategy.validate` returns `{ id, email, role, isEmailVerified, twoFactorEnabled }` (no `sub`). Controllers use `@CurrentUser('sub')` in some places (e.g. `certificate-transfer.controller.ts:43,56,73,90`) and `@CurrentUser('id')` in others. A `sub` lookup silently returns `undefined` on any endpoint guarded by the passport strategy, which would break audit logging and ownership checks the moment a `sub`-based controller is switched to the passport guard. Fix: consolidate on one guard and one canonical `req.user` shape.
 
 ---
@@ -506,7 +503,7 @@
 
 **Title:** Socket token rotation relies on a same-tab `storage` event that never fires — realtime notifications silently stop
 **Labels:** `bug` `frontend`
-**Body:** `NotificationContext.tsx:84-94` comments that a `storage` listener "fires in the same tab via a custom dispatch," but `tokenStorage.setAccessToken` (`api/tokens.ts:22`) just calls `localStorage.setItem`, and the `storage` event only fires in *other* tabs — no `dispatchEvent`/`StorageEvent` exists anywhere (verified). When `apiClient` silently refreshes the access token in the current tab, the WebSocket is never reconnected and keeps authenticating with the expired token, so realtime notifications stop. Fix: hook into the existing `setTokenRefreshCallback` mechanism to call `connectSocket(newToken)` on rotation.
+**Body:** `NotificationContext.tsx:84-94` comments that a `storage` listener "fires in the same tab via a custom dispatch," but `tokenStorage.setAccessToken` (`api/tokens.ts:22`) just calls `localStorage.setItem`, and the `storage` event only fires in _other_ tabs — no `dispatchEvent`/`StorageEvent` exists anywhere (verified). When `apiClient` silently refreshes the access token in the current tab, the WebSocket is never reconnected and keeps authenticating with the expired token, so realtime notifications stop. Fix: hook into the existing `setTokenRefreshCallback` mechanism to call `connectSocket(newToken)` on rotation.
 
 ---
 
@@ -594,7 +591,7 @@
 
 **Title:** `admin_multisig.rs` `AdminAction::UpgradeContract` upgrades the wrong contract
 **Labels:** `bug` `contract`
-**Body:** The `UpgradeContract` branch (`admin_multisig.rs:313-316`) calls `env.deployer().update_current_contract_wasm(...)`, which replaces the WASM of the AdminMultisig contract *itself*, not the certificate contract it governs. The certificate contract exposes its own `upgrade(new_wasm_hash)` guarded by admin auth (`lib.rs:1156`), which is presumably the intended target. As written, an approved "upgrade certificate contract" proposal silently bricks/replaces the admin multisig. Fix: `env.invoke_contract(&certificate_contract, &Symbol::new(&env,"upgrade"), ...)` using the stored contract id.
+**Body:** The `UpgradeContract` branch (`admin_multisig.rs:313-316`) calls `env.deployer().update_current_contract_wasm(...)`, which replaces the WASM of the AdminMultisig contract _itself_, not the certificate contract it governs. The certificate contract exposes its own `upgrade(new_wasm_hash)` guarded by admin auth (`lib.rs:1156`), which is presumably the intended target. As written, an approved "upgrade certificate contract" proposal silently bricks/replaces the admin multisig. Fix: `env.invoke_contract(&certificate_contract, &Symbol::new(&env,"upgrade"), ...)` using the stored contract id.
 
 ---
 
@@ -612,7 +609,7 @@
 
 **Title:** Issued certificate expiry is set to the request's approval deadline
 **Labels:** `bug` `contract`
-**Body:** `issue_approved_certificate` (`lib.rs:1049-1056`, `multisig.rs:335-346`) passes `Some(request.expires_at)` as the certificate's `expires_at`. But `request.expires_at` was computed as `created_at + expiration_days*86400` and is the *proposal approval deadline*, not a certificate lifetime. The resulting certificate expires the moment the proposal would have timed out (often days), rather than having a proper validity period. Fix: carry a separate `cert_expires_at` on `PendingRequest`, or compute certificate expiry from issuance time.
+**Body:** `issue_approved_certificate` (`lib.rs:1049-1056`, `multisig.rs:335-346`) passes `Some(request.expires_at)` as the certificate's `expires_at`. But `request.expires_at` was computed as `created_at + expiration_days*86400` and is the _proposal approval deadline_, not a certificate lifetime. The resulting certificate expires the moment the proposal would have timed out (often days), rather than having a proper validity period. Fix: carry a separate `cert_expires_at` on `PendingRequest`, or compute certificate expiry from issuance time.
 
 ---
 
@@ -696,7 +693,7 @@
 
 **Title:** `deploy-contracts.sh` mis-uses the Soroban CLI: treats a contract ID as a WASM hash and deploys the same WASM for all three contracts
 **Labels:** `bug` `devops`
-**Body:** [deploy-contracts.sh:32-104](deploy-contracts.sh#L32-L104) captures `CERT_WASM_HASH=$(soroban contract deploy ...)` — which returns a *contract ID*, not a WASM hash — then passes it to `--wasm-hash`, so the next deploy is malformed (hashes come from `contract install`). The multisig and CRL steps deploy the identical `certificate_revocation.wasm`, so all three "contracts" are the same code, and the `soroban` binary/`config network` usage is deprecated (renamed to the `stellar` CLI). Fix: use `stellar contract install` for the hash, deploy the correct per-contract WASM files, and migrate to the current CLI.
+**Body:** [deploy-contracts.sh:32-104](deploy-contracts.sh#L32-L104) captures `CERT_WASM_HASH=$(soroban contract deploy ...)` — which returns a _contract ID_, not a WASM hash — then passes it to `--wasm-hash`, so the next deploy is malformed (hashes come from `contract install`). The multisig and CRL steps deploy the identical `certificate_revocation.wasm`, so all three "contracts" are the same code, and the `soroban` binary/`config network` usage is deprecated (renamed to the `stellar` CLI). Fix: use `stellar contract install` for the hash, deploy the correct per-contract WASM files, and migrate to the current CLI.
 
 ---
 
@@ -732,7 +729,7 @@
 
 **Title:** `.gitignore` excludes `package-lock.json` while CI and Dockerfiles depend on a committed lockfile
 **Labels:** `tech-debt` `devops`
-**Body:** [.gitignore:3](.gitignore#L3) ignores `package-lock.json`/`yarn.lock`, yet the lockfiles are currently tracked, CI calls `npm ci` (which *requires* a lockfile), and reproducible Docker builds assume one. This is a footgun: regenerated lockfiles won't be staged by tooling that respects `.gitignore`, silently drifting dependency pins. Fix: remove the lockfiles from `.gitignore` and commit them intentionally.
+**Body:** [.gitignore:3](.gitignore#L3) ignores `package-lock.json`/`yarn.lock`, yet the lockfiles are currently tracked, CI calls `npm ci` (which _requires_ a lockfile), and reproducible Docker builds assume one. This is a footgun: regenerated lockfiles won't be staged by tooling that respects `.gitignore`, silently drifting dependency pins. Fix: remove the lockfiles from `.gitignore` and commit them intentionally.
 
 ---
 
@@ -866,7 +863,7 @@
 
 **Title:** 401-refresh retry reuses a stale `Authorization` header — silent refresh always re-sends the expired token
 **Labels:** `bug` `frontend` `auth`
-**Body:** The `headers` object is built once at the top of `apiClient` (`endpoints.ts:124-131`) with the current bearer token. On a 401, the code refreshes and calls `tokenStorage.setAccessToken(...)` then re-invokes `attemptRequest(attempt, true)`, but it never rebuilds `headers` or re-sets `Authorization` (`endpoints.ts:148-156`), so the retried request carries the same expired token and 401s again — making the whole silent-refresh mechanism a no-op even after the refresh route is fixed. Fix: after a successful refresh, `headers.set("Authorization", \`Bearer ${refreshResponse.accessToken}\`)` before retrying (or rebuild headers inside `attemptRequest`).
+**Body:** The `headers` object is built once at the top of `apiClient` (`endpoints.ts:124-131`) with the current bearer token. On a 401, the code refreshes and calls `tokenStorage.setAccessToken(...)` then re-invokes `attemptRequest(attempt, true)`, but it never rebuilds `headers` or re-sets `Authorization` (`endpoints.ts:148-156`), so the retried request carries the same expired token and 401s again — making the whole silent-refresh mechanism a no-op even after the refresh route is fixed. Fix: after a successful refresh, `headers.set("Authorization", \`Bearer ${refreshResponse.accessToken}\`)`before retrying (or rebuild headers inside`attemptRequest`).
 
 ---
 
@@ -976,9 +973,9 @@
 
 ---
 
-**Title:** Pagination indexing is inconsistent *within* `lib.rs` (0-indexed certs vs 1-indexed requests)
+**Title:** Pagination indexing is inconsistent _within_ `lib.rs` (0-indexed certs vs 1-indexed requests)
 **Labels:** `bug` `contract`
-**Body:** `paginate_certificates` computes `start = page.saturating_mul(limit)` (0-indexed) at `lib.rs:1333`, while `paginate_requests` computes `start = page.saturating_sub(1).saturating_mul(limit)` (1-indexed, per its comment) at `lib.rs:1434-1438`. A client using `page=1` gets the first page of requests but the *second* page of certificates, and `page=0` returns page 1 of certs but an empty/underflowed request page. (Distinct from the crl-vs-lib mismatch already filed.) Fix: standardize both on 1-indexed and share a single helper.
+**Body:** `paginate_certificates` computes `start = page.saturating_mul(limit)` (0-indexed) at `lib.rs:1333`, while `paginate_requests` computes `start = page.saturating_sub(1).saturating_mul(limit)` (1-indexed, per its comment) at `lib.rs:1434-1438`. A client using `page=1` gets the first page of requests but the _second_ page of certificates, and `page=0` returns page 1 of certs but an empty/underflowed request page. (Distinct from the crl-vs-lib mismatch already filed.) Fix: standardize both on 1-indexed and share a single helper.
 
 ---
 

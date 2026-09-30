@@ -2,11 +2,13 @@ import { Routes, Route, useLocation } from "react-router-dom";
 import { Suspense, lazy } from "react";
 import { Shield, Award, Search, ShieldAlert } from "lucide-react";
 import Navbar from "./components/Header";
+import ErrorBoundary from "./components/ErrorBoundary";
 import ProtectedRoute from "./guard/ProtectedRoute";
 import { NotificationProvider } from "./context/NotificationContext";
 import { AuthProvider } from "./context/AuthContext";
 import ToastContainer from "./components/Toast";
 import { UserRole } from "./api";
+import { WALLET_ALLOWED_ROLES } from "./constants/routeAccess";
 
 // Lazy load page components for code splitting
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -25,6 +27,7 @@ const NotificationPreferences = lazy(
   () => import("./pages/NotificationPreferences"),
 );
 const NotFound = lazy(() => import("./pages/NotFound"));
+const AdminUsers = lazy(() => import("./pages/AdminUsers"));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -44,71 +47,82 @@ function App() {
         <NotificationProvider>
           <Navbar />
           <div className="container mx-auto px-4 py-8">
-            <Suspense fallback={<PageLoader />}>
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/verify" element={<VerifyCertificate />} />
-                <Route path="/verify-email" element={<VerifyEmail />} />
-                <Route path="/reset-password" element={<ResetPassword />} />
+            {/*
+              Route-level error boundary. Every page below is a `React.lazy`
+              chunk, so a chunk that fails to load (unresolvable module — the
+              casing defect in #744 — a stale hashed asset after a deploy, or
+              an offline client) rejects the import promise. React re-throws
+              that rejection during render; with no boundary above it, the
+              whole tree unmounts and the user gets a blank screen instead of
+              the 404 page the catch-all route below should have rendered.
+            */}
+            <ErrorBoundary>
+              <Suspense fallback={<PageLoader />}>
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/verify" element={<VerifyCertificate />} />
+                  <Route path="/verify-email" element={<VerifyEmail />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
 
-                <Route
-                  element={
-                    <ProtectedRoute
-                      allowedRoles={[
-                        UserRole.RECIPIENT,
-                        UserRole.VERIFIER,
-                        UserRole.ISSUER,
-                        UserRole.ADMIN,
-                      ]}
-                    />
-                  }
-                >
-                  <Route path="/wallet" element={<CertificateWallet />} />
-                </Route>
-
-                <Route
-                  element={
-                    <ProtectedRoute
-                      allowedRoles={[UserRole.ISSUER, UserRole.ADMIN]}
-                    />
-                  }
-                >
-                  <Route path="/issue" element={<IssueCertificate />} />
-                  <Route path="/revoke" element={<RevokeCertificatePage />} />
                   <Route
-                    path="/certificates"
-                    element={<CertificateManagementPage />}
-                  />
-                </Route>
+                    element={<ProtectedRoute allowedRoles={[...WALLET_ALLOWED_ROLES]} />}
+                  >
+                    <Route path="/wallet" element={<CertificateWallet />} />
+                  </Route>
 
-                {/* Account routes — any authenticated user, regardless of role */}
-                <Route
-                  element={
-                    <ProtectedRoute
-                      allowedRoles={[
-                        UserRole.RECIPIENT,
-                        UserRole.VERIFIER,
-                        UserRole.ISSUER,
-                        UserRole.ADMIN,
-                        UserRole.AUDITOR,
-                        UserRole.USER,
-                      ]}
-                    />
-                  }
-                >
-                  <Route path="/profile" element={<IssuerProfile />} />
                   <Route
-                    path="/preferences"
-                    element={<NotificationPreferences />}
-                  />
-                </Route>
+                    element={
+                      <ProtectedRoute
+                        allowedRoles={[UserRole.ISSUER, UserRole.ADMIN]}
+                      />
+                    }
+                  >
+                    <Route path="/issue" element={<IssueCertificate />} />
+                    <Route path="/revoke" element={<RevokeCertificatePage />} />
+                    <Route
+                      path="/certificates"
+                      element={<CertificateManagementPage />}
+                    />
+                  </Route>
 
-                {/* Catch-all: must be last */}
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </Suspense>
+                  {/* Admin-only routes */}
+                  <Route
+                    element={
+                      <ProtectedRoute allowedRoles={[UserRole.ADMIN]} />
+                    }
+                  >
+                    <Route path="/admin/users" element={<AdminUsers />} />
+                  </Route>
+
+                  {/* Account routes — any authenticated user, regardless of role */}
+                  <Route
+                    element={
+                      <ProtectedRoute
+                        allowedRoles={[
+                          UserRole.RECIPIENT,
+                          UserRole.VERIFIER,
+                          UserRole.ISSUER,
+                          UserRole.ADMIN,
+                          UserRole.AUDITOR,
+                          UserRole.USER,
+                        ]}
+                      />
+                    }
+                  >
+                    <Route path="/profile" element={<IssuerProfile />} />
+                    <Route
+                      path="/preferences"
+                      element={<NotificationPreferences />}
+                    />
+                  </Route>
+
+                  {/* Catch-all: must be last */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </Suspense>
+            </ErrorBoundary>
           </div>
 
           {/* Feature Overview Section */}

@@ -1,7 +1,5 @@
 import type { User } from './types';
 
-const ACCESS_TOKEN_KEY = 'accessToken';
-
 /**
  * Callback invoked after `apiClient` silently refreshes the access token, so
  * AuthContext can keep its reactive `isAuthenticated` / `user` state in sync.
@@ -17,13 +15,15 @@ export const notifyTokenRefreshed = (accessToken: string, user?: User | null) =>
   _onTokenRefreshed?.(accessToken, user);
 };
 
+let _inMemoryAccessToken: string | null = null;
+
 export const tokenStorage = {
-  getAccessToken: (): string | null => localStorage.getItem(ACCESS_TOKEN_KEY),
-  setAccessToken: (token: string): void => localStorage.setItem(ACCESS_TOKEN_KEY, token),
-  clearTokens: (): void => {
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    // The refresh token lives in an HttpOnly cookie managed by the server.
-    // Clearing it requires a logout API call, not direct JS access.
+  getAccessToken: (): string | null => _inMemoryAccessToken,
+  setAccessToken: (token: string): void => {
+    _inMemoryAccessToken = token;
   },
-  hasAccessToken: (): boolean => !!localStorage.getItem(ACCESS_TOKEN_KEY),
+  clearTokens: (): void => {
+    _inMemoryAccessToken = null;
+  },
+  hasAccessToken: (): boolean => !!_inMemoryAccessToken,
 };

@@ -4,7 +4,7 @@ import {
   ConflictException,
   BadRequestException,
   UnauthorizedException,
-  ForbiddenException
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -36,7 +36,7 @@ export class UserAuthService {
     private readonly configService: ConfigService,
     private readonly emailQueueService: EmailQueueService,
     private readonly logger: LoggingService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
   ) {}
 
   async findByEmailWithPassword(email: string): Promise<User | null> {
@@ -171,8 +171,8 @@ export class UserAuthService {
 
   async logout(userId: string): Promise<void> {
     await this.userRepository.update(userId, {
-      refreshToken: undefined as any,
-      refreshTokenExpires: undefined as any,
+      refreshToken: undefined,
+      refreshTokenExpires: undefined,
     });
     this.logger.log(`User logged out: ${userId}`);
   }
@@ -238,8 +238,8 @@ export class UserAuthService {
 
     await this.userRepository.update(user.id, {
       isEmailVerified: true,
-      emailVerificationToken: undefined as any,
-      emailVerificationExpires: undefined as any,
+      emailVerificationToken: undefined,
+      emailVerificationExpires: undefined,
       status: UserStatus.ACTIVE,
     });
 

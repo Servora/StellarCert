@@ -1,26 +1,25 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { apiClient, API_URL } from '../api';
+import { API_URL } from '../api';
 import { tokenStorage } from '../api/tokens';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+    queryKeys,
+    useMarkAllNotificationsReadMutation,
+    useMarkNotificationReadMutation,
+    useNotificationsQuery,
+} from '../api/queries';
+import type { Notification, NotificationType } from '../api/types';
 import { useAuth } from './AuthContext';
 
-export type NotificationType = 'info' | 'success' | 'error';
-
-export interface Notification {
-    id: string;
-    type: NotificationType;
-    title: string;
-    message: string;
-    isRead: boolean;
-    createdAt: string;
-}
+export type { Notification, NotificationType };
 
 interface NotificationContextProps {
     notifications: Notification[];
     unreadCount: number;
     markAsRead: (id: string) => Promise<void>;
     markAllAsRead: () => Promise<void>;
-    fetchNotifications: () => Promise<void>;
+    refetchNotifications: () => Promise<void>;
 }
 
 const NotificationContext = createContext<NotificationContextProps | undefined>(undefined);
@@ -34,7 +33,6 @@ const getSocketOrigin = (): string => {
     }
 };
 
-/* eslint-disable react-refresh/only-export-components */
 export const useNotifications = () => {
     const context = useContext(NotificationContext);
     if (!context) throw new Error('useNotifications must be used within NotificationProvider');
@@ -42,24 +40,19 @@ export const useNotifications = () => {
 };
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [notifications, setNotifications] = useState<Notification[]>([]);
     const { isAuthenticated } = useAuth();
+    const queryClient = useQueryClient();
     // #563 — keep socket ref so we can reconnect on token rotation
     const socketRef = useRef<Socket | null>(null);
 
-    const fetchNotifications = async () => {
-        try {
-            const token = tokenStorage.getAccessToken();
-            if (!token) return;
+    const notificationsEnabled = isAuthenticated && !!tokenStorage.getAccessToken();
+    const notificationsQuery = useNotificationsQuery(notificationsEnabled);
+    const markAsReadMutation = useMarkNotificationReadMutation();
+    const markAllAsReadMutation = useMarkAllNotificationsReadMutation();
 
-            const data = await apiClient<Notification[]>('/notifications');
-            setNotifications(data);
-        } catch (error) {
-            console.error('Failed to fetch notifications:', error);
-        }
-    };
+    const notifications = notificationsEnabled ? (notificationsQuery.data ?? []) : [];
 
-    const connectSocket = (token: string) => {
+    const connectSocket = useCallback((token: string) => {
         // Disconnect any existing socket before creating a new one
         if (socketRef.current) {
             socketRef.current.disconnect();
@@ -70,24 +63,32 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         });
 
         newSocket.on('newNotification', (notification: Notification) => {
-            setNotifications((prev) => [notification, ...prev]);
+            // A push updates the cached list in place instead of local state, so
+            // every consumer (badge, dropdown, toasts) sees it immediately.
+            queryClient.setQueryData<Notification[]>(queryKeys.notifications.list(),
+                (current) =>
+                    current
+                        ? [notification, ...current.filter((n) => n.id !== notification.id)]
+                        : [notification],
+            );
         });
 
         socketRef.current = newSocket;
-    };
+    }, [queryClient]);
 
     useEffect(() => {
         if (!isAuthenticated) {
             socketRef.current?.disconnect();
             socketRef.current = null;
-            setNotifications([]);
+            // Drop the previous user's notifications so they cannot leak into
+            // the next session rendered from cache.
+            queryClient.removeQueries({ queryKey: queryKeys.notifications.root });
             return;
         }
 
         const token = tokenStorage.getAccessToken();
         if (!token) return;
 
-        fetchNotifications();
         connectSocket(token);
 
         // #563 — reconnect with the new token whenever it is rotated.
@@ -103,37 +104,36 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             window.removeEventListener('storage', handleTokenRotation);
             socketRef.current?.disconnect();
         };
-    }, [isAuthenticated]);
+    }, [isAuthenticated, queryClient, connectSocket]);
 
-    const markAsRead = async (id: string) => {
-        try {
-            await apiClient(`/notifications/${id}/read`, {
-                method: 'PATCH',
-            });
-            setNotifications((prev) =>
-                prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
-            );
-        } catch (error) {
-            console.error('Failed to mark as read:', error);
-        }
-    };
+    const markAsRead = useCallback(
+        async (id: string) => {
+            try {
+                await markAsReadMutation.mutateAsync(id);
+            } catch (error) {
+                console.error('Failed to mark as read:', error);
+            }
+        },
+        [markAsReadMutation],
+    );
 
-    const markAllAsRead = async () => {
+    const markAllAsRead = useCallback(async () => {
         try {
-            await apiClient(`/notifications/read-all`, {
-                method: 'PATCH',
-            });
-            setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+            await markAllAsReadMutation.mutateAsync();
         } catch (error) {
             console.error('Failed to mark all as read:', error);
         }
-    };
+    }, [markAllAsReadMutation]);
+
+    const refetchNotifications = useCallback(async () => {
+        await notificationsQuery.refetch();
+    }, [notificationsQuery]);
 
     const unreadCount = notifications.filter((n) => !n.isRead).length;
 
     return (
         <NotificationContext.Provider
-            value={{ notifications, unreadCount, markAsRead, markAllAsRead, fetchNotifications }}
+            value={{ notifications, unreadCount, markAsRead, markAllAsRead, refetchNotifications }}
         >
             {children}
         </NotificationContext.Provider>

@@ -12,7 +12,8 @@ import { AuditLog } from '../entities';
 import { AuditAction, AuditResourceType } from '../constants';
 import { AuditSearchDto, AuditStatisticsDto } from '../dto';
 import { RequestContextService } from './request-context.service';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
+import { toCsv } from '../../../common/utils/csv.utils';
 
 export interface LogAuditParams {
   action: AuditAction;
@@ -41,7 +42,8 @@ export class AuditService {
   constructor(
     @InjectRepository(AuditLog)
     private auditLogRepository: Repository<AuditLog>,
-    private requestContextService: RequestContextService, private readonly logger: LoggingService
+    private requestContextService: RequestContextService,
+    private readonly logger: LoggingService,
   ) {}
 
   async log(params: LogAuditParams): Promise<AuditLog | null> {
@@ -379,14 +381,7 @@ export class AuditService {
       log.correlationId || '',
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map((row) =>
-        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','),
-      ),
-    ].join('\n');
-
-    return csvContent;
+    return toCsv(headers, rows);
   }
 
   async cleanupOldLogs(retentionDays: number): Promise<number> {

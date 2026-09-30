@@ -15,6 +15,10 @@
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./",
+    "paths": {
+      "rxjs": ["../node_modules/rxjs"],
+      "rxjs/*": ["../node_modules/rxjs/*"]
+    },
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,

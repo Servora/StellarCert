@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Save,
   Key,
@@ -11,7 +11,13 @@ import {
   Upload,
   ImagePlus,
 } from "lucide-react";
-import { issuerProfileApi, userApi } from "../api";
+import { issuerProfileApi } from "../api";
+import {
+  useIssuerActivityQuery,
+  useIssuerStatsQuery,
+  useUpdateIssuerProfileMutation,
+  useUserProfileQuery,
+} from "../api/queries";
 
 const MAX_PROFILE_PICTURE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_PROFILE_PICTURE_TYPES = [
@@ -22,9 +28,10 @@ const ALLOWED_PROFILE_PICTURE_TYPES = [
 ];
 
 const IssuerProfile = () => {
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [activityError, setActivityError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [profilePreview, setProfilePreview] = useState("");
   const [selectedProfileImage, setSelectedProfileImage] = useState<File | null>(
@@ -45,86 +52,94 @@ const IssuerProfile = () => {
     profilePicture: "",
   });
 
-  // Statistics state
-  const [stats, setStats] = useState({
-    totalCertificates: 0,
-    activeCertificates: 0,
-    revokedCertificates: 0,
-    expiredCertificates: 0,
-    totalVerifications: 0,
-    lastLogin: "",
-  });
+  // Three independent queries: the profile, the issuer statistics and the
+  // activity log now load in parallel instead of as a serial waterfall.
+  const profileQuery = useUserProfileQuery();
+  const statsQuery = useIssuerStatsQuery();
+  const activityQuery = useIssuerActivityQuery();
+  const updateProfileMutation = useUpdateIssuerProfileMutation();
 
-  // Activity log state
-  const [activities, setActivities] = useState<
-    {
-      id: string;
-      action: string;
-      description: string;
-      timestamp: string;
-      ip: string;
-    }[]
-  >([]);
+  const loading = profileQuery.isPending;
+  const profile = profileQuery.data;
+
+  const stats = {
+    totalCertificates: statsQuery.data?.totalCertificates ?? 0,
+    activeCertificates: statsQuery.data?.activeCertificates ?? 0,
+    revokedCertificates: statsQuery.data?.revokedCertificates ?? 0,
+    expiredCertificates: statsQuery.data?.expiredCertificates ?? 0,
+    totalVerifications: statsQuery.data?.totalVerifications ?? 0,
+    lastLogin: statsQuery.data?.lastLogin ?? "",
+  };
+
+  const activities = useMemo(
+    () =>
+      (activityQuery.data?.activities ?? []).map(
+        (activity: {
+          id: string;
+          action: string;
+          description: string;
+          timestamp: string;
+          ipAddress?: string;
+        }) => ({
+          id: activity.id,
+          action: activity.action,
+          description: activity.description,
+          timestamp: activity.timestamp,
+          ip: activity.ipAddress || "Unknown IP",
+        }),
+      ),
+    [activityQuery.data],
+  );
+
+  // Seed the form from the cached profile the first time it arrives. Seeding is
+  // one-shot per mount so a background revalidation can't discard edits the user
+  // has typed since; a successful save updates the form explicitly instead.
+  const seededFromProfile = useRef(false);
+  useEffect(() => {
+    if (!profile || seededFromProfile.current) return;
+    seededFromProfile.current = true;
+
+    setFormData({
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      email: profile.email,
+      username: profile.username || "",
+      phone: profile.phone || "",
+      organization: profile.metadata?.organization
+        ? String(profile.metadata.organization)
+        : "",
+      stellarPublicKey: profile.stellarPublicKey || "",
+      profilePicture: profile.profilePicture || "",
+    });
+    setSelectedProfileImage(null);
+    setProfilePreview(profile.profilePicture || "");
+  }, [profile]);
 
   useEffect(() => {
-    const loadPageData = async () => {
-      try {
-        setLoading(true);
-        const profile = await userApi.getProfile();
-        setFormData({
-          firstName: profile.firstName,
-          lastName: profile.lastName,
-          email: profile.email,
-          username: profile.username || "",
-          phone: profile.phone || "",
-          organization: profile.metadata?.organization
-            ? String(profile.metadata.organization)
-            : "",
-          stellarPublicKey: profile.stellarPublicKey || "",
-          profilePicture: profile.profilePicture || "",
-        });
-        setSelectedProfileImage(null);
-        setProfilePreview(profile.profilePicture || "");
-      } catch (err) {
-        setError("Failed to load profile");
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
+    if (profileQuery.isError) {
+      setError("Failed to load profile");
+    }
+  }, [profileQuery.isError]);
 
-      try {
-        const profileStats = await issuerProfileApi.getStats();
-        setStats(profileStats);
-      } catch (err) {
-        console.error("Failed to load issuer stats", err);
-      }
+  // The statistics and the activity log are separate queries, so a failure in
+  // either is reported in its own panel instead of taking the whole page down.
+  useEffect(() => {
+    if (statsQuery.isError) {
+      setStatsError("Failed to load issuer statistics");
+      console.error("Failed to load issuer stats", statsQuery.error);
+    } else {
+      setStatsError(null);
+    }
+  }, [statsQuery.isError, statsQuery.error]);
 
-      try {
-        const activityResponse = await issuerProfileApi.getActivity();
-        setActivities(
-          activityResponse.activities.map(
-            (activity: {
-              id: string;
-              action: string;
-              description: string;
-              timestamp: string;
-              ipAddress?: string;
-            }) => ({
-              id: activity.id,
-              action: activity.action,
-              description: activity.description,
-              timestamp: activity.timestamp,
-              ip: activity.ipAddress || "Unknown IP",
-            }),
-          ),
-        );
-      } catch (err) {
-        console.error("Failed to load issuer activity", err);
-      }
-    };
-
-    void loadPageData();
-  }, []);
+  useEffect(() => {
+    if (activityQuery.isError) {
+      setActivityError("Failed to load recent activity");
+      console.error("Failed to load issuer activity", activityQuery.error);
+    } else {
+      setActivityError(null);
+    }
+  }, [activityQuery.isError, activityQuery.error]);
 
   useEffect(() => {
     return () => {
@@ -198,7 +213,7 @@ const IssuerProfile = () => {
         uploadedProfilePicture = uploadResult.profilePicture;
       }
 
-      const updatedUser = await userApi.updateProfile({
+      const updatedUser = await updateProfileMutation.mutateAsync({
         firstName: formData.firstName,
         lastName: formData.lastName,
         username: formData.username || undefined,
@@ -504,6 +519,14 @@ const IssuerProfile = () => {
               </h2>
             </div>
             <div className="p-6">
+              {statsError && (
+                <p
+                  role="alert"
+                  className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300"
+                >
+                  {statsError}
+                </p>
+              )}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600 dark:text-slate-400">
@@ -563,7 +586,13 @@ const IssuerProfile = () => {
           {activities.length === 0 ? (
             <div className="text-center py-8 text-gray-500 dark:text-slate-400">
               <Activity className="h-12 w-12 mx-auto text-gray-300 dark:text-slate-600 mb-4" />
-              <p>No recent activity found</p>
+              {activityError ? (
+                <p role="alert" className="text-red-600 dark:text-red-400">
+                  {activityError}
+                </p>
+              ) : (
+                <p>No recent activity found</p>
+              )}
             </div>
           ) : (
             <div className="space-y-4">

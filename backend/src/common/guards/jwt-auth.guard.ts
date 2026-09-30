@@ -6,10 +6,22 @@ import { Reflector } from '@nestjs/core';
 import { AuthException } from '../exceptions';
 import { ErrorCode } from '../constants/error-codes';
 import { Request } from 'express';
-import { User } from '../../modules/users/entities/user.entity';
+
+/**
+ * Canonical shape attached to `req.user` by JwtAuthGuard.
+ * `id` and `sub` are aliases for the same user id so both
+ * `@CurrentUser('id')` and `@CurrentUser('sub')` resolve correctly,
+ * regardless of which guard authenticated the request.
+ */
+export interface AuthenticatedUser {
+  id: string;
+  sub: string;
+  email: string;
+  role: string;
+}
 
 interface RequestWithUser extends Request {
-  user: User;
+  user: AuthenticatedUser;
 }
 
 /**
@@ -58,11 +70,14 @@ export class JwtAuthGuard implements CanActivate {
       const payload = this.jwtService.verify(token, {
         secret,
       });
-      // Map JWT payload fields to the user object shape expected by decorators
+      // Single canonical req.user shape: id and sub are aliases of the same
+      // user id, so @CurrentUser('id') and @CurrentUser('sub') both resolve.
       request.user = {
-        ...payload,
-        id: payload.sub,    // sub → id so @CurrentUser() gives user.id
-      } as unknown as User;
+        id: payload.sub,
+        sub: payload.sub,
+        email: payload.email,
+        role: payload.role,
+      };
     } catch (error: unknown) {
       if (error instanceof Error && error.name === 'TokenExpiredError') {
         throw new AuthException(ErrorCode.TOKEN_EXPIRED, 'Token has expired');

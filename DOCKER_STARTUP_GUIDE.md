@@ -27,7 +27,7 @@ Once all services are running, you can access:
 
 - **Frontend**: http://localhost:5173
 - **Backend API**: http://localhost:3000
-- **Health Check**: http://localhost:3000/health
+- **Health Check**: http://localhost:3000/api/v1/health
 - **Metrics**: http://localhost:3000/metrics (if enabled)
 
 ## Optional Services
@@ -98,13 +98,58 @@ The services start in the following order:
 3. **Backend** - API service (waits for database and Redis)
 4. **Frontend** - Web application (waits for backend)
 
+## Database Migrations
+
+TypeORM migrations are run automatically by the backend container on every
+startup. The flow is:
+
+1. Docker Compose waits for the Postgres health-check to pass (`pg_isready`).
+2. The backend container starts and executes `docker-entrypoint.sh`.
+3. The script runs `typeorm migration:run -d dist/database/data-source.js`,
+   applying any pending migrations in timestamp order.
+4. If migrations succeed the NestJS application starts normally.
+5. If migrations fail the container exits with a non-zero code, keeping the
+   app offline until the issue is resolved — no silent schema mismatch.
+
+**Why not the Postgres `initdb.d` directory?**  
+The Postgres image only executes top-level `.sql` and `.sh` files in
+`/docker-entrypoint-initdb.d/` and only on the very first container startup
+(empty data volume). TypeORM migrations are TypeScript source files, not SQL,
+and nesting them inside a subdirectory means the image ignores them entirely.
+Running migrations from the backend container is the correct approach.
+
+**Running migrations manually** (e.g. after a hotfix):
+
+```bash
+# Build first so dist/database/data-source.js exists
+docker-compose exec backend sh -c "node node_modules/.bin/typeorm migration:run -d dist/database/data-source.js"
+
+# Roll back the last migration
+docker-compose exec backend sh -c "node node_modules/.bin/typeorm migration:revert -d dist/database/data-source.js"
+
+# Show migration status
+docker-compose exec backend sh -c "node node_modules/.bin/typeorm migration:show -d dist/database/data-source.js"
+```
+
+**Generating a new migration** (local dev, not inside Docker):
+
+```bash
+cd backend
+npm run build
+npm run migration:generate -- src/database/migrations/MyDescriptiveName
+```
+
 ## Troubleshooting
 
 ### Common Issues
 
 1. **Port conflicts**: Ensure ports 5432, 6379, 3000, and 5173 are available
 2. **Environment variables**: Check that all required environment variables are set
-3. **Database migrations**: The backend will automatically run database migrations
+3. **Database migrations**: The backend container runs `typeorm migration:run`
+   automatically on every startup via `docker-entrypoint.sh`. Migrations are
+   idempotent — already-applied migrations are skipped. If migrations fail the
+   container exits with a non-zero code and Docker will not start the app
+   process, making the failure visible in the logs.
 
 ### Reset Everything
 
@@ -180,7 +225,7 @@ Each service has built-in health checks:
 
 - **PostgreSQL**: Checks database connectivity
 - **Redis**: Pings the Redis server
-- **Backend**: Checks `/health` endpoint
+- **Backend**: Checks `/api/v1/health` endpoint
 - **Frontend**: Checks if the web server is responding
 
 Services will only start after their dependencies are healthy.

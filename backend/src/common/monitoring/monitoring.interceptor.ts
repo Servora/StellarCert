@@ -2,7 +2,7 @@ import {
   Injectable,
   NestInterceptor,
   ExecutionContext,
-  CallHandler
+  CallHandler,
 } from '@nestjs/common';
 import { Observable, throwError } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';

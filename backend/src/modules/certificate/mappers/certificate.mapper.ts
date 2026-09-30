@@ -5,7 +5,7 @@ import { VerifiedCertificateData } from '../interfaces/verification-result.inter
 export interface CertificateResponseDto {
   id: string;
   certificateId: string;
-  serialNumber: string;       // alias for certificateId — used by frontend
+  serialNumber: string; // alias for certificateId — used by frontend
   issuerId: string;
   issuerName?: string;
   issuerStellarAddress?: string;
@@ -20,16 +20,16 @@ export interface CertificateResponseDto {
   revocationReason?: string;
   revokedAt?: Date;
   stellarTransactionHash?: string;
-  txHash?: string;            // alias for stellarTransactionHash — used by frontend
+  txHash?: string; // alias for stellarTransactionHash — used by frontend
   stellarMemo?: string;
   verificationCode?: string;
   verificationCount: number;
   qrCodeData?: string;
   pdfUrl?: string;
   issuedAt: Date;
-  issueDate: string;          // alias for issuedAt as ISO string — used by frontend
+  issueDate: string; // alias for issuedAt as ISO string — used by frontend
   expiresAt?: Date;
-  expiryDate?: string;        // alias for expiresAt as ISO string — used by frontend
+  expiryDate?: string; // alias for expiresAt as ISO string — used by frontend
   updatedAt: Date;
 }
 
@@ -58,12 +58,17 @@ export interface CertificateSummaryDto {
 @Injectable()
 export class CertificateMapper {
   toResponse(certificate: Certificate): CertificateResponseDto {
-    const issuerName = certificate.issuerName ??
+    const issuerName =
+      certificate.issuerName ??
       (certificate.issuer
         ? `${certificate.issuer.firstName ?? ''} ${certificate.issuer.lastName ?? ''}`.trim()
         : undefined);
-    const issuedAtIso = certificate.issuedAt ? new Date(certificate.issuedAt).toISOString() : new Date().toISOString();
-    const expiresAtIso = certificate.expiresAt ? new Date(certificate.expiresAt).toISOString() : undefined;
+    const issuedAtIso = certificate.issuedAt
+      ? new Date(certificate.issuedAt).toISOString()
+      : new Date().toISOString();
+    const expiresAtIso = certificate.expiresAt
+      ? new Date(certificate.expiresAt).toISOString()
+      : undefined;
     return {
       id: certificate.id,
       certificateId: certificate.certificateId,
@@ -98,7 +103,10 @@ export class CertificateMapper {
     };
   }
 
-  toVerificationResult(certificate: Certificate | null, code: string): VerificationResultDto {
+  toVerificationResult(
+    certificate: Certificate | null,
+    code: string,
+  ): VerificationResultDto {
     const now = new Date().toISOString();
     if (!certificate) {
       return {
@@ -111,7 +119,9 @@ export class CertificateMapper {
       };
     }
     const mapped = this.toResponse(certificate);
-    const isExpired = certificate.expiresAt ? new Date() > new Date(certificate.expiresAt) : false;
+    const isExpired = certificate.expiresAt
+      ? new Date() > new Date(certificate.expiresAt)
+      : false;
     const isRevoked = certificate.status === 'revoked';
     const status = isRevoked ? 'revoked' : isExpired ? 'expired' : 'valid';
     return {
@@ -120,11 +130,12 @@ export class CertificateMapper {
       certificate: mapped,
       verifiedAt: now,
       verificationDate: now,
-      message: status === 'valid'
-        ? 'Certificate is valid and active'
-        : status === 'revoked'
-          ? 'Certificate has been revoked'
-          : 'Certificate has expired',
+      message:
+        status === 'valid'
+          ? 'Certificate is valid and active'
+          : status === 'revoked'
+            ? 'Certificate has been revoked'
+            : 'Certificate has expired',
       verificationId: `ver_${Date.now()}`,
     };
   }
@@ -151,7 +162,11 @@ export class CertificateMapper {
       recipientEmail: certificate.recipientEmail,
       title: certificate.title,
       issuerName:
-        certificate.issuerName ?? (certificate.issuer ? `${certificate.issuer.firstName ?? ''} ${certificate.issuer.lastName ?? ''}`.trim() : undefined) ?? 'Unknown',
+        certificate.issuerName ??
+        (certificate.issuer
+          ? `${certificate.issuer.firstName ?? ''} ${certificate.issuer.lastName ?? ''}`.trim()
+          : undefined) ??
+        'Unknown',
       issuedAt: certificate.issuedAt,
       expiresAt: certificate.expiresAt ?? null,
       status: certificate.status,

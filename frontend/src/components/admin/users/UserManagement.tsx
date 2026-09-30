@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { userApi } from '../../../api/endpoints';
 import type { User as ApiUser } from '../../../api/types';
+import { getErrorMessage } from '../../../api/types';
+import { useUserListQuery } from '../../../api/queries';
+import { useDebounce } from '../../../hooks/useDebounce';
 
 interface User extends ApiUser {
   name?: string;
@@ -9,63 +12,56 @@ interface User extends ApiUser {
 }
 
 const UserManagement: React.FC = () => {
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const fetchUsers = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params: Record<string, string | number | boolean> = {};
-      if (search) params.search = search;
-      if (roleFilter !== 'all') params.role = roleFilter;
-      const data = await userApi.getAll(params);
-      const nextUsers = Array.isArray(data)
-        ? data
-        : ('users' in data && Array.isArray((data as { users?: User[] }).users))
-          ? (data as { users: User[] }).users
-          : data.data;
-      setUsers(nextUsers);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch users');
-    } finally {
-      setLoading(false);
-    }
-  }, [search, roleFilter]);
+  // Debounced so typing a name doesn't fire a request per keystroke. The list is
+  // cached per (search, role) pair, so switching back to a previous filter is
+  // instant instead of re-fetching.
+  const debouncedSearch = useDebounce(search, 300);
 
-  useEffect(() => {
-    const timer = setTimeout(fetchUsers, 300);
-    return () => clearTimeout(timer);
-  }, [fetchUsers]);
+  const usersQuery = useUserListQuery({
+    ...(debouncedSearch ? { search: debouncedSearch } : {}),
+    ...(roleFilter !== 'all' ? { role: roleFilter } : {}),
+  });
+
+  const users: User[] = usersQuery.data ?? [];
+  const loading = usersQuery.isPending;
+  const error = usersQuery.isError
+    ? usersQuery.error instanceof Error
+      ? usersQuery.error.message
+      : 'Failed to fetch users'
+    : actionError;
 
   const handleRoleChange = async (userId: string, newRole: string) => {
     setUpdatingId(userId);
+    setActionError(null);
     try {
       await userApi.updateRole(userId, newRole);
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, role: newRole as User['role'] } : u));
-    } catch { setError('Failed to update role.'); }
+      await usersQuery.refetch();
+    } catch (err: unknown) { setActionError(getErrorMessage(err)); }
     finally { setUpdatingId(null); }
   };
 
   const handleToggleStatus = async (userId: string, current: boolean) => {
     setUpdatingId(userId);
+    setActionError(null);
     try {
       await userApi.toggleStatus(userId, !current);
-      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, isActive: !current } : u));
-    } catch { setError('Failed to update status.'); }
+      await usersQuery.refetch();
+    } catch (err: unknown) { setActionError(getErrorMessage(err)); }
     finally { setUpdatingId(null); }
   };
 
   const handleDelete = async (userId: string) => {
     if (!window.confirm('Delete this user?')) return;
+    setActionError(null);
     try {
       await userApi.delete(userId);
-      setUsers((prev) => prev.filter((u) => u.id !== userId));
-    } catch { setError('Failed to delete user.'); }
+      await usersQuery.refetch();
+    } catch (err: unknown) { setActionError(getErrorMessage(err)); }
   };
 
   const roleBadge = (role: string) =>

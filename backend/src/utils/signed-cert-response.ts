@@ -37,7 +37,9 @@ export function signCertificateResponse(
 ): SignedCertificateResponse {
   const timestamp = Math.floor(Date.now() / 1000);
   const payload = JSON.stringify({ data, timestamp });
-  const signature = createHmac('sha256', secretKey).update(payload).digest('hex');
+  const signature = createHmac('sha256', secretKey)
+    .update(payload)
+    .digest('hex');
   return { data, timestamp, signature };
 }
 
@@ -54,8 +56,13 @@ export function verifyCertificateResponse(
   secretKey: string,
   maxAgeSeconds = 300,
 ): boolean {
-  const payload = JSON.stringify({ data: response.data, timestamp: response.timestamp });
-  const expected = createHmac('sha256', secretKey).update(payload).digest('hex');
+  const payload = JSON.stringify({
+    data: response.data,
+    timestamp: response.timestamp,
+  });
+  const expected = createHmac('sha256', secretKey)
+    .update(payload)
+    .digest('hex');
   const now = Math.floor(Date.now() / 1000);
   const fresh = now - response.timestamp <= maxAgeSeconds;
   return fresh && response.signature === expected;

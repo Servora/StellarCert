@@ -119,7 +119,8 @@ export class Certificate {
   @Column({ type: 'bigint', nullable: true })
   stellarSequenceNumber?: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, unique: true })
+  @Index()
   verificationCode?: string;
 
   @Column({ type: 'jsonb', nullable: true })

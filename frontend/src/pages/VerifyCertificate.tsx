@@ -1,26 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { JSX } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Html5QrcodeScanner } from 'html5-qrcode';
-import { CheckCircle } from 'lucide-react';
-import { certificateApi, VerificationResult } from '../api';
-
-// Debounce hook for search inputs
-const useDebounce = (value: string, delay: number) => {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-};
+import { CheckCircle, AlertTriangle } from 'lucide-react';
+import { VerificationResult } from '../api';
+import { useVerifyCertificateQuery } from '../api/queries';
+import { useDebounce } from '../hooks/useDebounce';
 
 type VerificationState = {
   loading: boolean;
@@ -29,81 +14,95 @@ type VerificationState = {
 };
 
 type ToastState = {
+  type: 'success' | 'error';
   message: string;
 };
 
 export default function VerifyCertificate(): JSX.Element {
   const [searchParams] = useSearchParams();
-  const [serial, setSerial] = useState('');
+  // Seed from the URL so a shared link is verified without a keystroke.
+  const [serial, setSerial] = useState(
+    () => searchParams.get('serial')?.trim() ?? '',
+  );
   const debouncedSerial = useDebounce(serial, 300);
   const [showQrScanner, setShowQrScanner] = useState(false);
   const qrScannerRef = useRef<Html5QrcodeScanner | null>(null);
-  const [state, setState] = useState<VerificationState>({
-    loading: false,
-    result: null,
-    error: null,
-  });
   const [toast, setToast] = useState<ToastState | null>(null);
-  const isVerifyingRef = useRef(false);
 
-  const handleVerify = useCallback(async (serialToVerify: string) => {
-    const serialNumber = serialToVerify.trim();
+  // Verification is keyed by serial, so re-checking the same certificate is
+  // answered from cache, and concurrent lookups of one serial collapse into a
+  // single request (no hand-rolled in-flight guard needed).
+  const verificationQuery = useVerifyCertificateQuery(debouncedSerial);
 
-    // Validation
-    if (!serialNumber) {
-      setState({
-        loading: false,
-        result: null,
-        error: 'Please enter a certificate serial number.',
-      });
-      return;
-    }
-
-    // Prevent duplicate calls
-    if (isVerifyingRef.current) {
-      return;
-    }
-
-    isVerifyingRef.current = true;
-    setState({
-      loading: true,
-      result: null,
-      error: null,
-    });
-
-    try {
-      const response = await certificateApi.verify(serialNumber);
-      setState({
-        loading: false,
-        result: response,
-        error: response.isValid ? null : response.message || 'Verification failed',
-      });
-    } catch (error) {
-      setState({
+  const state: VerificationState = useMemo(() => {
+    if (verificationQuery.isError) {
+      return {
         loading: false,
         result: null,
         error: 'An unexpected error occurred. Please try again.',
-      });
-    } finally {
-      isVerifyingRef.current = false;
+      };
+    }
+
+    const result = verificationQuery.data ?? null;
+
+    if (result && !result.isValid) {
+      return {
+        loading: false,
+        result,
+        error: result.message || 'Verification failed',
+      };
+    }
+
+    return {
+      loading: verificationQuery.isFetching,
+      result,
+      error: null,
+    };
+  }, [
+    verificationQuery.isError,
+    verificationQuery.data,
+    verificationQuery.isFetching,
+  ]);
+
+  // Copy text to the clipboard and drive the toast on success/failure.
+  // The async Clipboard API is unavailable over plain HTTP and can be
+  // denied by the browser, so fall back to the legacy copy path before
+  // surfacing the failure to the user.
+  const copyToClipboard = useCallback(async (text: string, successMessage: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setToast({ type: 'success', message: successMessage });
+    } catch {
+      try {
+        const el = document.createElement('textarea');
+        el.value = text;
+        el.setAttribute('readonly', '');
+        el.style.position = 'absolute';
+        el.style.left = '-9999px';
+        document.body.appendChild(el);
+        el.select();
+        const copied =
+          typeof document.execCommand === 'function' &&
+          document.execCommand('copy');
+        document.body.removeChild(el);
+        setToast(
+          copied
+            ? { type: 'success', message: successMessage }
+            : { type: 'error', message: 'Copy failed. Please copy the link manually.' }
+        );
+      } catch {
+        setToast({ type: 'error', message: 'Copy failed. Please copy the link manually.' });
+      }
     }
   }, []);
 
-  // Auto-verify when serial is provided in URL query parameter
+  // Keep the input in step with the URL when the query string changes.
   useEffect(() => {
-    const serialParam = searchParams.get('serial');
-    if (serialParam && serialParam.trim()) {
-      setSerial(serialParam.trim());
-      handleVerify(serialParam.trim());
+    const serialParam = searchParams.get('serial')?.trim();
+    if (serialParam) {
+      setSerial(serialParam);
     }
-  }, [searchParams, handleVerify]);
-
-  // Auto-verify when debounced serial changes (for manual input)
-  useEffect(() => {
-    if (debouncedSerial.trim() && debouncedSerial.length > 2) {
-      handleVerify(debouncedSerial.trim());
-    }
-  }, [debouncedSerial, handleVerify]);
+  }, [searchParams]);
 
   // Auto-dismiss toast after 3 seconds
   useEffect(() => {
@@ -151,7 +150,8 @@ export default function VerifyCertificate(): JSX.Element {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (serial.trim()) {
-      handleVerify(serial.trim());
+      // Explicit submit forces a re-check rather than reading the cache.
+      void verificationQuery.refetch();
     }
   };
 
@@ -186,10 +186,32 @@ export default function VerifyCertificate(): JSX.Element {
     <section className="space-y-8">
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed right-4 top-4 z-50 animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 shadow-lg dark:border-green-900/40 dark:bg-green-900/30">
-            <CheckCircle className="h-5 w-5 flex-shrink-0 text-green-500" />
-            <p className="text-sm font-medium text-green-900 dark:text-green-100">{toast.message}</p>
+        <div
+          className="fixed right-4 top-4 z-50 animate-in fade-in slide-in-from-top-2 duration-300"
+          role="status"
+          aria-live="polite"
+        >
+          <div
+            className={`flex items-center gap-3 rounded-lg border px-4 py-3 shadow-lg ${
+              toast.type === 'success'
+                ? 'border-green-200 bg-green-50 dark:border-green-900/40 dark:bg-green-900/30'
+                : 'border-red-200 bg-red-50 dark:border-red-900/40 dark:bg-red-900/30'
+            }`}
+          >
+            {toast.type === 'success' ? (
+              <CheckCircle className="h-5 w-5 flex-shrink-0 text-green-500" />
+            ) : (
+              <AlertTriangle className="h-5 w-5 flex-shrink-0 text-red-500" />
+            )}
+            <p
+              className={`text-sm font-medium ${
+                toast.type === 'success'
+                  ? 'text-green-900 dark:text-green-100'
+                  : 'text-red-900 dark:text-red-100'
+              }`}
+            >
+              {toast.message}
+            </p>
           </div>
         </div>
       )}
@@ -487,10 +509,7 @@ export default function VerifyCertificate(): JSX.Element {
                   <button
                     onClick={() => {
                       const url = `${window.location.origin}/verify?serial=${encodeURIComponent(serial)}`;
-                      navigator.clipboard.writeText(url);
-                      window.alert('Link copied to clipboard!');
-                     
-
+                      void copyToClipboard(url, 'Link copied to clipboard!');
                     }}
                     className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-slate-800/50 px-3 py-2 text-sm text-gray-900 dark:text-white hover:bg-slate-700/50 transition"
                   >
@@ -504,13 +523,18 @@ export default function VerifyCertificate(): JSX.Element {
                       const text = `Certificate Verified: ${state.result?.certificate?.recipientName || 'N/A'} - ${state.result?.certificate?.courseName || 'N/A'}`;
                       const url = `${window.location.origin}/verify?serial=${encodeURIComponent(serial)}`;
                       if (navigator.share) {
-                        navigator.share({
-                          title: 'Certificate Verification',
-                          text: text,
-                          url: url,
-                        });
+                        navigator
+                          .share({
+                            title: 'Certificate Verification',
+                            text: text,
+                            url: url,
+                          })
+                          .catch(() => {
+                            // The user dismissing the share sheet is not a
+                            // failure worth surfacing.
+                          });
                       } else {
-                        navigator.clipboard.writeText(`${text}\n${url}`);
+                        void copyToClipboard(`${text}\n${url}`, 'Link copied to clipboard!');
                       }
                     }}
                     className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-slate-800/50 px-3 py-2 text-sm text-gray-900 dark:text-white hover:bg-slate-700/50 transition"

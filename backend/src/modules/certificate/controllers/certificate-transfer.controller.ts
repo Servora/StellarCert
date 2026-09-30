@@ -40,10 +40,10 @@ export class CertificateTransferController {
   @ApiResponse({ status: 409, description: 'Transfer conflict' })
   async initiateTransfer(
     @Body() dto: InitiateTransferDto,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() user: any,
     @Req() req: any,
   ) {
-    return this.transferService.initiateTransfer(dto, userId, req.ip);
+    return this.transferService.initiateTransfer(dto, user, req.ip);
   }
 
   @Post('approve')
@@ -53,13 +53,13 @@ export class CertificateTransferController {
   @ApiResponse({ status: 404, description: 'Transfer not found' })
   async approveTransfer(
     @Body() dto: ApproveTransferDto,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() user: any,
     @Req() req: any,
   ) {
     return this.transferService.approveTransfer(
       dto.transferId,
       dto.confirmationCode || '',
-      userId,
+      user,
       req.ip,
     );
   }
@@ -70,13 +70,13 @@ export class CertificateTransferController {
   @ApiResponse({ status: 200, description: 'Transfer rejected successfully' })
   async rejectTransfer(
     @Body() dto: RejectTransferDto,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() user: any,
     @Req() req: any,
   ) {
     return this.transferService.rejectTransfer(
       dto.transferId,
       dto.reason || 'No reason provided',
-      userId,
+      user,
       req.ip,
     );
   }
@@ -87,10 +87,10 @@ export class CertificateTransferController {
   @ApiResponse({ status: 200, description: 'Transfer cancelled successfully' })
   async cancelTransfer(
     @Param('id') transferId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() user: any,
     @Req() req: any,
   ) {
-    return this.transferService.cancelTransfer(transferId, userId, req.ip);
+    return this.transferService.cancelTransfer(transferId, user, req.ip);
   }
 
   @Get('certificate/:certificateId/history')

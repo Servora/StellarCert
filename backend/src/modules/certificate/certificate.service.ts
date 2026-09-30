@@ -1,9 +1,12 @@
 import {
   Injectable,
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   Logger,
   NotFoundException,
   InternalServerErrorException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -24,6 +27,9 @@ import { WebhookEvent } from '../webhooks/entities/webhook-subscription.entity';
 import { MetadataSchemaService } from '../metadata-schema/services/metadata-schema.service';
 import { UserRole } from '../users/entities/user.entity';
 import { SorobanService } from '../stellar/services/soroban.service';
+import { MAX_EXPORT_LIMIT, MAX_PAGE_LIMIT } from './dto/export-filters.dto';
+import { CryptoUtils } from '../../common/utils/crypto.utils';
+import { toCsv } from '../../common/utils/csv.utils';
 
 @Injectable()
 export class CertificateService {
@@ -87,10 +93,7 @@ export class CertificateService {
       }
     }
 
-    if (
-      dto.metadataSchemaId &&
-      dto.metadata
-    ) {
+    if (dto.metadataSchemaId && dto.metadata) {
       const validationResult = await this.metadataSchemaService.validate(
         dto.metadataSchemaId,
         dto.metadata,
@@ -111,15 +114,15 @@ export class CertificateService {
     await queryRunner.startTransaction();
 
     try {
+      const certificateId = await this.generateCertificateId();
+      const verificationCode =
+        dto.verificationCode || (await this.generateVerificationCode());
       const certificate = queryRunner.manager.create(Certificate, {
         ...dto,
         recipientId,
-        certificateId: this.generateCertificateId(),
-        expiresAt:
-          dto.expiresAt || this.calculateDefaultExpiry(),
-        verificationCode:
-          dto.verificationCode ||
-          this.generateVerificationCode(),
+        certificateId,
+        expiresAt: dto.expiresAt || this.calculateDefaultExpiry(),
+        verificationCode,
         isDuplicate: false,
       });
       // TypeORM quirk: dual @Column()/@ManyToOne() on same column name — set issuerId directly
@@ -153,7 +156,8 @@ export class CertificateService {
       // stellar endpoint.
       if (this.sorobanService.isConfigured()) {
         try {
-          const metadataUri = savedCertificate.verificationCode ?? savedCertificate.id;
+          const metadataUri =
+            savedCertificate.verificationCode ?? savedCertificate.id;
           const issuerAddress = savedCertificate.issuerStellarAddress ?? '';
           const ownerAddress = savedCertificate.recipientStellarAddress ?? '';
 
@@ -182,12 +186,9 @@ export class CertificateService {
 
             // Persist the Stellar transaction hash so callers can verify on-chain
             await this.certificateRepository.update(savedCertificate.id, {
-              stellarTransactionHash: typeof txHash === 'string' ? txHash : undefined,
+              stellarTransactionHash: txHash,
             });
-
-            if (typeof txHash === 'string') {
-              savedCertificate.stellarTransactionHash = txHash;
-            }
+            savedCertificate.stellarTransactionHash = txHash;
 
             this.logger.log(
               `Certificate ${savedCertificate.id} issued on-chain`,
@@ -226,8 +227,13 @@ export class CertificateService {
 
       return savedCertificate;
     } catch (error) {
-      // Rollback transaction on error
-      await queryRunner.rollbackTransaction();
+      // Roll back only while the transaction is still open. The on-chain call
+      // runs after commitTransaction(), so a chain failure must not attempt to
+      // roll back an already-committed transaction - doing so would mask the
+      // original error and leave callers with a misleading failure.
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
       this.logger.error(
         `Failed to create certificate: ${error.message}`,
         error.stack,
@@ -239,12 +245,90 @@ export class CertificateService {
     }
   }
 
+  /**
+   * Re-attempts on-chain issuance for a certificate whose database row was
+   * committed but whose Soroban call failed (or was skipped), leaving the
+   * record without a `stellarTransactionHash`.
+   *
+   * Idempotent: a certificate that already carries a transaction hash is
+   * returned untouched, so issuers can safely retry the endpoint.
+   *
+   * @throws ServiceUnavailableException when Soroban is not configured
+   * @throws BadRequestException when the certificate is missing the Stellar
+   *   addresses the contract call needs
+   * @throws InternalServerErrorException when the retry still fails on-chain
+   */
+  async syncChain(id: string): Promise<{
+    certificate: Certificate;
+    alreadySynced: boolean;
+    stellarTransactionHash: string | null;
+  }> {
+    const certificate = await this.findOne(id);
+
+    if (certificate.stellarTransactionHash) {
+      return {
+        certificate,
+        alreadySynced: true,
+        stellarTransactionHash: certificate.stellarTransactionHash,
+      };
+    }
+
+    if (!this.sorobanService.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'Soroban is not configured; on-chain issuance cannot be retried',
+      );
+    }
+
+    const issuerAddress = certificate.issuerStellarAddress ?? '';
+    const ownerAddress = certificate.recipientStellarAddress ?? '';
+    if (!issuerAddress || !ownerAddress) {
+      throw new BadRequestException(
+        'Certificate is missing the Stellar addresses required for on-chain issuance',
+      );
+    }
+
+    const expiresAtUnix = certificate.expiresAt
+      ? Math.floor(certificate.expiresAt.getTime() / 1000)
+      : undefined;
+
+    const txHash = await this.sorobanService.issueCertificate(
+      certificate.id,
+      issuerAddress,
+      ownerAddress,
+      certificate.verificationCode ?? certificate.id,
+      expiresAtUnix,
+    );
+
+    if (!txHash) {
+      throw new InternalServerErrorException(
+        `On-chain issuance failed for certificate ${certificate.id}`,
+      );
+    }
+
+    await this.certificateRepository.update(certificate.id, {
+      stellarTransactionHash: txHash,
+    });
+    certificate.stellarTransactionHash = txHash;
+
+    this.logger.log(
+      `Certificate ${certificate.id} re-issued on-chain via sync-chain`,
+    );
+
+    return {
+      certificate,
+      alreadySynced: false,
+      stellarTransactionHash: txHash,
+    };
+  }
+
   async findAll(
     page = 1,
     limit = 10,
     issuerId?: string,
     status?: string,
   ): Promise<{ certificates: Certificate[]; total: number }> {
+    const safePage = Math.max(1, page || 1);
+    const safeLimit = Math.min(Math.max(1, limit || 10), MAX_PAGE_LIMIT);
     const queryBuilder = this.certificateRepository
       .createQueryBuilder('certificate')
       .leftJoinAndSelect('certificate.issuer', 'issuer')
@@ -260,8 +344,8 @@ export class CertificateService {
 
     const total = await queryBuilder.getCount();
     const certificates = await queryBuilder
-      .skip((page - 1) * limit)
-      .take(limit)
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
       .getMany();
 
     return { certificates, total };
@@ -377,8 +461,11 @@ export class CertificateService {
     id: string,
     reason?: string,
     durationDays?: number,
+    userId?: string,
+    userRole?: string,
   ): Promise<Certificate> {
     const certificate = await this.findOne(id);
+    this.assertCertificateOwnership(certificate, userId, userRole);
 
     if (certificate.status !== CertificateStatus.ACTIVE) {
       throw new ConflictException(
@@ -392,7 +479,9 @@ export class CertificateService {
         ? Math.max(1, Math.trunc(durationDays))
         : undefined;
     const unfreezeAt = normalizedDurationDays
-      ? new Date(frozenAt.getTime() + normalizedDurationDays * 24 * 60 * 60 * 1000)
+      ? new Date(
+          frozenAt.getTime() + normalizedDurationDays * 24 * 60 * 60 * 1000,
+        )
       : undefined;
 
     certificate.status = CertificateStatus.FROZEN;
@@ -400,7 +489,9 @@ export class CertificateService {
       ...certificate.metadata,
       ...(reason ? { freezeReason: reason } : {}),
       frozenAt,
-      ...(normalizedDurationDays ? { freezeDurationDays: normalizedDurationDays } : {}),
+      ...(normalizedDurationDays
+        ? { freezeDurationDays: normalizedDurationDays }
+        : {}),
       ...(unfreezeAt ? { unfreezeAt } : {}),
     };
 
@@ -408,14 +499,16 @@ export class CertificateService {
 
     // Trigger webhook event
     await this.webhooksService.triggerEvent(
-      WebhookEvent.CERTIFICATE_REVOKED, // Using existing revoked event, could add new freeze event
+      WebhookEvent.CERTIFICATE_FROZEN,
       savedCertificate.issuerId,
       {
         id: savedCertificate.id,
         status: savedCertificate.status,
         ...(reason ? { freezeReason: reason } : {}),
         frozenAt,
-        ...(normalizedDurationDays ? { freezeDurationDays: normalizedDurationDays } : {}),
+        ...(normalizedDurationDays
+          ? { freezeDurationDays: normalizedDurationDays }
+          : {}),
         ...(unfreezeAt ? { unfreezeAt } : {}),
       },
     );
@@ -423,8 +516,14 @@ export class CertificateService {
     return savedCertificate;
   }
 
-  async unfreeze(id: string, reason?: string): Promise<Certificate> {
+  async unfreeze(
+    id: string,
+    reason?: string,
+    userId?: string,
+    userRole?: string,
+  ): Promise<Certificate> {
     const certificate = await this.findOne(id);
+    this.assertCertificateOwnership(certificate, userId, userRole);
 
     if (certificate.status !== CertificateStatus.FROZEN) {
       throw new ConflictException(
@@ -445,7 +544,7 @@ export class CertificateService {
 
     // Trigger webhook event
     await this.webhooksService.triggerEvent(
-      WebhookEvent.CERTIFICATE_ISSUED, // Using existing issued event, could add new unfreeze event
+      WebhookEvent.CERTIFICATE_UNFROZEN,
       savedCertificate.issuerId,
       {
         id: savedCertificate.id,
@@ -509,14 +608,30 @@ export class CertificateService {
   async exportCertificates(
     issuerId?: string,
     status?: string,
+    limit: number = MAX_EXPORT_LIMIT,
+    currentUserId?: string,
+    userRole?: string,
   ): Promise<Certificate[]> {
+    const effectiveIssuerId =
+      userRole && userRole !== UserRole.ADMIN
+        ? currentUserId
+        : (issuerId ?? currentUserId);
+
+    const safeLimit = Math.min(
+      Math.max(1, limit || MAX_EXPORT_LIMIT),
+      MAX_EXPORT_LIMIT,
+    );
+
     const queryBuilder = this.certificateRepository
       .createQueryBuilder('certificate')
       .leftJoinAndSelect('certificate.issuer', 'issuer')
-      .orderBy('certificate.issuedAt', 'DESC');
+      .orderBy('certificate.issuedAt', 'DESC')
+      .take(safeLimit);
 
-    if (issuerId) {
-      queryBuilder.andWhere('certificate.issuerId = :issuerId', { issuerId });
+    if (effectiveIssuerId) {
+      queryBuilder.andWhere('certificate.issuerId = :issuerId', {
+        issuerId: effectiveIssuerId,
+      });
     }
 
     if (status) {
@@ -526,11 +641,33 @@ export class CertificateService {
     return queryBuilder.getMany();
   }
 
-  async bulkExport(certificateIds: string[], filters?: any): Promise<string> {
+  async bulkExport(
+    certificateIds: string[],
+    filters?: any,
+    issuerId?: string,
+    userRole?: string,
+  ): Promise<string> {
+    const effectiveIssuerId =
+      userRole && userRole !== UserRole.ADMIN
+        ? issuerId
+        : (issuerId ?? (userRole === UserRole.ADMIN ? filters?.issuerId : undefined));
+
+    const maxLimit = Math.min(
+      Math.max(1, filters?.limit || MAX_EXPORT_LIMIT),
+      MAX_EXPORT_LIMIT,
+    );
+
     const queryBuilder = this.certificateRepository
       .createQueryBuilder('certificate')
       .leftJoinAndSelect('certificate.issuer', 'issuer')
-      .orderBy('certificate.issuedAt', 'DESC');
+      .orderBy('certificate.issuedAt', 'DESC')
+      .take(maxLimit);
+
+    if (effectiveIssuerId) {
+      queryBuilder.andWhere('certificate.issuerId = :issuerId', {
+        issuerId: effectiveIssuerId,
+      });
+    }
 
     // Apply certificate ID filter if provided
     if (certificateIds && certificateIds.length > 0) {
@@ -565,17 +702,44 @@ export class CertificateService {
           endDate: new Date(filters.endDate),
         });
       }
+
+      if (filters.issuerId && !effectiveIssuerId) {
+        queryBuilder.andWhere('certificate.issuerId = :filterIssuerId', {
+          filterIssuerId: filters.issuerId,
+        });
+      }
     }
 
     const certificates = await queryBuilder.getMany();
     return this.convertToCSV(certificates);
   }
 
-  async exportAllFiltered(filters?: any): Promise<string> {
+  async exportAllFiltered(
+    filters?: any,
+    issuerId?: string,
+    userRole?: string,
+  ): Promise<string> {
+    const effectiveIssuerId =
+      userRole && userRole !== UserRole.ADMIN
+        ? issuerId
+        : (issuerId ?? (userRole === UserRole.ADMIN ? filters?.issuerId : undefined));
+
+    const maxLimit = Math.min(
+      Math.max(1, filters?.limit || MAX_EXPORT_LIMIT),
+      MAX_EXPORT_LIMIT,
+    );
+
     const queryBuilder = this.certificateRepository
       .createQueryBuilder('certificate')
       .leftJoinAndSelect('certificate.issuer', 'issuer')
-      .orderBy('certificate.issuedAt', 'DESC');
+      .orderBy('certificate.issuedAt', 'DESC')
+      .take(maxLimit);
+
+    if (effectiveIssuerId) {
+      queryBuilder.andWhere('certificate.issuerId = :issuerId', {
+        issuerId: effectiveIssuerId,
+      });
+    }
 
     // Apply filters
     if (filters) {
@@ -601,6 +765,12 @@ export class CertificateService {
       if (filters.endDate) {
         queryBuilder.andWhere('certificate.issuedAt <= :endDate', {
           endDate: new Date(filters.endDate),
+        });
+      }
+
+      if (filters.issuerId && !effectiveIssuerId) {
+        queryBuilder.andWhere('certificate.issuerId = :filterIssuerId', {
+          filterIssuerId: filters.issuerId,
         });
       }
     }
@@ -630,18 +800,17 @@ export class CertificateService {
       cert.recipientEmail,
       cert.title,
       cert.courseName,
-      cert.issuerName ?? (cert.issuer ? (`${cert.issuer.firstName ?? ''} ${cert.issuer.lastName ?? ''}`.trim() || 'Unknown') : 'Unknown'),
+      cert.issuerName ??
+        (cert.issuer
+          ? `${cert.issuer.firstName ?? ''} ${cert.issuer.lastName ?? ''}`.trim() ||
+            'Unknown'
+          : 'Unknown'),
       cert.issuedAt.toISOString().split('T')[0],
       cert.status,
       cert.expiresAt ? cert.expiresAt.toISOString().split('T')[0] : '',
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map((row) => row.map((cell) => `"${cell}"`).join(',')),
-    ].join('\n');
-
-    return csvContent;
+    return toCsv(headers, rows);
   }
 
   async remove(id: string): Promise<void> {
@@ -702,15 +871,21 @@ export class CertificateService {
     }
 
     if ((dto as any).status) {
-      queryBuilder.andWhere('certificate.status = :status', { status: (dto as any).status });
+      queryBuilder.andWhere('certificate.status = :status', {
+        status: (dto as any).status,
+      });
     }
 
     if ((dto as any).issuerId) {
-      queryBuilder.andWhere('certificate.issuerId = :issuerId', { issuerId: (dto as any).issuerId });
+      queryBuilder.andWhere('certificate.issuerId = :issuerId', {
+        issuerId: (dto as any).issuerId,
+      });
     }
 
     if ((dto as any).page && (dto as any).limit) {
-      queryBuilder.skip(((dto as any).page - 1) * (dto as any).limit).take((dto as any).limit);
+      queryBuilder
+        .skip(((dto as any).page - 1) * (dto as any).limit)
+        .take((dto as any).limit);
     }
 
     return queryBuilder.orderBy('certificate.issuedAt', 'DESC').getMany();
@@ -734,7 +909,9 @@ export class CertificateService {
       where: { stellarTransactionHash: hash },
     });
     if (!certificate) {
-      throw new NotFoundException('Certificate not found for this Stellar transaction');
+      throw new NotFoundException(
+        'Certificate not found for this Stellar transaction',
+      );
     }
     return certificate;
   }
@@ -809,12 +986,44 @@ export class CertificateService {
     );
   }
 
+  /**
+   * Assert that the caller is allowed to mutate a certificate.
+   *
+   * The issuing account may change only its own certificates; administrators
+   * may change any certificate for moderation and recovery. Every other
+   * caller — including an authenticated issuer holding another issuer's
+   * certificate id — is rejected before any state is written.
+   *
+   * @throws ForbiddenException when the caller is neither the issuer nor an admin
+   */
+  private assertCertificateOwnership(
+    certificate: Certificate,
+    userId?: string,
+    userRole?: string,
+  ): void {
+    if (userRole === UserRole.ADMIN) {
+      return;
+    }
+    if (!userId) {
+      throw new ForbiddenException(
+        'Issuer identity is required to modify this certificate',
+      );
+    }
+    if (certificate.issuerId !== userId) {
+      throw new ForbiddenException(
+        'You can only modify certificates issued by your own account',
+      );
+    }
+  }
+
   async updateWithUser(
     id: string,
     updateCertificateDto: UpdateCertificateDto,
     userId: string,
+    userRole?: string,
   ): Promise<Certificate> {
     const certificate = await this.findOne(id);
+    this.assertCertificateOwnership(certificate, userId, userRole);
     Object.assign(certificate, updateCertificateDto);
     return this.certificateRepository.save(certificate);
   }
@@ -825,7 +1034,10 @@ export class CertificateService {
     userId: string,
     ipAddress: string,
     userAgent: string,
+    userRole?: string,
   ): Promise<Certificate> {
+    const certificate = await this.findOne(id);
+    this.assertCertificateOwnership(certificate, userId, userRole);
     return this.revoke(id, dto.reason);
   }
 
@@ -835,22 +1047,35 @@ export class CertificateService {
     return expiry;
   }
 
-  private generateVerificationCode(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 8; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+  private async generateVerificationCode(): Promise<string> {
+    const maxRetries = 10;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const code = CryptoUtils.generateAlphanumericCode(8);
+      const exists = await this.certificateRepository.findOne({
+        where: { verificationCode: code },
+        select: ['id'],
+      });
+      if (!exists) return code;
     }
-    return code;
+    throw new ConflictException(
+      'Failed to generate a unique verification code after multiple attempts',
+    );
   }
 
-  private generateCertificateId(): string {
+  private async generateCertificateId(): Promise<string> {
     const year = new Date().getFullYear();
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let suffix = '';
-    for (let i = 0; i < 8; i++) {
-      suffix += chars.charAt(Math.floor(Math.random() * chars.length));
+    const maxRetries = 10;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const suffix = CryptoUtils.generateAlphanumericCode(8);
+      const certificateId = `CERT-${year}-${suffix}`;
+      const exists = await this.certificateRepository.findOne({
+        where: { certificateId },
+        select: ['id'],
+      });
+      if (!exists) return certificateId;
     }
-    return `CERT-${year}-${suffix}`;
+    throw new ConflictException(
+      'Failed to generate a unique certificate ID after multiple attempts',
+    );
   }
 }

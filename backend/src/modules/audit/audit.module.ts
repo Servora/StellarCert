@@ -1,4 +1,9 @@
-import { Module, MiddlewareConsumer, NestModule, forwardRef } from '@nestjs/common';
+import {
+  Module,
+  MiddlewareConsumer,
+  NestModule,
+  forwardRef,
+} from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuditLog } from './entities';
@@ -20,6 +25,6 @@ import { AuthModule } from '../auth/auth.module';
 })
 export class AuditModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(AuditContextMiddleware).forRoutes('*');
+    consumer.apply(AuditContextMiddleware).forRoutes('{*path}');
   }
 }

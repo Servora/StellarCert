@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import * as endpoints from './endpoints';
+import { tokenStorage } from './tokens';
 
 describe('frontend api endpoints', () => {
   it('does not expose a runtime toggleDummyData helper', () => {
@@ -32,7 +33,7 @@ describe('frontend api endpoints', () => {
   });
 
   it('uses the refreshed access token when retrying after a 401', async () => {
-    localStorage.setItem('accessToken', 'expired-token');
+    tokenStorage.setAccessToken('expired-token');
     const refreshedUser = {
       id: 'user-1',
       email: 'user@example.com',

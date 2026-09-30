@@ -76,7 +76,10 @@ export class RequestValidationPipe implements PipeTransform {
   private formatErrors(
     errors: ValidationError[],
   ): Array<{ field: string; constraints: Record<string, string> }> {
-    const formattedErrors: Array<{ field: string; constraints: Record<string, string> }> = [];
+    const formattedErrors: Array<{
+      field: string;
+      constraints: Record<string, string>;
+    }> = [];
 
     const traverse = (errs: ValidationError[], prefix = '') => {
       errs.forEach((error) => {

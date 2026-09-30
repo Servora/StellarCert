@@ -6,7 +6,7 @@ import { RolesGuard } from '../../users/guards/roles.guard';
 import { Roles } from '../../users/decorators/roles.decorator';
 import { UserRole } from '../../users/entities/user.entity';
 import { LoggingService } from '../../../common/logging/logging.service';
-import { TtlService } from '../services/ttl.service';
+main
 
 @ApiTags('Soroban')
 @Controller('soroban')
@@ -16,7 +16,7 @@ export class SorobanController {
   constructor(
     private readonly sorobanService: SorobanService,
     private readonly logger: LoggingService,
-    private readonly ttlService: TtlService,
+ main
   ) {}
 
   @Post('initialize-contract')

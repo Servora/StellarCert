@@ -1,5 +1,21 @@
-import { IsOptional, IsString, IsDateString } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsDateString,
+  IsArray,
+  IsUUID,
+  ArrayMaxSize,
+  ValidateNested,
+  IsInt,
+  Min,
+  Max,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
+export const MAX_BULK_EXPORT_IDS = 100;
+export const MAX_EXPORT_LIMIT = 1000;
+export const MAX_PAGE_LIMIT = 100;
 
 export class ExportFiltersDto {
   @ApiPropertyOptional({
@@ -33,14 +49,37 @@ export class ExportFiltersDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter by issuer ID (admin only or scoped to caller)',
+    example: '5f1e8a8d-8f58-4c8b-88d4-5d0a8c9dbf2a',
+  })
+  @IsOptional()
+  @IsUUID()
+  issuerId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Maximum number of certificates to export',
+    example: 100,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_EXPORT_LIMIT)
+  limit?: number;
 }
 
 export class BulkExportDto {
   @ApiPropertyOptional({
     description: 'List of certificate IDs to export',
     example: ['a3d8a582-bd23-4a2d-9630-6d4a2f5fd6f0'],
+    type: [String],
   })
   @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  @ArrayMaxSize(MAX_BULK_EXPORT_IDS)
   certificateIds?: string[];
 
   @ApiPropertyOptional({
@@ -48,5 +87,7 @@ export class BulkExportDto {
     type: ExportFiltersDto,
   })
   @IsOptional()
+  @ValidateNested()
+  @Type(() => ExportFiltersDto)
   filters?: ExportFiltersDto;
 }

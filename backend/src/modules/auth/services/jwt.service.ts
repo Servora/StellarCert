@@ -152,4 +152,34 @@ export class JwtManagementService {
       return null;
     }
   }
+
+  /**
+   * Record a failed 2FA verification attempt for a pre-auth token.
+   * If attempts reach or exceed maxAttempts, the token is invalidated (blacklisted).
+   */
+  async recordFailed2faAttempt(
+    token: string,
+    maxAttempts = 3,
+  ): Promise<{ attempts: number; invalidated: boolean }> {
+    const key = `2fa_attempts:${token}`;
+    const current = (await this.cacheManager.get<number>(key)) || 0;
+    const attempts = current + 1;
+    // Window of 5 minutes (matching pre-auth token expiration)
+    await this.cacheManager.set(key, attempts, 5 * 60 * 1000);
+
+    if (attempts >= maxAttempts) {
+      await this.blacklistToken(token, 5 * 60);
+      return { attempts, invalidated: true };
+    }
+
+    return { attempts, invalidated: false };
+  }
+
+  /**
+   * Clear failed 2FA verification attempts for a pre-auth token.
+   */
+  async clear2faAttempts(token: string): Promise<void> {
+    const key = `2fa_attempts:${token}`;
+    await this.cacheManager.del(key);
+  }
 }

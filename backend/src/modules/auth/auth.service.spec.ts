@@ -14,6 +14,8 @@ describe('AuthService - Registration', () => {
   let authService: AuthService;
   let usersService: jest.Mocked<UsersService>;
   let jwtService: jest.Mocked<JwtService>;
+  let jwtManagementService: jest.Mocked<JwtManagementService>;
+  let twoFactorService: jest.Mocked<TwoFactorService>;
 
   const mockRegisterDto: RegisterDto = {
     email: 'test@example.com',
@@ -62,7 +64,14 @@ describe('AuthService - Registration', () => {
     } as any;
 
     const mockJwtManagementService = {
-      blacklistToken: jest.fn(),
+      blacklistToken: jest.fn().mockResolvedValue(undefined),
+      isTokenBlacklisted: jest.fn().mockResolvedValue(false),
+      recordFailed2faAttempt: jest
+        .fn()
+        .mockResolvedValue({ attempts: 1, invalidated: false }),
+      clear2faAttempts: jest.fn().mockResolvedValue(undefined),
+      generateAccessToken: jest.fn().mockResolvedValue('mock-access-token'),
+      generateRefreshToken: jest.fn().mockResolvedValue('mock-refresh-token'),
       verifyRefreshToken: jest.fn(),
       refreshAccessToken: jest.fn(),
     } as any;
@@ -99,8 +108,10 @@ describe('AuthService - Registration', () => {
     }).compile();
 
     authService = module.get<AuthService>(AuthService);
-    usersService = module.get(UsersService) as any;
-    jwtService = module.get(JwtService) as any;
+    usersService = module.get(UsersService);
+    jwtService = module.get(JwtService);
+    jwtManagementService = module.get(JwtManagementService);
+    twoFactorService = module.get(TwoFactorService);
   });
 
   describe('register', () => {
@@ -215,7 +226,7 @@ describe('AuthService - Registration', () => {
     it('should ensure AuthService does not duplicate user creation logic', async () => {
       // This test verifies that AuthService no longer implements its own
       // user creation logic and properly delegates to UsersService
-      
+
       usersService.register.mockResolvedValue(mockRegistrationResult as any);
 
       await authService.register(mockRegisterDto);
@@ -229,7 +240,7 @@ describe('AuthService - Registration', () => {
     it('should maintain the same interface as before refactoring', async () => {
       // Ensure backward compatibility - the method signature and return type
       // should remain the same for existing clients
-      
+
       usersService.register.mockResolvedValue(mockRegistrationResult as any);
 
       const result = await authService.register(mockRegisterDto);
@@ -239,11 +250,73 @@ describe('AuthService - Registration', () => {
       expect(result).toHaveProperty('refreshToken');
       expect(result).toHaveProperty('expiresIn');
       expect(result).toHaveProperty('user');
-      
+
       expect(result.user).toHaveProperty('id');
       expect(result.user).toHaveProperty('email');
       expect(result.user).toHaveProperty('firstName');
       expect(result.user).toHaveProperty('lastName');
+    });
+  });
+
+  describe('verifyTwoFactor (#775)', () => {
+    const mockPreAuthToken = 'valid-pre-auth-token';
+    const mockTotp = '123456';
+    const mockPayload = { sub: 'user-123', type: 'pre-auth' };
+
+    beforeEach(() => {
+      jwtService.verify.mockReturnValue(mockPayload);
+      jwtManagementService.isTokenBlacklisted.mockResolvedValue(false);
+      usersService.findOneById = jest.fn().mockResolvedValue({
+        id: 'user-123',
+        email: 'test@example.com',
+        role: 'USER',
+        isActive: true,
+      });
+    });
+
+    it('rejects if pre-auth token is blacklisted / invalidated', async () => {
+      jwtManagementService.isTokenBlacklisted.mockResolvedValue(true);
+
+      await expect(
+        authService.verifyTwoFactor(mockPreAuthToken, mockTotp),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('records failed attempts and throws if token invalidated after failures', async () => {
+      twoFactorService.validateLogin.mockRejectedValue(
+        new UnauthorizedException('Invalid 2FA token'),
+      );
+      jwtManagementService.recordFailed2faAttempt.mockResolvedValue({
+        attempts: 3,
+        invalidated: true,
+      });
+
+      await expect(
+        authService.verifyTwoFactor(mockPreAuthToken, 'wrong-totp'),
+      ).rejects.toThrow('Too many failed 2FA attempts');
+
+      expect(jwtManagementService.recordFailed2faAttempt).toHaveBeenCalledWith(
+        mockPreAuthToken,
+        3,
+      );
+    });
+
+    it('invalidates pre-auth token upon successful login to prevent replay', async () => {
+      twoFactorService.validateLogin.mockResolvedValue(undefined);
+
+      const result = await authService.verifyTwoFactor(
+        mockPreAuthToken,
+        mockTotp,
+      );
+
+      expect(result).toHaveProperty('accessToken');
+      expect(jwtManagementService.blacklistToken).toHaveBeenCalledWith(
+        mockPreAuthToken,
+        300,
+      );
+      expect(jwtManagementService.clear2faAttempts).toHaveBeenCalledWith(
+        mockPreAuthToken,
+      );
     });
   });
 });

@@ -495,8 +495,8 @@ describe('UsersService', () => {
     it('should generate reset token for existing user', async () => {
       mockUserRepository.findByEmail.mockResolvedValue(mockUser);
       mockUserRepository.update.mockResolvedValue(mockUser);
-      (bcrypt.hash as jest.Mock).mockImplementationOnce(
-        (value: string) => Promise.resolve(`hashed-${value}`),
+      (bcrypt.hash as jest.Mock).mockImplementationOnce((value: string) =>
+        Promise.resolve(`hashed-${value}`),
       );
 
       const result = await service.forgotPassword({ email: mockUser.email });

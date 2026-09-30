@@ -12,16 +12,21 @@ npm install
 # 2. Install backend dependencies separately
 (cd backend && npm install)
 
-# 3. Start Postgres and Redis
+# 3. Create the compose environment file (docker compose reads ./.env)
+#    Every value in .env.example is a required placeholder; docker-compose.yml
+#    fails fast with ${VAR:?} if one is missing or empty.
+cp .env.example .env
+
+# 4. Start Postgres and Redis
 docker compose up -d postgres redis
 
-# 4. Copy environment file
+# 5. Copy the backend environment file
 cp backend/.env.example backend/.env
 
-# 5. Start development servers (backend :3000, frontend :5173)
+# 6. Start development servers (backend :3000, frontend :5173)
 npm run dev
 
-# 6. Verify the API is running
+# 7. Verify the API is running
 curl http://localhost:3000/api/v1/health
 ```
 
@@ -230,6 +235,10 @@ bash
 cd frontend
 npm test # Unit tests
 npm run test:e2e # E2E tests
+Frontend Linting
+bash
+cd frontend
+npm run lint # ESLint 9 flat config (eslint.config.js)
 Stellar Contract Tests
 bash
 cd stellar-contracts

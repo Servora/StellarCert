@@ -1,23 +1,25 @@
+import { ReactNode } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { UserRole } from "../api/types";
 
 interface ProtectedRouteProps {
   allowedRoles?: UserRole[];
+  children?: ReactNode;
 }
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles }) => {
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles, children }) => {
   const { user } = useAuth();
   const location = useLocation();
 
   // Public verify path requires no auth
-  if (location.pathname === "/verify") return <Outlet />;
+  if (location.pathname === "/verify") return children ? <>{children}</> : <Outlet />;
 
   // Not logged in - redirect to login and preserve destination
   if (!user) {
     return (
       <Navigate
-        to={`/login?returnUrl=${encodeURIComponent(location.pathname)}`}
+        to={`/login?returnUrl=${encodeURIComponent(location.pathname + location.search)}`}
         replace
       />
     );
@@ -30,7 +32,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles }) => {
     }
   }
 
-  return <Outlet />;
+  return children ? <>{children}</> : <Outlet />;
 };
 
 export default ProtectedRoute;

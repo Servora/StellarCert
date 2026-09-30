@@ -5,11 +5,14 @@ import {
   HealthCheckError,
 } from '@nestjs/terminus';
 import { DataSource } from 'typeorm';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 @Injectable()
 export class DatabaseHealthIndicator extends HealthIndicator {
-  constructor(private readonly dataSource: DataSource, private readonly logger: LoggingService) {
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly logger: LoggingService,
+  ) {
     super();
   }
 

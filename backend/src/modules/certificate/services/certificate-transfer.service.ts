@@ -378,22 +378,11 @@ export class CertificateTransferService {
       status: 'success',
     });
 
-    // Notify initiator
-    await this.notificationsService.createNotification(
-      transfer.initiatedBy,
-      NotificationType.WARNING,
-      'Certificate Transfer Rejected',
-      `Transfer of certificate "${transfer.certificate.title}" to ${transfer.toEmail} was rejected. Reason: ${rejectionReason}`,
-    );
-
-    this.logger.log(
-      `Transfer ${transferId} rejected for certificate ${transfer.certificateId}`,
-    );
+ main
 
     return savedTransfer;
   }
 
-  private async generateConfirmationCode(): Promise<string> {
-    return CryptoUtils.generateRandomString(12);
+ main
   }
 }

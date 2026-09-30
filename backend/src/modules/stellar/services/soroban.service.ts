@@ -362,8 +362,7 @@ export class SorobanService implements OnModuleInit {
         return null;
       }
 
-      await this.extendInstanceTtl(this.certificateContractId);
-
+ main
       return result.hash;
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);

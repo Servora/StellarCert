@@ -31,7 +31,10 @@ export class CacheInterceptor implements NestInterceptor {
     const cacheOptions = this.getCacheOptions(context);
 
     if (cacheOptions.noCache) {
-      response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      response.setHeader(
+        'Cache-Control',
+        'no-store, no-cache, must-revalidate',
+      );
       return next.handle();
     }
 
@@ -39,7 +42,7 @@ export class CacheInterceptor implements NestInterceptor {
       map((data) => {
         if (cacheOptions) {
           const etag = CacheInterceptor.generateETag(data);
-          
+
           // Check if client has the same ETag
           const clientEtag = request.get('if-none-match');
           if (clientEtag === etag) {
@@ -57,7 +60,9 @@ export class CacheInterceptor implements NestInterceptor {
             directives.push(`max-age=${cacheOptions.maxAge}`);
           }
           if (cacheOptions.staleWhileRevalidate) {
-            directives.push(`stale-while-revalidate=${cacheOptions.staleWhileRevalidate}`);
+            directives.push(
+              `stale-while-revalidate=${cacheOptions.staleWhileRevalidate}`,
+            );
           }
           if (cacheOptions.mustRevalidate) {
             directives.push('must-revalidate');
@@ -78,21 +83,21 @@ export class CacheInterceptor implements NestInterceptor {
     const classRef = context.getClass();
 
     // Check for decorator metadata (can be extended with custom decorators)
-    return Reflect.getMetadata('cacheOptions', handler) || 
-           Reflect.getMetadata('cacheOptions', classRef) ||
-           this.getDefaultCacheOptions(context);
+    return (
+      Reflect.getMetadata('cacheOptions', handler) ||
+      Reflect.getMetadata('cacheOptions', classRef) ||
+      this.getDefaultCacheOptions(context)
+    );
   }
 
-  private getDefaultCacheOptions(context: ExecutionContext): CacheOptions | null {
+  private getDefaultCacheOptions(
+    context: ExecutionContext,
+  ): CacheOptions | null {
     const request = context.switchToHttp().getRequest();
     const route = request.route?.path;
 
     // Define which routes should be cached by default
-    const cacheableRoutes = [
-      '/stats/summary',
-      '/issuers',
-      '/metadata-schemas',
-    ];
+    const cacheableRoutes = ['/stats/summary', '/issuers', '/metadata-schemas'];
 
     if (cacheableRoutes.some((r) => route?.includes(r))) {
       return {

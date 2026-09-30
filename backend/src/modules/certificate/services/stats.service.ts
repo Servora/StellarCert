@@ -98,15 +98,20 @@ export class CertificateStatsService {
       dateFilter.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = dateFilter.endDate || new Date();
 
-    const trendData = await this.certificateRepo
+    const trendQuery = this.certificateRepo
       .createQueryBuilder('cert')
       .select('DATE(cert.issuedAt)', 'date')
       .addSelect('COUNT(*)', 'count')
       .where('cert.issuedAt >= :startDate', { startDate })
-      .andWhere('cert.issuedAt <= :endDate', { endDate })
-      .andWhere(issuerFilter.issuerId ? 'cert.issuerId = :issuerId' : '1=1', {
+      .andWhere('cert.issuedAt <= :endDate', { endDate });
+
+    if (issuerFilter.issuerId) {
+      trendQuery.andWhere('cert.issuerId = :issuerId', {
         issuerId: issuerFilter.issuerId,
-      })
+      });
+    }
+
+    const trendData = await trendQuery
       .groupBy('DATE(cert.issuedAt)')
       .orderBy('date', 'ASC')
       .getRawMany();
@@ -142,7 +147,8 @@ export class CertificateStatsService {
       .getRawMany();
 
     return topIssuersData.map((item) => {
-      const issuerName = [item.firstName, item.lastName].filter(Boolean).join(' ') || 'Unknown';
+      const issuerName =
+        [item.firstName, item.lastName].filter(Boolean).join(' ') || 'Unknown';
       return {
         issuerId: item.issuerId,
         issuerName,

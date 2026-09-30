@@ -60,16 +60,19 @@ describe('ProtectedRoute prefix matching (#565)', () => {
     expect(screen.queryByText('home')).toBeNull();
   });
 
-  it('does not match a path that merely shares a prefix (segment boundary)', () => {
-    // /certificatesfoo must NOT be treated as a sub-route of /certificates.
-    renderAt('/certificatesfoo');
+  it('does not grant access to a sibling path that merely shares a prefix', () => {
+    // The built-in per-role path matrix was removed in #852; authorization
+    // now comes from the explicit allowedRoles on each route group. A
+    // /certificatesfoo route wrapped for recipients must not be reachable
+    // by an issuer.
+    renderAt('/certificatesfoo', [UserRole.RECIPIENT]);
     expect(screen.getByText('home')).toBeTruthy();
     expect(screen.queryByText('certs foo')).toBeNull();
   });
 
-  it('redirects a disallowed path to home', () => {
+  it('redirects a disallowed path to home (incl. sub-routes)', () => {
     setUser({ ...issuer, role: UserRole.RECIPIENT }); // recipient: only /wallet
-    renderAt('/certificates/abc-123');
+    renderAt('/certificates/abc-123', [UserRole.ISSUER, UserRole.ADMIN]);
     expect(screen.getByText('home')).toBeTruthy();
     expect(screen.queryByText('cert detail')).toBeNull();
   });

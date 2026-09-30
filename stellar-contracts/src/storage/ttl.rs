@@ -4,6 +4,8 @@ use soroban_sdk::{Env, IntoVal, Val};
 pub const DEFAULT_TTL: u32 = 518_400;
 
 /// Threshold below which TTL is re-extended on read: ~7 days = 120_960 ledgers.
+// Kept for the not-yet-wired "bump TTL on read" path (see `bump_ttl_on_get`).
+#[allow(dead_code)]
 pub const TTL_RENEWAL_THRESHOLD: u32 = 120_960;
 
 /// Extend TTL for a given persistent storage key (called on writes).
@@ -19,6 +21,8 @@ where
 
 /// Bump TTL on read: extends only when remaining TTL falls below the renewal
 /// threshold, preventing silent expiry between writes.
+// Not yet wired into read paths; retained as the intended fix for TTL-on-read.
+#[allow(dead_code)]
 pub fn bump_ttl_on_get<K>(env: &Env, key: &K)
 where
     K: IntoVal<Env, Val>,

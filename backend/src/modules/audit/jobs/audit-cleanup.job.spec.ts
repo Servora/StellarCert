@@ -54,7 +54,9 @@ describe('AuditCleanupJob', () => {
     job = module.get<AuditCleanupJob>(AuditCleanupJob);
     auditService = module.get<AuditService>(AuditService);
     configService = module.get<ConfigService>(ConfigService);
-    distributedLock = module.get<DistributedLockService>(DistributedLockService);
+    distributedLock = module.get<DistributedLockService>(
+      DistributedLockService,
+    );
   });
 
   describe('handleCron', () => {

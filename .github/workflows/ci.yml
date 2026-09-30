@@ -8,6 +8,10 @@ on:
       - 'feature/**'
   pull_request:
 
+# Least privilege: every job in this workflow only needs to read the repo.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -19,6 +23,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       backend: ${{ steps.filter.outputs.backend }}
       contracts: ${{ steps.filter.outputs.contracts }}
+      docker: ${{ steps.filter.outputs.docker }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v3
@@ -31,6 +36,11 @@ jobs:
               - 'backend/**'
             contracts:
               - 'stellar-contracts/**'
+            docker:
+              - 'backend/Dockerfile'
+              - 'frontend/Dockerfile'
+              - 'docker-compose.yml'
+              - 'nginx/**'
 
   conflict-markers:
     runs-on: ubuntu-latest
@@ -43,6 +53,27 @@ jobs:
             exit 1
           fi
 
+  security-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: Security audit
+        run: npm run security:audit
+
+  # Case-sensitive filesystems (Linux and every CI runner) resolve import
+  # specifiers exactly, so a casing typo that works on macOS/Windows breaks
+  # the build - or, for a `React.lazy` route, blanks the page at runtime
+  # instead of failing loudly (#744). The check is dependency-free on
+  # purpose, so it runs without the frontend install.
+  import-case:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check relative import casing
+        run: node frontend/scripts/check-import-case.mjs
   frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
@@ -52,23 +83,21 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install frontend dependencies
         run: npm ci
-      - name: Check frontend environment variables
-        run: |
-          node -e "
-          const required = ['VITE_API_URL'];
-          const missing = required.filter(key => !process.env[key]);
-          if (missing.length) {
-            console.error('Missing required environment variables:', missing.join(', '));
-            process.exit(1);
-          }
-          "
+      - name: Lint frontend
+        run: npm run lint -- --max-warnings 0
+      - name: Typecheck frontend
+        run: npm run typecheck
+      # `npm test` maps to `vitest run` (see frontend/package.json) so the
+      # 16 existing src/**/*.test.ts[x] suites are actually executed here.
+      - name: Test frontend
+        run: npm test
       - name: Build frontend
         run: npm run build
 
@@ -77,8 +106,10 @@ jobs:
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [18, 20, 22]
+        # Node 18 is EOL; supported lines are 20 (LTS) and 22.
+        node-version: [20, 22]
     defaults:
       run:
         working-directory: backend
@@ -88,25 +119,119 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
         run: npm ci
-      - name: Validate backend environment
-        run: |
-          node -e "
-          const required = ['STELLAR_ISSUER_SECRET_KEY', 'STELLAR_ISSUER_PUBLIC_KEY'];
-          const missing = required.filter(key => !process.env[key]);
-          if (missing.length) {
-            console.error('Missing required environment variables:', missing.join(', '));
-            process.exit(1);
-          }
-          "
+      - name: Lint backend
+        run: npm run lint -- --max-warnings 0
       - name: Typecheck backend
         run: npm run typecheck
       - name: Build backend
         run: npm run build
       - name: Test backend
         run: npm test -- --ci
+
+  # The unit suite above never imports AppModule end to end, so the
+  # test/*.e2e-spec.ts suites (auth, users, certificate manager, versioning)
+  # were dead code. They boot a real Nest application, which needs PostgreSQL
+  # and the Redis instance backing BullMQ.
+  backend-e2e:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: stellarwave_user
+          POSTGRES_PASSWORD: stellarwave_password
+          POSTGRES_DB: stellarwave
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stellarwave_user -d stellarwave"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      PORT: 3000
+      DB_TYPE: postgres
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USERNAME: stellarwave_user
+      DB_PASSWORD: stellarwave_password
+      DB_NAME: stellarwave
+      # Let TypeORM derive the schema from the entities instead of replaying
+      # migrations that are only built for the production image.
+      TYPEORM_SYNCHRONIZE: 'true'
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-jwt-secret-not-used-in-production
+      JWT_ACCESS_SECRET: ci-only-jwt-secret-not-used-in-production
+      JWT_REFRESH_SECRET: ci-only-jwt-secret-not-used-in-production
+      JWT_EXPIRES_IN: 24h
+      STELLAR_NETWORK: testnet
+      STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
+      STELLAR_ISSUER_SECRET_KEY: ''
+      STELLAR_ISSUER_PUBLIC_KEY: ''
+      ALLOWED_ORIGINS: http://localhost:5173
+      ENABLE_SENTRY: 'false'
+      # No object storage in CI; the files module must not require it to boot.
+      STORAGE_REQUIRED: 'false'
+      STORAGE_ENDPOINT: http://localhost:9000
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY: minioadmin
+      STORAGE_SECRET_KEY: minioadmin
+      STORAGE_BUCKET: stellar-cert
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci
+      - name: Run backend e2e tests
+        run: npm run test:e2e -- --ci --runInBand
+
+  # Nothing built the images or parsed nginx.conf, so a broken Dockerfile or
+  # nginx directive could reach a release. Build every documented target.
+  docker:
+    needs: changes
+    if: needs.changes.outputs.docker == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build backend image
+        run: docker build --target production -t stellarcert-backend:ci ./backend
+      - name: Build frontend development image
+        run: docker build --target development -t stellarcert-frontend:dev ./frontend
+      - name: Build frontend production image
+        run: docker build --target production -t stellarcert-frontend:prod ./frontend
+      - name: Validate nginx configuration
+        run: |
+          # nginx -t parses ssl_certificate directives, so the TLS files that
+          # production mounts must exist even for a syntax check.
+          mkdir -p nginx/ssl
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -keyout nginx/ssl/key.pem -out nginx/ssl/cert.pem -subj "/CN=localhost"
+          docker run --rm \
+            -v "$PWD/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            -v "$PWD/nginx/ssl:/etc/nginx/ssl:ro" \
+            nginx:alpine nginx -t
 
   contracts:
     needs: changes
@@ -127,8 +252,17 @@ jobs:
       - name: Format check
         run: cargo fmt --check
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        # Deny all lints except `deprecated`: the contract still uses the
+        # soroban-sdk event API (env.events().publish), whose migration to the
+        # #[contractevent] macro is tracked separately.
+        run: cargo clippy --all-targets -- -D warnings -A deprecated
       - name: Build contracts
         run: cargo build
+      # deploy-contracts.sh ships target/wasm32-unknown-unknown/release, which
+      # a plain host build does not produce or validate.
+      - name: Install wasm target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Build contracts for wasm target
+        run: cargo build --target wasm32-unknown-unknown --release
       - name: Test contracts
         run: cargo test

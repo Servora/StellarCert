@@ -1,31 +1,49 @@
 import { Processor, Process } from '@nestjs/bull';
 import type { Job } from 'bull';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 import { Certificate } from '../../entities/certificate.entity';
 import { CertificateStatus } from '../../constants/certificate-status.enum';
 import { WebhooksService } from '../../../webhooks/webhooks.service';
 import { WebhookEvent } from '../../../webhooks/entities/webhook-subscription.entity';
-import { LoggingService } from "../../../../common/logging/logging.service";
+import { LoggingService } from '../../../../common/logging/logging.service';
+import { EmailService } from '../../../email/email.service';
+import { CertificatePdfService } from '../../services/pdf.service';
 
 @Processor('certificate-jobs')
 export class JobsProcessor {
   constructor(
     @InjectRepository(Certificate)
     private readonly certificateRepository: Repository<Certificate>,
-    private readonly webhooksService: WebhooksService, private readonly logger: LoggingService
+    private readonly webhooksService: WebhooksService,
+    private readonly logger: LoggingService,
+    private readonly emailService: EmailService,
+    private readonly pdfService: CertificatePdfService,
   ) {}
 
   @Process('send-email')
-  handleEmail(job: Job) {
+  async handleEmail(job: Job) {
     this.logger.log(`Sending email with payload: ${JSON.stringify(job.data)}`);
-    // integrate with email service
+    await this.emailService.sendEmail({
+      to: job.data.recipientEmail,
+      subject: job.data.subject,
+      template: 'certificate-issued',
+      data: job.data.metadata || { body: job.data.body },
+    });
   }
 
   @Process('generate-pdf')
-  handlePdf(job: Job) {
+  async handlePdf(job: Job) {
     this.logger.log(`Generating PDF with payload: ${JSON.stringify(job.data)}`);
-    // integrate with PDF generator
+    const certificate = await this.certificateRepository.findOne({
+      where: { id: job.data.certificateId },
+    });
+    if (certificate) {
+      await this.pdfService.generate(certificate);
+      this.logger.log(`PDF generated for certificate: ${certificate.id}`);
+    } else {
+      this.logger.warn(`Certificate not found: ${job.data.certificateId}`);
+    }
   }
 
   @Process('expiration-check')
@@ -41,16 +59,25 @@ export class JobsProcessor {
       : undefined;
 
     const now = new Date();
-    const query = this.certificateRepository
+    let query = this.certificateRepository
       .createQueryBuilder('certificate')
-      .where('certificate.status = :status', { status: 'active' })
-      .andWhere('certificate.expiresAt <= :now', { now });
+      .where('certificate.status = :status', { status: 'active' });
 
+    // The sequence-threshold alternative must be grouped with the expiry
+    // condition (not or-joined at the top level), otherwise every certificate
+    // matching the sequence condition — including REVOKED and FROZEN ones —
+    // would be selected and marked EXPIRED regardless of its status.
     if (sequenceThreshold) {
-      query.orWhere(
-        "(certificate.metadata->>'stellarSequence')::bigint <= :sequenceThreshold",
-        { sequenceThreshold },
+      query = query.andWhere(
+        new Brackets((qb) => {
+          qb.where('certificate.expiresAt <= :now', { now }).orWhere(
+            "(certificate.metadata->>'stellarSequence')::bigint <= :sequenceThreshold",
+            { sequenceThreshold },
+          );
+        }),
       );
+    } else {
+      query = query.andWhere('certificate.expiresAt <= :now', { now });
     }
 
     if (expiryWindowDays > 0) {

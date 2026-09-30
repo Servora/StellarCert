@@ -42,7 +42,7 @@ export class AuthV1Controller {
       res.cookie(REFRESH_COOKIE, result.refreshToken, refreshCookieOptions());
     }
     const { refreshToken: _, ...response } = result;
-    return response as Omit<AuthResponseDto, 'refreshToken'>;
+    return response;
   }
 
   @Post('register')

@@ -7,6 +7,7 @@ import { CertificateService } from './certificate.service';
 import { CertificateStatsService } from './services/stats.service';
 import { CertificatePdfService } from './services/pdf.service';
 import { CertificateMapper } from './mappers/certificate.mapper';
+import { UserRole } from '../../common/constants/roles';
 
 describe('CertificateController', () => {
   let controller: CertificateController;
@@ -14,6 +15,14 @@ describe('CertificateController', () => {
     getCertificateQrCode: jest.fn(),
     verifyCertificate: jest.fn(),
     verifyByCode: jest.fn(),
+    findAll: jest.fn(),
+    exportCertificates: jest.fn(),
+    bulkExport: jest.fn(),
+    exportAllFiltered: jest.fn(),
+    updateWithUser: jest.fn(),
+    revokeWithUser: jest.fn(),
+    freeze: jest.fn(),
+    unfreeze: jest.fn(),
   };
   const statsService = {
     getPublicSummary: jest.fn(),
@@ -129,5 +138,304 @@ describe('CertificateController', () => {
       '127.0.0.1',
       'unknown',
     );
+  });
+
+  describe('findAll scoping and limit capping', () => {
+    beforeEach(() => {
+      certificateService.findAll.mockResolvedValue({
+        certificates: [],
+        total: 0,
+      });
+      certificateMapper.toResponse.mockReturnValue({});
+    });
+
+    it('should force non-admin issuer to their own issuerId even if another issuerId is requested', async () => {
+      await controller.findAll(1, 10, 'other-issuer-id', undefined, 'my-issuer-id', UserRole.ISSUER);
+
+      expect(certificateService.findAll).toHaveBeenCalledWith(
+        1,
+        10,
+        'my-issuer-id',
+        undefined,
+      );
+    });
+
+    it('should force non-admin issuer to their own issuerId when no issuerId is requested', async () => {
+      await controller.findAll(1, 10, undefined, undefined, 'my-issuer-id', UserRole.ISSUER);
+
+      expect(certificateService.findAll).toHaveBeenCalledWith(
+        1,
+        10,
+        'my-issuer-id',
+        undefined,
+      );
+    });
+
+    it('should allow admin to query certificates of any issuer', async () => {
+      await controller.findAll(1, 10, 'other-issuer-id', undefined, 'admin-id', UserRole.ADMIN);
+
+      expect(certificateService.findAll).toHaveBeenCalledWith(
+        1,
+        10,
+        'other-issuer-id',
+        undefined,
+      );
+    });
+
+    it('should allow admin to query certificates across all issuers without issuerId filter', async () => {
+      await controller.findAll(1, 10, undefined, undefined, 'admin-id', UserRole.ADMIN);
+
+      expect(certificateService.findAll).toHaveBeenCalledWith(
+        1,
+        10,
+        undefined,
+        undefined,
+      );
+    });
+
+    it('should cap limit at 100 when a higher limit is requested', async () => {
+      await controller.findAll(1, 500, undefined, undefined, 'admin-id', UserRole.ADMIN);
+
+      expect(certificateService.findAll).toHaveBeenCalledWith(
+        1,
+        100,
+        undefined,
+        undefined,
+      );
+    });
+  });
+
+  describe('exportCertificates scoping and limit capping', () => {
+    beforeEach(() => {
+      certificateService.exportCertificates.mockResolvedValue([]);
+    });
+
+    it('should force non-admin issuer to their own issuerId', async () => {
+      await controller.exportCertificates(
+        'other-issuer-id',
+        'active',
+        undefined,
+        'my-issuer-id',
+        UserRole.ISSUER,
+      );
+
+      expect(certificateService.exportCertificates).toHaveBeenCalledWith(
+        'my-issuer-id',
+        'active',
+        1000,
+        'my-issuer-id',
+        UserRole.ISSUER,
+      );
+    });
+
+    it('should allow admin to export any issuer certificates', async () => {
+      await controller.exportCertificates(
+        'other-issuer-id',
+        'active',
+        undefined,
+        'admin-id',
+        UserRole.ADMIN,
+      );
+
+      expect(certificateService.exportCertificates).toHaveBeenCalledWith(
+        'other-issuer-id',
+        'active',
+        1000,
+        'admin-id',
+        UserRole.ADMIN,
+      );
+    });
+
+    it('should cap export limit at 1000', async () => {
+      await controller.exportCertificates(
+        undefined,
+        undefined,
+        5000,
+        'admin-id',
+        UserRole.ADMIN,
+      );
+
+      expect(certificateService.exportCertificates).toHaveBeenCalledWith(
+        undefined,
+        undefined,
+        1000,
+        'admin-id',
+        UserRole.ADMIN,
+      );
+    });
+  });
+
+  describe('bulkExport scoping', () => {
+    const mockRes = () => ({
+      setHeader: jest.fn(),
+      send: jest.fn(),
+    });
+
+    beforeEach(() => {
+      certificateService.bulkExport.mockResolvedValue('id,title\n1,Cert');
+    });
+
+    it('should force non-admin issuer to their own issuerId', async () => {
+      const res = mockRes();
+      await controller.bulkExport(
+        {
+          certificateIds: ['a3d8a582-bd23-4a2d-9630-6d4a2f5fd6f0'],
+          filters: { issuerId: 'other-issuer-id' },
+        },
+        res,
+        'my-issuer-id',
+        UserRole.ISSUER,
+      );
+
+      expect(certificateService.bulkExport).toHaveBeenCalledWith(
+        ['a3d8a582-bd23-4a2d-9630-6d4a2f5fd6f0'],
+        { issuerId: 'other-issuer-id' },
+        'my-issuer-id',
+        UserRole.ISSUER,
+      );
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv');
+      expect(res.send).toHaveBeenCalledWith('id,title\n1,Cert');
+    });
+
+    it('should allow admin to filter by specified issuerId in bulk export', async () => {
+      const res = mockRes();
+      await controller.bulkExport(
+        {
+          certificateIds: [],
+          filters: { issuerId: 'targeted-issuer-id' },
+        },
+        res,
+        'admin-id',
+        UserRole.ADMIN,
+      );
+
+      expect(certificateService.bulkExport).toHaveBeenCalledWith(
+        [],
+        { issuerId: 'targeted-issuer-id' },
+        'targeted-issuer-id',
+        UserRole.ADMIN,
+      );
+    });
+  });
+
+  describe('exportAllFiltered scoping', () => {
+    const mockRes = () => ({
+      setHeader: jest.fn(),
+      send: jest.fn(),
+    });
+
+    beforeEach(() => {
+      certificateService.exportAllFiltered.mockResolvedValue('id,title\n1,Cert');
+    });
+
+    it('should force non-admin issuer to their own issuerId', async () => {
+      const res = mockRes();
+      await controller.exportAllFiltered(
+        { issuerId: 'other-issuer-id', status: 'active' },
+        res,
+        'my-issuer-id',
+        UserRole.ISSUER,
+      );
+
+      expect(certificateService.exportAllFiltered).toHaveBeenCalledWith(
+        { issuerId: 'other-issuer-id', status: 'active' },
+        'my-issuer-id',
+        UserRole.ISSUER,
+      );
+    });
+
+    it('should allow admin to filter by target issuerId or export all', async () => {
+      const res = mockRes();
+      await controller.exportAllFiltered(
+        { issuerId: 'target-issuer-id' },
+        res,
+        'admin-id',
+        UserRole.ADMIN,
+      );
+
+      expect(certificateService.exportAllFiltered).toHaveBeenCalledWith(
+        { issuerId: 'target-issuer-id' },
+        'target-issuer-id',
+        UserRole.ADMIN,
+      );
+    });
+  });
+
+  describe('mutation ownership plumbing (#1008)', () => {
+    const CERT_ID = 'a3d8a582-bd23-4a2d-9630-6d4a2f5fd6f0';
+    const user = {
+      id: 'issuer-owner',
+      email: 'owner@example.com',
+      role: UserRole.ISSUER,
+    };
+
+    beforeEach(() => {
+      certificateService.updateWithUser.mockResolvedValue({});
+      certificateService.revokeWithUser.mockResolvedValue({});
+      certificateService.freeze.mockResolvedValue({});
+      certificateService.unfreeze.mockResolvedValue({});
+    });
+
+    it('forwards the issuer identity and role when updating', async () => {
+      await controller.update(CERT_ID, { title: 'New' } as any, user as any);
+
+      expect(certificateService.updateWithUser).toHaveBeenCalledWith(
+        CERT_ID,
+        { title: 'New' },
+        user.id,
+        user.role,
+      );
+    });
+
+    it('forwards the issuer identity and role when revoking', async () => {
+      const req = { ip: '127.0.0.1', headers: {} };
+
+      await controller.revoke(
+        CERT_ID,
+        { reason: 'policy violation' } as any,
+        user as any,
+        req as any,
+      );
+
+      expect(certificateService.revokeWithUser).toHaveBeenCalledWith(
+        CERT_ID,
+        { reason: 'policy violation' },
+        user.id,
+        '127.0.0.1',
+        'unknown',
+        user.role,
+      );
+    });
+
+    it('forwards the freeze DTO and issuer identity to the service', async () => {
+      await controller.freeze(
+        CERT_ID,
+        { reason: 'compliance hold', durationDays: 3 } as any,
+        user as any,
+      );
+
+      expect(certificateService.freeze).toHaveBeenCalledWith(
+        CERT_ID,
+        'compliance hold',
+        3,
+        user.id,
+        user.role,
+      );
+    });
+
+    it('forwards the unfreeze DTO and issuer identity to the service', async () => {
+      await controller.unfreeze(
+        CERT_ID,
+        { reason: 'issue resolved' } as any,
+        user as any,
+      );
+
+      expect(certificateService.unfreeze).toHaveBeenCalledWith(
+        CERT_ID,
+        'issue resolved',
+        user.id,
+        user.role,
+      );
+    });
   });
 });

@@ -1,13 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNotifications, Notification } from '../context/NotificationContext';
 import { X, CheckCircle, Info, AlertTriangle } from 'lucide-react';
 
 const ToastMessage: React.FC<{ notification: Notification; onClose: () => void }> = ({ notification, onClose }) => {
+    // Use a ref to store the timer ID so it doesn't restart on re-renders
+    const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
     useEffect(() => {
-        const timer = setTimeout(() => {
+        timerRef.current = setTimeout(() => {
             onClose();
         }, 5000);
-        return () => clearTimeout(timer);
+        return () => {
+            if (timerRef.current) {
+                clearTimeout(timerRef.current);
+            }
+        };
     }, [onClose]);
 
     const icons = {
@@ -29,7 +36,7 @@ const ToastMessage: React.FC<{ notification: Notification; onClose: () => void }
                 <h4 className="text-sm font-semibold text-gray-900 dark:text-white">{notification.title}</h4>
                 <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{notification.message}</p>
             </div>
-            <button onClick={onClose} className="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <button onClick={onClose} className="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" aria-label={`Dismiss ${notification.title} notification`}>
                 <X className="w-4 h-4" />
             </button>
         </div>
@@ -40,27 +47,42 @@ export default function ToastContainer() {
     const { notifications } = useNotifications();
     const [activeToasts, setActiveToasts] = useState<Notification[]>([]);
 
+    // Use a ref to track the previous notifications length to detect new ones
+    const prevNotificationsRef = useRef(notifications);
+
+    const removeToast = useCallback((id: string) => {
+        setActiveToasts((prev) => prev.filter((t) => t.id !== id));
+    }, []);
+
     useEffect(() => {
         // Only show unread notifications from the last 10 seconds as toasts on load/receive
         const recentUnread = notifications.filter(
             (n) => !n.isRead && new Date().getTime() - new Date(n.createdAt).getTime() < 10000
         );
 
-        // Simplistic diff to add new ones
+        // Check if there are new notifications
+        const prevUnread = prevNotificationsRef.current.filter(
+            (n) => !n.isRead && new Date().getTime() - new Date(n.createdAt).getTime() < 10000
+        );
+
         if (recentUnread.length > 0 && activeToasts.length === 0) {
             setActiveToasts(recentUnread.slice(0, 3)); // Show up to 3 toasts max
-        } else if (recentUnread.length > activeToasts.length) {
+        } else if (recentUnread.length > prevUnread.length) {
+            // New notification arrived
             setActiveToasts(recentUnread.slice(0, 3));
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [notifications]);
 
-    const removeToast = (id: string) => {
-        setActiveToasts((prev) => prev.filter((t) => t.id !== id));
-    };
+        prevNotificationsRef.current = notifications;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [notifications, activeToasts.length]);
 
     return (
-        <div className="fixed bottom-4 right-4 z-50 w-80 max-w-full flex flex-col items-end">
+        <div 
+            className="fixed bottom-4 right-4 z-50 w-80 max-w-full flex flex-col items-end"
+            role="status"
+            aria-live="polite"
+            aria-label="Notifications"
+        >
             {activeToasts.map((toast) => (
                 <ToastMessage key={toast.id} notification={toast} onClose={() => removeToast(toast.id)} />
             ))}

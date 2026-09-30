@@ -1,48 +1,51 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
-import { authApi } from "../api";
+import { getErrorMessage } from "../api/types";
+import { useVerifyEmailMutation } from "../api/queries";
 
 type VerificationState = "loading" | "success" | "error";
 
 const VerifyEmail = () => {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") || "";
-  const [state, setState] = useState<VerificationState>("loading");
-  const [message, setMessage] = useState("Verifying your email address...");
+  // `mutate` is referentially stable, so it is safe as an effect dependency and
+  // does not re-submit the token when the mutation's state changes.
+  const { mutate, isIdle, isPending, isError, error, data } = useVerifyEmailMutation();
 
+  // Confirming an address is a one-shot command, not cached server state, so it
+  // is a mutation. The mutation owns the pending/error state, which removes the
+  // isMounted flag this used to need to avoid setting state after unmount.
+  //
+  // The ref guards the submit so StrictMode's double effect invocation (and any
+  // re-render) cannot spend the same one-time token twice.
+  const submittedToken = useRef<string | null>(null);
   useEffect(() => {
-    let isMounted = true;
+    if (!token || submittedToken.current === token) return;
+    submittedToken.current = token;
+    mutate({ token });
+  }, [token, mutate]);
 
-    const verifyEmail = async () => {
-      if (!token) {
-        setState("error");
-        setMessage("Verification token is missing.");
-        return;
-      }
+  // `isIdle` is true for the first render, before the effect above has submitted
+  // the token. That is still "in progress" as far as the user is concerned: the
+  // address has not been confirmed yet, so it must not read as a success.
+  const inProgress = isIdle || isPending;
 
-      try {
-        const response = await authApi.verifyEmail({ token });
-        if (!isMounted) return;
-        setState("success");
-        setMessage(response.message || "Email verified successfully.");
-      } catch (error) {
-        if (!isMounted) return;
-        setState("error");
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : "Unable to verify this email address.",
-        );
-      }
-    };
+  const state: VerificationState = !token
+    ? "error"
+    : inProgress
+      ? "loading"
+      : isError
+        ? "error"
+        : "success";
 
-    verifyEmail();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [token]);
+  const message = !token
+    ? "Verification token is missing."
+    : inProgress
+      ? "Verifying your email address..."
+      : isError
+        ? getErrorMessage(error)
+        : (data?.message || "Email verified successfully.");
 
   const icon =
     state === "loading" ? (

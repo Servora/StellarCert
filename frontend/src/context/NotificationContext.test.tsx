@@ -1,10 +1,11 @@
 import React from 'react';
-import { act, render } from '@testing-library/react';
+import { act } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NotificationProvider, useNotifications } from './NotificationContext';
 import { useAuth } from './AuthContext';
-import { apiClient } from '../api';
+import { apiClient } from '../api/endpoints';
 import { tokenStorage } from '../api/tokens';
+import { createTestQueryClient, renderWithProviders } from '../test/renderWithProviders';
 
 const socket = {
     on: vi.fn(),
@@ -17,6 +18,11 @@ vi.mock('./AuthContext', () => ({
 
 vi.mock('../api', () => ({
     API_URL: 'http://localhost:3000',
+}));
+
+// The notification query calls apiClient through the endpoints module, so the
+// fetch itself is mocked there rather than on the barrel.
+vi.mock('../api/endpoints', () => ({
     apiClient: vi.fn(),
 }));
 
@@ -38,10 +44,11 @@ describe('NotificationProvider authentication lifecycle', () => {
     });
 
     it('starts fetching and connecting after an in-app login', async () => {
-        const view = render(
+        const view = renderWithProviders(
             <NotificationProvider>
                 <Consumer />
             </NotificationProvider>,
+            { queryClient: createTestQueryClient() },
         );
 
         expect(apiClient).not.toHaveBeenCalled();

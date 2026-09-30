@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import ThemeToggle from './ThemeToggle';
-import { Menu, User, X } from 'lucide-react';
+import { Menu, User, X, Users } from 'lucide-react';
 import NotificationDropdown from './NotificationDropdown';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../api/types';
+import { canAccessWallet } from '../constants/routeAccess';
 
 type NavItem = {
   label: string;
@@ -13,11 +14,15 @@ type NavItem = {
 };
 
 export default function Header(): JSX.Element {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const isIssuerOrAdmin =
     user?.role === UserRole.ISSUER || user?.role === UserRole.ADMIN;
+
+  // Gated on the same list the /wallet route guards with, so the link is never
+  // offered to a role the route will bounce straight back to `/`.
+  const showWalletLink = canAccessWallet(user?.role);
 
   useEffect(() => {
     document.body.style.overflow = isDrawerOpen ? 'hidden' : '';
@@ -29,20 +34,25 @@ export default function Header(): JSX.Element {
 
   const closeDrawer = () => setIsDrawerOpen(false);
 
+  const handleSignOut = async () => {
+    closeDrawer();
+    await logout();
+  };
+
   const navItems: NavItem[] = [
     { label: 'Home', to: '/' },
     { label: 'Verify', to: '/verify' },
     ...(user ? ([{ label: 'Dashboard', to: '/dashboard' }] as NavItem[]) : []),
     ...(isIssuerOrAdmin
-      ? ([
-          { label: 'Issue', to: '/issue' },
-          { label: 'Revoke', to: '/revoke' },
-          { label: 'Wallet', to: '/wallet' },
-          { label: 'Certificates', to: '/certificates' },
-        ] as NavItem[])
-      : user
-        ? ([{ label: 'Wallet', to: '/wallet' }] as NavItem[])
-        : []),
+      ? ([{ label: 'Issue', to: '/issue' }, { label: 'Revoke', to: '/revoke' }] as NavItem[])
+      : []),
+    ...(showWalletLink ? ([{ label: 'Wallet', to: '/wallet' }] as NavItem[]) : []),
+    ...(isIssuerOrAdmin
+      ? ([{ label: 'Certificates', to: '/certificates' }] as NavItem[])
+      : []),
+    ...(user?.role === UserRole.ADMIN
+      ? ([{ label: 'Users', to: '/admin/users', icon: <Users className="h-4 w-4" />}] as NavItem[])
+      : []),
     ...(user
       ? ([
           {
@@ -82,6 +92,22 @@ export default function Header(): JSX.Element {
                 {item.label}
               </NavLink>
             ))}
+            {user ? (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="transition-colors duration-250 hover:text-gray-900 dark:hover:text-white"
+              >
+                Sign out
+              </button>
+            ) : (
+              <NavLink
+                to="/login"
+                className="transition-colors duration-250 hover:text-gray-900 dark:hover:text-white"
+              >
+                Sign in
+              </NavLink>
+            )}
           </nav>
           <div className="h-6 w-px bg-gray-300 transition-colors duration-250 dark:bg-slate-700" />
           <NotificationDropdown />
@@ -142,6 +168,23 @@ export default function Header(): JSX.Element {
                 {item.label}
               </NavLink>
             ))}
+            {user ? (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="rounded-lg px-3 py-3 text-left transition-colors duration-250 hover:bg-gray-100 dark:hover:bg-white/5"
+              >
+                Sign out
+              </button>
+            ) : (
+              <NavLink
+                to="/login"
+                onClick={closeDrawer}
+                className="rounded-lg px-3 py-3 transition-colors duration-250 hover:bg-gray-100 dark:hover:bg-white/5"
+              >
+                Sign in
+              </NavLink>
+            )}
           </nav>
 
           <div className="mt-4 border-t border-gray-200 pt-4 dark:border-white/10">

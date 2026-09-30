@@ -4,6 +4,7 @@ import {
   MinLength,
   MaxLength,
   Matches,
+  IsEmail,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -46,6 +47,7 @@ export class ForgotPasswordDto {
   })
   @IsNotEmpty({ message: 'Email is required' })
   @IsString()
+  @IsEmail({}, { message: 'Invalid email format' })
   email: string;
 }
 

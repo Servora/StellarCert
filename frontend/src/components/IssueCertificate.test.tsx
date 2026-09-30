@@ -1,32 +1,62 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { vi } from 'vitest';
-import { toast } from 'react-hot-toast';
-import IssueCertificate from './IssueCertificate';
+import React from "react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import IssueCertificate from "./IssueCertificate";
 
-vi.mock('react-hot-toast', () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
-}));
+describe("IssueCertificate", () => {
+  let alertSpy: ReturnType<typeof vi.spyOn>;
 
-describe('IssueCertificate', () => {
-  it('shows success toast after issuance', async () => {
-    const user = userEvent.setup();
+  beforeEach(() => {
+    alertSpy = vi.spyOn(window, "alert").mockImplementation(() => undefined);
+  });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows the success confirmation after a valid submission", async () => {
     render(<IssueCertificate />);
 
-    await user.click(
-      screen.getByText(/confirm/i),
-    );
-
-    await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith(
-        expect.stringContaining(
-          'Certificate issued successfully',
-        ),
-      );
+    fireEvent.change(screen.getByLabelText(/Full Name/i), {
+      target: { value: "Jane Doe" },
     });
+    fireEvent.change(screen.getByLabelText(/Email Address/i), {
+      target: { value: "jane@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText(/Stellar Wallet Address/i), {
+      target: { value: "G" + "A".repeat(55) },
+    });
+    fireEvent.change(screen.getByLabelText(/Certificate Title/i), {
+      target: { value: "Certified Blockchain Developer" },
+    });
+    fireEvent.change(screen.getByLabelText(/Issuer \/ Organization/i), {
+      target: { value: "Acme Academy" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Issue Certificate/i }));
+
+    // The component simulates the network round-trip (~1.5s) before confirming
+    await waitFor(
+      () => {
+        expect(alertSpy).toHaveBeenCalledWith(
+          "Certificate issued successfully on the Stellar network!",
+        );
+      },
+      { timeout: 4000 },
+    );
+  });
+
+  it("shows validation errors instead of submitting when required fields are empty", async () => {
+    render(<IssueCertificate />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Issue Certificate/i }));
+
+    expect(
+      await screen.findByText("Recipient name is required"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Stellar wallet address is required"),
+    ).toBeInTheDocument();
+    expect(alertSpy).not.toHaveBeenCalled();
   });
 });

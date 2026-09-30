@@ -19,6 +19,17 @@ impl MultisigCertificateContract {
         crate::persistent::extend_instance_ttl(env, None);
     }
 
+    /// Initialize the contract with a global admin. Can only be called once.
+    /// Initializes the contract admin. See `CertificateContract::initialize`
+    /// for why `require_auth` alone does not close the deploy-to-init race.
+    pub fn initialize(env: Env, admin: Address) {
+        admin.require_auth();
+        if env.storage().instance().has(&DataKey::Admin) {
+            panic!("Admin already initialized");
+        }
+        Self::set_instance(&env, &DataKey::Admin, &admin);
+    }
+
     /// Initialize multisig configuration for an issuer
     #[allow(clippy::too_many_arguments)] // Soroban contract entry points cannot use struct params
     pub fn init_multisig_config(
@@ -127,11 +138,19 @@ impl MultisigCertificateContract {
         metadata: String,
         expiration_days: u32,
     ) -> PendingRequest {
+        // Without this anyone could raise requests in an issuer's name and
+        // fill every signer's SignerRequestIds list with junk. The lib.rs
+        // counterpart has always required it; this one did not.
+        issuer.require_auth();
+
+        // An issuer with no multisig configuration is not an issuer this
+        // contract recognises. Reported as an authorization failure rather
+        // than a missing-config detail.
         let config: MultisigConfig = env
             .storage()
             .instance()
             .get(&DataKey::MultisigConfig(issuer.clone()))
-            .expect("Issuer does not have multisig configuration");
+            .expect("Issuer is not authorized: no multisig configuration");
 
         // Check if request already exists
         if env
@@ -350,7 +369,12 @@ impl MultisigCertificateContract {
         true
     }
 
-    pub fn set_certificate_contract(env: Env, admin: Address, certificate_contract: Address) {
+    pub fn set_certificate_contract(env: Env, certificate_contract: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized");
         admin.require_auth();
         Self::set_instance(&env, &DataKey::CertificateContract, &certificate_contract);
     }
@@ -362,12 +386,50 @@ impl MultisigCertificateContract {
             .expect("Certificate contract not configured")
     }
 
-    /// Get a pending request by ID
-    pub fn get_pending_request(env: Env, request_id: String) -> PendingRequest {
+    pub fn get_admin(env: Env) -> Address {
         env.storage()
             .instance()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized")
+    }
+
+    /// Get a pending request by ID
+    /// Reads a pending request.
+    ///
+    /// Takes a `caller` and enforces the same access control as the `lib.rs`
+    /// counterpart. Previously this was world-readable, so anyone could
+    /// enumerate requests — including recipient addresses and metadata — for
+    /// any issuer.
+    pub fn get_pending_request(env: Env, request_id: String, caller: Address) -> PendingRequest {
+        caller.require_auth();
+
+        let request: PendingRequest = env
+            .storage()
+            .instance()
             .get(&DataKey::PendingRequest(request_id))
-            .expect("Request not found")
+            .expect("Request not found");
+
+        // The admin is one authorized role among several. If none is set the
+        // branch simply cannot match — an uninitialized admin must not make
+        // the request unreadable to the issuer, proposer or its signers.
+        let admin: Option<Address> = env.storage().instance().get(&DataKey::Admin);
+
+        // Only the issuer, the proposer, the admin, or one of the issuer's
+        // configured signers may read a request.
+        let is_authorized = caller == request.issuer
+            || caller == request.proposer
+            || admin.is_some_and(|a| a == caller)
+            || env
+                .storage()
+                .instance()
+                .get::<_, MultisigConfig>(&DataKey::MultisigConfig(request.issuer.clone()))
+                .is_some_and(|c| c.signers.contains(&caller));
+
+        if !is_authorized {
+            panic!("Not authorized to view this request");
+        }
+
+        request
     }
 
     /// Check if a request has expired

@@ -25,7 +25,7 @@ import { MetadataSchemaModule } from './modules/metadata-schema/metadata-schema.
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AdminAnalyticsModule } from './modules/admin-analytics/admin-analytics.module';
 import { SecurityModule } from './modules/security/security.module';
-
+import { BullBoardAuthMiddleware } from './common/middleware/bull-board-auth.middleware';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -52,6 +52,9 @@ import { SecurityModule } from './modules/security/security.module';
     BullBoardModule.forRoot({
       route: '/admin/queues',
       adapter: ExpressAdapter,
+      // Nest guards never run on Bull Board's own Express mount, so the
+      // dashboard is protected with a middleware that actually runs there.
+      middleware: BullBoardAuthMiddleware,
     }),
     TypeOrmModule.forRoot(typeOrmConfig),
     CommonModule,

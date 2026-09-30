@@ -1,7 +1,6 @@
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
 
 const mocks = vi.hoisted(() => ({
   useAuthMock: vi.fn(),
@@ -14,7 +13,7 @@ vi.mock("../../context/AuthContext", () => ({
   useAuth: () => mocks.useAuthMock(),
 }));
 
-vi.mock("../../api", () => ({
+vi.mock("../../api/endpoints", () => ({
   analyticsApi: {
     getDashboardSummary: (...args: unknown[]) =>
       mocks.getDashboardSummaryMock(...args),
@@ -37,6 +36,7 @@ vi.mock("../AdminAnalyticsDashboard", () => ({
 }));
 
 import Dashboard from "../Dashboard";
+import { createTestQueryClient, renderWithProviders } from "../../test/renderWithProviders";
 
 describe("Dashboard role views", () => {
   beforeEach(() => {
@@ -76,11 +76,7 @@ describe("Dashboard role views", () => {
       user: { id: "recipient-1", role: "recipient" },
     });
 
-    render(
-      <MemoryRouter>
-        <Dashboard />
-      </MemoryRouter>,
-    );
+    renderWithProviders(<Dashboard />, { queryClient: createTestQueryClient() });
 
     expect(
       await screen.findByRole("heading", { name: /Your Certificate Wallet/i }),
@@ -96,11 +92,7 @@ describe("Dashboard role views", () => {
       user: { id: "verifier-1", role: "verifier" },
     });
 
-    render(
-      <MemoryRouter>
-        <Dashboard />
-      </MemoryRouter>,
-    );
+    renderWithProviders(<Dashboard />, { queryClient: createTestQueryClient() });
 
     expect(
       await screen.findByRole("heading", { name: /Verification Center/i }),
@@ -124,11 +116,7 @@ describe("Dashboard role views", () => {
       user: { id: "admin-1", role: "admin" },
     });
 
-    render(
-      <MemoryRouter>
-        <Dashboard />
-      </MemoryRouter>,
-    );
+    renderWithProviders(<Dashboard />, { queryClient: createTestQueryClient() });
 
     expect(
       await screen.findByText(/Admin analytics mock/i),

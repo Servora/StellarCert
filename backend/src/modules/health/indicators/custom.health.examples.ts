@@ -7,7 +7,7 @@ import {
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { timeout } from 'rxjs/operators';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 /**
  * Example: Custom Health Indicator for External Service
@@ -17,7 +17,10 @@ import { LoggingService } from "../../../common/logging/logging.service";
  */
 @Injectable()
 export class ExternalServiceHealthIndicator extends HealthIndicator {
-  constructor(private httpService: HttpService, private readonly logger: LoggingService) {
+  constructor(
+    private httpService: HttpService,
+    private readonly logger: LoggingService,
+  ) {
     super();
   }
 
@@ -61,7 +64,10 @@ export class ExternalServiceHealthIndicator extends HealthIndicator {
  */
 @Injectable()
 export class CacheHealthIndicator extends HealthIndicator {
-  constructor(private cacheService: any, private readonly logger: LoggingService) {
+  constructor(
+    private cacheService: any,
+    private readonly logger: LoggingService,
+  ) {
     super();
   }
 
@@ -92,7 +98,10 @@ export class CacheHealthIndicator extends HealthIndicator {
  */
 @Injectable()
 export class MessageQueueHealthIndicator extends HealthIndicator {
-  constructor(private queueService: any, private readonly logger: LoggingService) {
+  constructor(
+    private queueService: any,
+    private readonly logger: LoggingService,
+  ) {
     super();
   }
 
@@ -159,7 +168,7 @@ export class MemoryHealthIndicator extends HealthIndicator {
     }
   }
 
-    constructor(private readonly logger: LoggingService) {
-      super();
-    }
+  constructor(private readonly logger: LoggingService) {
+    super();
+  }
 }

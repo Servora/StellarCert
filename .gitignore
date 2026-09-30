@@ -1,8 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
 
 # Build outputs
 dist/
@@ -38,3 +35,20 @@ temp/
 backend/dist
 frontend/dist
 *.tsbuildinfo
+
+# SSL certificates (never commit actual cert files)
+nginx/ssl/cert.pem
+nginx/ssl/key.pem
+
+# Personal AI / editor tooling
+.claude/
+.kilo/
+.github/prompts/autonomy.manifest.json
+.github/prompts/autonomy-version.json
+
+# Lint tool output
+eslint_out.json
+lint-report.json
+
+# Ad-hoc issue notes
+typed-doc/

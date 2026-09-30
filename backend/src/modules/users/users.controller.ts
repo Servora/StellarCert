@@ -77,6 +77,7 @@ export class UsersController {
 
   // ==================== Authentication Endpoints ====================
 
+  @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Register a new user' })
@@ -91,6 +92,7 @@ export class UsersController {
     return this.usersService.register(createUserDto);
   }
 
+  @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login user' })
@@ -382,8 +384,18 @@ export class UsersController {
   @Roles(UserRole.ISSUER, UserRole.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get issuer activity log' })
-  @ApiQuery({ name: 'page', required: false, description: 'Page number', example: 1 })
-  @ApiQuery({ name: 'limit', required: false, description: 'Items per page', example: 10 })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Page number',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Items per page',
+    example: 10,
+  })
   @ApiResponse({
     status: 200,
     description: 'Activity log',
@@ -567,7 +579,10 @@ export class UsersController {
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden - Issuer/Admin only' })
-  @ApiResponse({ status: 409, description: 'Username or Stellar key already taken' })
+  @ApiResponse({
+    status: 409,
+    description: 'Username or Stellar key already taken',
+  })
   async updateIssuerProfile(
     @CurrentUser('id') userId: string,
     @Body() updateDto: UpdateIssuerProfileDto,

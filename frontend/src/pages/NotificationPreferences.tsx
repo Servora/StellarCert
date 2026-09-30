@@ -1,13 +1,10 @@
-import { useEffect, useState } from "react";
-import { Bell, CheckCircle, AlertTriangle, Info, Save } from "lucide-react";
-import { apiClient } from "../api";
-
-interface Preferences {
-  inAppEnabled: boolean;
-  infoEnabled: boolean;
-  successEnabled: boolean;
-  errorEnabled: boolean;
-}
+import { useEffect, useRef, useState } from "react";
+import { Bell, CheckCircle, AlertTriangle, Info, Save, X } from "lucide-react";
+import {
+  useNotificationPreferencesQuery,
+  useSaveNotificationPreferencesMutation,
+} from "../api/queries";
+import type { NotificationPreferences as Preferences } from "../api/types";
 
 interface ToastState {
   type: "success" | "error";
@@ -16,36 +13,37 @@ interface ToastState {
 
 export default function NotificationPreferences() {
   const [preferences, setPreferences] = useState<Preferences | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
 
-  useEffect(() => {
-    fetchPreferences();
-  }, []);
+  const preferencesQuery = useNotificationPreferencesQuery();
+  const saveMutation = useSaveNotificationPreferencesMutation();
+
+  const loading = preferencesQuery.isPending;
+  const saving = saveMutation.isPending;
 
   useEffect(() => {
-    if (!toast) return;
+    // Success is transient, but a failed save has to stay on screen until the
+    // user dismisses it — otherwise it is too easy to miss that nothing saved.
+    if (!toast || toast.type === "error") return;
 
     const timeoutId = window.setTimeout(() => setToast(null), 3000);
     return () => window.clearTimeout(timeoutId);
   }, [toast]);
 
-  const fetchPreferences = async () => {
-    try {
-      const data = await apiClient<Preferences>("/notifications/preferences");
-      setPreferences({
-        inAppEnabled: data.inAppEnabled,
-        infoEnabled: data.infoEnabled,
-        successEnabled: data.successEnabled,
-        errorEnabled: data.errorEnabled,
-      });
-    } catch (error) {
-      console.error("Failed to load preferences:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Copy the server's preferences into the form once they are cached. Unsaved
+  // edits live in local state, so a background revalidation won't clobber them.
+  const seeded = useRef(false);
+  useEffect(() => {
+    const data = preferencesQuery.data;
+    if (!data || seeded.current) return;
+    seeded.current = true;
+    setPreferences({
+      inAppEnabled: data.inAppEnabled,
+      infoEnabled: data.infoEnabled,
+      successEnabled: data.successEnabled,
+      errorEnabled: data.errorEnabled,
+    });
+  }, [preferencesQuery.data]);
 
   const handleToggle = (key: keyof Preferences) => {
     if (preferences) {
@@ -55,12 +53,8 @@ export default function NotificationPreferences() {
 
   const handleSave = async () => {
     if (!preferences) return;
-    setSaving(true);
     try {
-      await apiClient("/notifications/preferences", {
-        method: "PATCH",
-        body: JSON.stringify(preferences),
-      });
+      await saveMutation.mutateAsync(preferences);
       setToast({
         type: "success",
         message: "Notification preferences saved successfully.",
@@ -71,8 +65,6 @@ export default function NotificationPreferences() {
         type: "error",
         message: "Failed to save notification preferences.",
       });
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -108,8 +100,8 @@ export default function NotificationPreferences() {
                 ? "border-green-200 bg-green-50 text-green-900 dark:border-green-900/40 dark:bg-green-900/30 dark:text-green-100"
                 : "border-red-200 bg-red-50 text-red-900 dark:border-red-900/40 dark:bg-red-900/30 dark:text-red-100"
             }`}
-            role="status"
-            aria-live="polite"
+            role={toast.type === "error" ? "alert" : "status"}
+            aria-live={toast.type === "error" ? "assertive" : "polite"}
           >
             {toast.type === "success" ? (
               <CheckCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
@@ -117,6 +109,14 @@ export default function NotificationPreferences() {
               <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" />
             )}
             <p className="text-sm font-medium">{toast.message}</p>
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              aria-label="Dismiss notification"
+              className="-mr-1 -mt-1 flex-shrink-0 rounded p-1 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-current"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         </div>
       )}

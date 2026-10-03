@@ -190,8 +190,8 @@ export class MultisigService {
       transaction.sign(adminKeyPair);
       const response = await this.server.sendTransaction(transaction);
 
-      if (response.status === 'PENDING' || response.status === 'DUPLICATE') {
-        const txResponse = await this.waitForTransaction(response.hash);
+      if (response.status === 'PENDING') {
+        const txResponse = await this.pollTransaction(response.hash);
         if (txResponse.status === rpc.Api.GetTransactionStatus.SUCCESS) {
           this.logger.log(`Multisig config initialized for issuer: ${issuer}`);
           return response.hash;
@@ -266,8 +266,8 @@ export class MultisigService {
       transaction.sign(adminKeyPair);
       const response = await this.server.sendTransaction(transaction);
 
-      if (response.status === 'PENDING' || response.status === 'DUPLICATE') {
-        const txResponse = await this.waitForTransaction(response.hash);
+      if (response.status === 'PENDING') {
+        const txResponse = await this.pollTransaction(response.hash);
         if (txResponse.status === rpc.Api.GetTransactionStatus.SUCCESS) {
           this.logger.log(`Multisig config updated for issuer: ${issuer}`);
           return response.hash;
@@ -333,30 +333,13 @@ export class MultisigService {
       transaction.sign(requesterKeyPair);
       const response = await this.server.sendTransaction(transaction);
 
-      if (response.status === 'PENDING' || response.status === 'DUPLICATE') {
-        const txResponse = await this.waitForTransaction(response.hash);
+      if (response.status === 'PENDING') {
+        const txResponse = await this.pollTransaction(response.hash);
         if (txResponse.status === rpc.Api.GetTransactionStatus.SUCCESS) {
           this.logger.log(`Certificate proposed with request ID: ${requestId}`);
-          // Parse actual on-chain pending request after the tx finalizes (#722)
-          try {
-            return await this.getPendingRequest(requestId);
-          } catch (fetchErr) {
-            this.logger.warn(
-              `Transaction succeeded but could not fetch pending request ${requestId}; returning minimal result`,
-              fetchErr,
-            );
-            return {
-              id: requestId,
-              issuer,
-              recipient,
-              metadata,
-              proposer: requesterPublicKey,
-              approvals: [],
-              rejections: [],
-              created_at: Math.floor(Date.now() / 1000),
-              expires_at: Math.floor(Date.now() / 1000) + expirationDays * 24 * 60 * 60,
-              status: RequestStatus.Pending,
-            };
+          // Parse the PendingRequest returned directly by the contract
+          if (txResponse.returnValue) {
+            return this.parsePendingRequest(txResponse.returnValue);
           }
         }
       }
@@ -406,26 +389,16 @@ export class MultisigService {
       transaction.sign(approverKeyPair);
       const response = await this.server.sendTransaction(transaction);
 
-      if (response.status === 'PENDING' || response.status === 'DUPLICATE') {
-        const txResponse = await this.waitForTransaction(response.hash);
+      if (response.status === 'PENDING') {
+        const txResponse = await this.pollTransaction(response.hash);
         if (txResponse.status === rpc.Api.GetTransactionStatus.SUCCESS) {
           this.logger.log(
             `Request ${requestId} approved by ${approverPublicKey}`,
           );
-          // Use on-chain request status after finalization (#722)
-          let final_status: RequestStatus | undefined;
-          try {
-            const pending = await this.getPendingRequest(requestId);
-            final_status = pending.status;
-          } catch {
-            // request may have moved off the pending list after threshold met
-            final_status = RequestStatus.Approved;
+          // Parse the SignatureResult returned directly by the contract
+          if (txResponse.returnValue) {
+            return this.parseSignatureResult(txResponse.returnValue);
           }
-          return {
-            success: true,
-            message: `Request approved by ${approverPublicKey}`,
-            final_status,
-          };
         }
       }
 
@@ -480,24 +453,16 @@ export class MultisigService {
       transaction.sign(rejectorKeyPair);
       const response = await this.server.sendTransaction(transaction);
 
-      if (response.status === 'PENDING' || response.status === 'DUPLICATE') {
-        const txResponse = await this.waitForTransaction(response.hash);
+      if (response.status === 'PENDING') {
+        const txResponse = await this.pollTransaction(response.hash);
         if (txResponse.status === rpc.Api.GetTransactionStatus.SUCCESS) {
           this.logger.log(
             `Request ${requestId} rejected by ${rejectorPublicKey}`,
           );
-          let final_status: RequestStatus | undefined;
-          try {
-            const pending = await this.getPendingRequest(requestId);
-            final_status = pending.status;
-          } catch {
-            final_status = RequestStatus.Rejected;
+          // Parse the SignatureResult returned directly by the contract
+          if (txResponse.returnValue) {
+            return this.parseSignatureResult(txResponse.returnValue);
           }
-          return {
-            success: true,
-            message: `Request rejected by ${rejectorPublicKey}`,
-            final_status,
-          };
         }
       }
 
@@ -521,8 +486,7 @@ export class MultisigService {
       const accountResponse = await this.server.getAccount(requesterPublicKey);
       const sourceAccount = new Account(
         requesterPublicKey,
-        (accountResponse as any).sequence ||
-          (accountResponse as any).sequenceNumber(),
+        accountResponse.sequenceNumber(),
       );
 
       const contract = new Contract(this.contractId);
@@ -543,8 +507,8 @@ export class MultisigService {
       transaction.sign(requesterKeyPair);
       const response = await this.server.sendTransaction(transaction);
 
-      if (response.status === 'PENDING' || response.status === 'DUPLICATE') {
-        const txResponse = await this.waitForTransaction(response.hash);
+      if (response.status === 'PENDING') {
+        const txResponse = await this.pollTransaction(response.hash);
         if (txResponse.status === rpc.Api.GetTransactionStatus.SUCCESS) {
           this.logger.log(
             `Approved certificate issued for request: ${requestId}`,
@@ -599,8 +563,8 @@ export class MultisigService {
       transaction.sign(requesterKeyPair);
       const response = await this.server.sendTransaction(transaction);
 
-      if (response.status === 'PENDING' || response.status === 'DUPLICATE') {
-        const txResponse = await this.waitForTransaction(response.hash);
+      if (response.status === 'PENDING') {
+        const txResponse = await this.pollTransaction(response.hash);
         if (txResponse.status === rpc.Api.GetTransactionStatus.SUCCESS) {
           this.logger.log(
             `Request ${requestId} cancelled by ${requesterPublicKey}`,
@@ -723,10 +687,7 @@ export class MultisigService {
       if (rpc.Api.isSimulationSuccess(response)) {
         const simResult = response.result;
         if (simResult) {
-          const result = simResult.retval;
-          if (result && result.switch().name === 'scvBool') {
-            return result.b();
-          }
+          return this.parseBooleanResult(simResult.retval);
         }
       }
 
@@ -893,6 +854,14 @@ export class MultisigService {
     };
   }
 
+  private parseBooleanResult(retval: xdr.ScVal | undefined): boolean {
+    if (!retval || retval.switch().name !== 'scvBool') {
+      throw new Error('Invalid boolean response from contract');
+    }
+
+    return retval.b();
+  }
+
   private parsePendingRequest(retval: xdr.ScVal): PendingRequest {
     return this.mapNativeToPendingRequest(
       scValToNative(retval) as Record<string, unknown>,
@@ -911,5 +880,80 @@ export class MultisigService {
       limit: Number(native['limit']),
       has_next: Boolean(native['has_next']),
     };
+  }
+
+  /**
+   * Parse the SignatureResult struct returned by approve_request / reject_request.
+   *
+   * The Soroban contract returns:
+   *   { success: bool, message: String, final_status: Option<RequestStatus> }
+   */
+  private parseSignatureResult(retval: xdr.ScVal): SignatureResult {
+    const native = scValToNative(retval) as Record<string, unknown>;
+    const result: SignatureResult = {
+      success: Boolean(native['success']),
+      message: Buffer.isBuffer(native['message'])
+        ? native['message'].toString()
+        : String(native['message'] ?? ''),
+    };
+    if (native['final_status'] != null) {
+      result.final_status = Number(native['final_status']);
+    }
+    return result;
+  }
+
+  /**
+   * Poll getTransaction until the transaction leaves the NOT_FOUND / PENDING
+   * state, or until the retry limit is exhausted.
+   *
+   * Soroban transactions are processed asynchronously: a PENDING status from
+   * sendTransaction only means the node accepted the submission — the ledger
+   * may not have closed yet.  Calling getTransaction immediately after
+   * sendTransaction therefore returns NOT_FOUND or PENDING for valid
+   * transactions, making a single-shot check unreliable.
+   *
+   * @param hash       Transaction hash returned by sendTransaction.
+   * @param maxRetries Maximum number of polling attempts (default 10).
+   * @param delayMs    Milliseconds to wait between attempts (default 1 000).
+   * @returns          The final transaction response once it settles.
+   * @throws           If the transaction does not settle within the retry
+   *                   window or if the node returns an unexpected status.
+   */
+  private async pollTransaction(
+    hash: string,
+    maxRetries = 10,
+    delayMs = 1000,
+  ): Promise<any> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const txResponse = await this.server.getTransaction(hash);
+      const status: string = txResponse.status;
+
+      // SUCCESS or FAILED are terminal states — stop polling.
+      if (
+        status === rpc.Api.GetTransactionStatus.SUCCESS ||
+        status === rpc.Api.GetTransactionStatus.FAILED
+      ) {
+        return txResponse;
+      }
+
+      // NOT_FOUND means the ledger hasn't closed yet; PENDING is the same.
+      // Any other unexpected status should surface as an error immediately.
+      if (
+        status !== rpc.Api.GetTransactionStatus.NOT_FOUND &&
+        status !== 'PENDING'
+      ) {
+        throw new Error(
+          `Unexpected transaction status on attempt ${attempt}: ${status}`,
+        );
+      }
+
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    throw new Error(
+      `Transaction ${hash} did not settle after ${maxRetries} polling attempts`,
+    );
   }
 }

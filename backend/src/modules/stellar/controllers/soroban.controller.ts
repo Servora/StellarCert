@@ -6,7 +6,6 @@ import { RolesGuard } from '../../users/guards/roles.guard';
 import { Roles } from '../../users/decorators/roles.decorator';
 import { UserRole } from '../../users/entities/user.entity';
 import { LoggingService } from '../../../common/logging/logging.service';
-main
 
 @ApiTags('Soroban')
 @Controller('soroban')
@@ -16,7 +15,6 @@ export class SorobanController {
   constructor(
     private readonly sorobanService: SorobanService,
     private readonly logger: LoggingService,
- main
   ) {}
 
   @Post('initialize-contract')
@@ -31,7 +29,6 @@ export class SorobanController {
       const success = await this.sorobanService.initializeCertificateContract(
         body.adminAddress,
       );
-      await this.ttlService.extendInstanceTtl();
 
       if (success) {
         return {
@@ -59,7 +56,6 @@ export class SorobanController {
   async addIssuer(@Body() body: { issuerAddress: string }) {
     try {
       const success = await this.sorobanService.addIssuer(body.issuerAddress);
-      await this.ttlService.extendInstanceTtl();
 
       if (success) {
         return {
@@ -103,7 +99,6 @@ export class SorobanController {
         body.signers,
         body.maxSigners,
       );
-      await this.ttlService.extendInstanceTtl();
 
       if (success) {
         return {
@@ -131,7 +126,6 @@ export class SorobanController {
   async getCertificate(@Param('id') id: string) {
     try {
       const certificate = await this.sorobanService.getCertificate(id);
-      await this.ttlService.extendInstanceTtl();
 
       if (certificate) {
         return {

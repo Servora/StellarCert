@@ -20,20 +20,28 @@ const mockResolve6 = dns.resolve6 as unknown as jest.MockedFunction<
 >;
 
 function mockDnsSuccess(ipv4: string[] = [], ipv6: string[] = []) {
-  mockResolve4.mockImplementation((_hostname, cb) => {
-    cb(null, ipv4);
+  mockResolve4.mockImplementation((...args) => {
+    const callback = args.find((argument) => typeof argument === 'function');
+    if (typeof callback !== 'function') throw new Error('DNS callback missing');
+    callback(null, ipv4);
   });
-  mockResolve6.mockImplementation((_hostname, cb) => {
-    cb(null, ipv6);
+  mockResolve6.mockImplementation((...args) => {
+    const callback = args.find((argument) => typeof argument === 'function');
+    if (typeof callback !== 'function') throw new Error('DNS callback missing');
+    callback(null, ipv6);
   });
 }
 
 function mockDnsError() {
-  mockResolve4.mockImplementation((_hostname, cb) => {
-    cb(new Error('ENOTFOUND'), []);
+  mockResolve4.mockImplementation((...args) => {
+    const callback = args.find((argument) => typeof argument === 'function');
+    if (typeof callback !== 'function') throw new Error('DNS callback missing');
+    callback(new Error('ENOTFOUND'), []);
   });
-  mockResolve6.mockImplementation((_hostname, cb) => {
-    cb(new Error('ENOTFOUND'), []);
+  mockResolve6.mockImplementation((...args) => {
+    const callback = args.find((argument) => typeof argument === 'function');
+    if (typeof callback !== 'function') throw new Error('DNS callback missing');
+    callback(new Error('ENOTFOUND'), []);
   });
 }
 

@@ -50,7 +50,6 @@ export class SorobanService implements OnModuleInit {
   private certificateContractId: string;
   private multisigContractId: string;
   private crlContractId: string;
-  private readonly ttlLedgers: number = 100000;
 
   constructor(
     private readonly configService: ConfigService,
@@ -92,54 +91,6 @@ export class SorobanService implements OnModuleInit {
     }
 
     this.logger.log(`SorobanService initialized on ${network}`);
-  }
-
-  /**
-   * Extend the TTL of instance storage entries for a contract.
-   * Soroban requires explicit TTL extension for persistent and instance
-   * storage entries, otherwise they expire and become archived.
-   */
-  private async extendInstanceTtl(contractId: string): Promise<void> {
-    try {
-      if (!contractId) {
-        return;
-      }
-
-      const contract = new Contract(contractId);
-      const sourceAccount = await this.server.getAccount(
-        this.adminKeypair.publicKey(),
-      );
-
-      const transaction = new TransactionBuilder(sourceAccount, {
-        fee: '100',
-        networkPassphrase: this.networkPassphrase,
-      })
-        .addOperation(
-          contract.call(
-            'extend_ttl',
-            nativeToScVal(this.ttlLedgers, { type: 'u32' }),
-            nativeToScVal(this.ttlLedgers, { type: 'u32' }),
-          ),
-        )
-        .setTimeout(30)
-        .build();
-
-      transaction.sign(this.adminKeypair);
-
-      const result = await this.server.sendTransaction(transaction);
-
-      if (result.status !== 'PENDING') {
-        this.logger.warn(
-          `TTL extension transaction failed to submit: ${result.status}`,
-        );
-        return;
-      }
-
-      await this.pollTransaction(result.hash);
-    } catch (error: any) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`TTL extension failed for ${contractId}: ${message}`);
-    }
   }
 
   /**
@@ -238,10 +189,6 @@ export class SorobanService implements OnModuleInit {
       // Poll until the ledger confirms the transaction
       const txResponse = await this.pollTransaction(result.hash);
 
-      if (txResponse.status === 'SUCCESS') {
-        await this.extendInstanceTtl(this.certificateContractId);
-      }
-
       return txResponse.status === 'SUCCESS';
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
@@ -286,10 +233,6 @@ export class SorobanService implements OnModuleInit {
 
       // Poll until the ledger confirms the transaction
       const txResponse = await this.pollTransaction(result.hash);
-
-      if (txResponse.status === 'SUCCESS') {
-        await this.extendInstanceTtl(this.certificateContractId);
-      }
 
       return txResponse.status === 'SUCCESS';
     } catch (error: any) {
@@ -362,7 +305,6 @@ export class SorobanService implements OnModuleInit {
         return null;
       }
 
- main
       return result.hash;
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
@@ -412,10 +354,6 @@ export class SorobanService implements OnModuleInit {
       // Poll until the ledger confirms the transaction
       const txResponse = await this.pollTransaction(result.hash);
 
-      if (txResponse.status === 'SUCCESS') {
-        await this.extendInstanceTtl(this.certificateContractId);
-      }
-
       return txResponse.status === 'SUCCESS';
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
@@ -461,8 +399,6 @@ export class SorobanService implements OnModuleInit {
       if (txResponse.status !== 'SUCCESS' || !txResponse.returnValue) {
         return null;
       }
-
-      await this.extendInstanceTtl(this.certificateContractId);
 
       const certificateData = scValToNative(txResponse.returnValue);
 

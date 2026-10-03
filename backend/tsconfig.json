@@ -11,21 +11,23 @@
     "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
     "target": "ES2023",
-    "downlevelIteration": true,
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./",
     "paths": {
+      "src/*": ["./src/*"],
       "rxjs": ["../node_modules/rxjs"],
       "rxjs/*": ["../node_modules/rxjs/*"]
     },
     "incremental": true,
+    "strictPropertyInitialization": false,
     "skipLibCheck": true,
     "strictNullChecks": true,
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
+    "noFallthroughCasesInSwitch": false,
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "exclude": ["node_modules", "dist", "src/auth/**/*", "src/certificates/**/*"]

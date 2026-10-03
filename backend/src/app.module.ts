@@ -12,6 +12,7 @@ import { UsersModule } from './modules/users/users.module';
 import { IssuersModule } from './modules/issuers/issuers.module';
 import { HealthModule } from './modules/health/health.module';
 import { CommonModule } from './common/common.module';
+import { BullBoardAuthMiddleware } from './common/middleware/bull-board-auth.middleware';
 import { EmailModule } from './modules/email/email.module';
 import { typeOrmConfig } from './config/typeorm.config';
 import { validateEnv } from './config/environment.config';
@@ -25,7 +26,8 @@ import { MetadataSchemaModule } from './modules/metadata-schema/metadata-schema.
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AdminAnalyticsModule } from './modules/admin-analytics/admin-analytics.module';
 import { SecurityModule } from './modules/security/security.module';
-import { BullBoardAuthMiddleware } from './common/middleware/bull-board-auth.middleware';
+import { MultisigModule } from './modules/multisig/multisig.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -73,6 +75,7 @@ import { BullBoardAuthMiddleware } from './common/middleware/bull-board-auth.mid
     NotificationsModule,
     AdminAnalyticsModule,
     SecurityModule,
+    MultisigModule,
   ],
   controllers: [AppController],
   providers: [AppService],

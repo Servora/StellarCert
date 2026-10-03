@@ -49,9 +49,21 @@ class ProposeCertificateDto {
   expirationDays: number;
 }
 
+class ApproveRequestDto {
+  requestId: string;
+}
+
 class RejectRequestDto {
   requestId: string;
   reason?: string;
+}
+
+class IssueCertificateDto {
+  requestId: string;
+}
+
+class CancelRequestDto {
+  requestId: string;
 }
 
 @Controller('multisig')

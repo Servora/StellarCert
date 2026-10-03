@@ -7,29 +7,6 @@ import { WebhookEvent } from '../../webhooks/entities/webhook-subscription.entit
 import { UserRole } from '../../users/entities/user.entity';
 import { CertificateStatus } from '../constants/certificate-status.enum';
 
-// TODO: Replace with the actual Soroban TTL module once available.
-// This is a minimal in-memory TTL tracker that ensures instance storage
-// entries are extended on every read/write operation.
-const TTL_EXTENSION_LEGGERS = 517440; // ~30 days in ledgers (5 sec/ledger)\nconst TTL_THRESHOLD = 43200; // ~5 days in ledgers
-
-interface TtlEntry {
-  extendedAt: number;
-}
-
-const instanceTtlStore = new Map<string, TtlEntry>();
-
-function extendInstanceTtl(key: string): void {
-  instanceTtlStore.set(key, { extendedAt: Date.now() });
-}
-
-function ensureInstanceTtl(key: string): void {
-  const entry = instanceTtlStore.get(key);
-  if (!entry || Date.now() - entry.extendedAt > TTL_THRESHOLD)
-    {
-    extendInstanceTtl(key);
-  }
-}
-
 @Injectable()
 export class CertificateRevocationService {
   private readonly logger = new Logger(CertificateRevocationService.name);
@@ -41,9 +18,6 @@ export class CertificateRevocationService {
   ) {}
 
   async revoke(id: string, reason?: string): Promise<Certificate> {
-    // Extend TTL on read operation
-    ensureInstanceTtl(`certificate:${id}`);
-
     const certificate = await this.certificateRepository.findOne({
       where: { id },
     });
@@ -62,9 +36,6 @@ export class CertificateRevocationService {
     }
 
     const savedCertificate = await this.certificateRepository.save(certificate);
-
-    // Extend TTL on write operation
-    extendInstanceTtl(`certificate:${ savedCertificate.id }`);
 
     this.logger.log(`Certificate revoked: ${id} with reason: ${reason}`);
 
@@ -88,9 +59,6 @@ export class CertificateRevocationService {
     reason?: string,
     durationDays?: number,
   ): Promise<Certificate> {
-    // Extend TTL on read operation
-    ensureInstanceTtl(`certificate:${id}`);
-
     const certificate = await this.certificateRepository.findOne({
       where: { id },
     });
@@ -129,9 +97,6 @@ export class CertificateRevocationService {
 
     const savedCertificate = await this.certificateRepository.save(certificate);
 
-    // Extend TTL on write operation
-    extendInstanceTtl(`certificate:${ savedCertificate.id }`);
-
     this.logger.log(`Certificate frozen: ${id} with reason: ${reason}`);
 
     // Trigger webhook event
@@ -154,9 +119,6 @@ export class CertificateRevocationService {
   }
 
   async unfreeze(id: string, reason?: string): Promise<Certificate> {
-    // Extend TTL on read operation
-    ensureInstanceTtl(`certificate:${id}`);
-
     const certificate = await this.certificateRepository.findOne({
       where: { id },
     });
@@ -181,9 +143,6 @@ export class CertificateRevocationService {
     }
 
     const savedCertificate = await this.certificateRepository.save(certificate);
-
-    // Extend TTL on write operation
-    extendInstanceTtl(`certificate:${ savedCertificate.id }`);
 
     this.logger.log(`Certificate unfrozen: ${id} with reason: ${reason}`);
 
@@ -216,9 +175,6 @@ export class CertificateRevocationService {
 
     for (const id of certificateIds) {
       try {
-        // Extend TTL on read operation
-        ensureInstanceTtl(`certificate:${id}`);
-
         const certificate = await this.certificateRepository.findOne({
           where: { id },
         });

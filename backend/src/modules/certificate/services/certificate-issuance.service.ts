@@ -9,7 +9,6 @@ import { WebhooksService } from '../../webhooks/webhooks.service';
 import { WebhookEvent } from '../../webhooks/entities/webhook-subscription.entity';
 import { MetadataSchemaService } from '../../metadata-schema/services/metadata-schema.service';
 import { CryptoUtils } from '../../../common/utils/crypto.utils';
-main
 
 @Injectable()
 export class CertificateIssuanceService {
@@ -22,7 +21,6 @@ export class CertificateIssuanceService {
     private readonly webhooksService: WebhooksService,
     private readonly metadataSchemaService: MetadataSchemaService,
     private readonly dataSource: DataSource,
-    private readonly ttlService: TtlService,
   ) {}
 
   async issue(
@@ -94,16 +92,11 @@ export class CertificateIssuanceService {
 
       const savedCertificate = await queryRunner.manager.save(certificate);
 
-      // Extend TTL for the newly created certificate instance storage entry
-      await this.ttlService.extendInstanceTtl(savedCertificate.id);
-
       // If this was an override, mark it appropriately
       if (overrideReason) {
         savedCertificate.isDuplicate = true;
         savedCertificate.overrideReason = overrideReason;
         await queryRunner.manager.save(savedCertificate);
-        // Extend TTL again after the override update
-        await this.ttlService.extendInstanceTtl(savedCertificate.id);
       }
 
       // Commit the transaction

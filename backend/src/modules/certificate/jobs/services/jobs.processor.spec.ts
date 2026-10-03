@@ -164,6 +164,8 @@ describe('JobsProcessor – expiration-check', () => {
       repository,
       { triggerEvent } as any,
       { log: jest.fn(), error: jest.fn() } as any,
+      { sendEmail: jest.fn() } as any,
+      { generate: jest.fn() } as any,
     );
     return processor;
   };

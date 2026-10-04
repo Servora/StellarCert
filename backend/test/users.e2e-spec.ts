@@ -5,6 +5,9 @@ import {
   VersioningType,
 } from '@nestjs/common';
 import request from 'supertest';
+import cookieParser from 'cookie-parser';
+import { DataSource } from 'typeorm';
+import { User } from '../src/modules/users/entities/user.entity';
 import { AppModule } from '../src/app.module';
 import {
   UserRole,
@@ -42,6 +45,11 @@ describe('UsersController (e2e)', () => {
     // Mirror main.ts: routes are served under /api and URI-versioned, so the
     // e2e specs must apply the same prefix and versioning or every request
     // 404s against an app whose routes are mounted at the bare path.
+    // main.ts installs cookie-parser. Without it req.cookies is undefined, so
+    // the refresh handler cannot read the HttpOnly refreshToken cookie and
+    // every cookie-based request fails as unauthenticated.
+    app.use(cookieParser());
+
     app.setGlobalPrefix('api');
     app.enableVersioning({
       type: VersioningType.URI,
@@ -69,13 +77,13 @@ describe('UsersController (e2e)', () => {
           .send(testUser)
           .expect(201)
           .expect((res) => {
-            expect(res.body).toHaveProperty('user');
-            expect(res.body).toHaveProperty('tokens');
-            expect(res.body.user.email).toBe(testUser.email);
-            expect(res.body.tokens).toHaveProperty('accessToken');
-            expect(res.body.tokens).toHaveProperty('refreshToken');
-            accessToken = res.body.tokens.accessToken;
-            testUserId = res.body.user.id;
+            expect(res.body.data).toHaveProperty('user');
+            expect(res.body.data).toHaveProperty('tokens');
+            expect(res.body.data.user.email).toBe(testUser.email);
+            expect(res.body.data.tokens).toHaveProperty('accessToken');
+            expect(res.body.data.tokens).toHaveProperty('refreshToken');
+            accessToken = res.body.data.tokens.accessToken;
+            testUserId = res.body.data.user.id;
           });
       });
 
@@ -118,9 +126,9 @@ describe('UsersController (e2e)', () => {
           })
           .expect(200)
           .expect((res) => {
-            expect(res.body).toHaveProperty('user');
-            expect(res.body).toHaveProperty('tokens');
-            accessToken = res.body.tokens.accessToken;
+            expect(res.body.data).toHaveProperty('user');
+            expect(res.body.data).toHaveProperty('tokens');
+            accessToken = res.body.data.tokens.accessToken;
           });
       });
 
@@ -152,7 +160,7 @@ describe('UsersController (e2e)', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(200)
           .expect((res) => {
-            expect(res.body.message).toBe('Logged out successfully');
+            expect(res.body.data.message).toBe('Logged out successfully');
           });
       });
 
@@ -173,8 +181,8 @@ describe('UsersController (e2e)', () => {
             email: testUser.email,
             password: testUser.password,
           });
-        refreshToken = res.body.tokens.refreshToken;
-        accessToken = res.body.tokens.accessToken;
+        refreshToken = res.body.data.tokens.refreshToken;
+        accessToken = res.body.data.tokens.accessToken;
       });
 
       it('should refresh tokens successfully', () => {
@@ -183,8 +191,8 @@ describe('UsersController (e2e)', () => {
           .send({ refreshToken })
           .expect(200)
           .expect((res) => {
-            expect(res.body).toHaveProperty('accessToken');
-            expect(res.body).toHaveProperty('refreshToken');
+            expect(res.body.data).toHaveProperty('accessToken');
+            expect(res.body.data).toHaveProperty('refreshToken');
           });
       });
 
@@ -214,7 +222,7 @@ describe('UsersController (e2e)', () => {
           .send({ email: 'nonexistent@example.com' })
           .expect(200)
           .expect((res) => {
-            expect(res.body.message).toContain('If the email exists');
+            expect(res.body.data.message).toContain('If the email exists');
           });
       });
     });
@@ -228,7 +236,7 @@ describe('UsersController (e2e)', () => {
           .send({ email: 'nonexistent@example.com' })
           .expect(200)
           .expect((res) => {
-            expect(res.body.message).toContain('If the email exists');
+            expect(res.body.data.message).toContain('If the email exists');
           });
       });
     });
@@ -269,7 +277,7 @@ describe('UsersController (e2e)', () => {
           })
           .expect(200)
           .expect((res) => {
-            expect(res.body.message).toBe('Password changed successfully');
+            expect(res.body.data.message).toBe('Password changed successfully');
           });
       });
 
@@ -318,9 +326,9 @@ describe('UsersController (e2e)', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(200)
           .expect((res) => {
-            expect(res.body.email).toBe(testUser.email);
-            expect(res.body.firstName).toBe(testUser.firstName);
-            expect(res.body.lastName).toBe(testUser.lastName);
+            expect(res.body.data.email).toBe(testUser.email);
+            expect(res.body.data.firstName).toBe(testUser.firstName);
+            expect(res.body.data.lastName).toBe(testUser.lastName);
           });
       });
 
@@ -342,8 +350,8 @@ describe('UsersController (e2e)', () => {
           })
           .expect(200)
           .expect((res) => {
-            expect(res.body.firstName).toBe('Updated');
-            expect(res.body.lastName).toBe('Name');
+            expect(res.body.data.firstName).toBe('Updated');
+            expect(res.body.data.lastName).toBe('Name');
           });
       });
 
@@ -374,12 +382,23 @@ describe('UsersController (e2e)', () => {
         .post('/api/v1/users/register')
         .send(adminUser);
 
-      adminUserId = registerRes.body.user.id;
-      adminAccessToken = registerRes.body.tokens.accessToken;
+      adminUserId = registerRes.body.data.user.id;
 
-      // Note: In a real scenario, you would need to manually set the admin role
-      // in the database or have a seed script. For testing purposes, we'll
-      // assume the admin role is set.
+      // Registration only ever grants `user`, so the account has to be
+      // promoted directly in the database - the previous "assume the admin
+      // role is set" left every test in this block getting a 403 instead of
+      // exercising the admin routes. Sign in again afterwards so the token
+      // carries the new role.
+      const dataSource = app.get(DataSource);
+      await dataSource
+        .getRepository(User)
+        .update({ id: adminUserId }, { role: UserRole.ADMIN });
+
+      const loginRes = await request(app.getHttpServer())
+        .post('/api/v1/users/login')
+        .send({ email: adminUser.email, password: adminUser.password })
+        .expect(200);
+      adminAccessToken = loginRes.body.data.tokens.accessToken;
     });
 
     describe('GET /users', () => {
@@ -490,7 +509,9 @@ describe('UsersController (e2e)', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(200)
           .expect((res) => {
-            expect(res.body.message).toBe('Account deactivated successfully');
+            expect(res.body.data.message).toBe(
+              'Account deactivated successfully',
+            );
           });
       });
     });

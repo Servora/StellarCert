@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
   ForbiddenException,
 } from '@nestjs/common';
@@ -18,6 +19,8 @@ import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
@@ -273,6 +276,16 @@ export class AuthService {
         },
       };
     } catch (error) {
+      // Re-raise the specific reasons untouched; a blanket rewrite here used to
+      // turn every internal fault - a bad secret, a Redis outage during the
+      // blacklist check - into an indistinguishable 401, which made a broken
+      // refresh path impossible to diagnose from the outside.
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      this.logger.warn(
+        `Refresh token rejected: ${error instanceof Error ? error.message : String(error)}`,
+      );
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
   }

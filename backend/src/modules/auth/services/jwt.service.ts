@@ -125,7 +125,27 @@ export class JwtManagementService {
     refreshToken: string,
   ): Promise<{ accessToken: string; refreshToken: string }> {
     // Verify the refresh token
-    const payload = await this.verifyRefreshToken(refreshToken);
+    const verified = await this.verifyRefreshToken(refreshToken);
+
+    // Re-sign only the identity claims. The verified payload still carries the
+    // registered claims from the old token (iat/exp, and nbf/jti when set), and
+    // jsonwebtoken refuses to sign a payload that already has `exp` while an
+    // `expiresIn` option is given - "Bad options.expiresIn option the payload
+    // already has an exp property". That threw on every refresh, so the catch
+    // in AuthService.refreshTokens turned all of them into 401s and silent
+    // refresh never worked: sessions ended as soon as the access token aged out.
+    const {
+      iat: _iat,
+      exp: _exp,
+      nbf: _nbf,
+      jti: _jti,
+      ...payload
+    } = verified as JwtPayload & {
+      iat?: number;
+      exp?: number;
+      nbf?: number;
+      jti?: string;
+    };
 
     // Generate new access token
     const newAccessToken = await this.generateAccessToken(payload);

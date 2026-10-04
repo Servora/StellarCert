@@ -5,8 +5,10 @@ import {
   VersioningType,
 } from '@nestjs/common';
 import request from 'supertest';
+import cookieParser from 'cookie-parser';
 import { AppModule } from '../src/app.module';
-import { UserRole } from '../src/modules/users/entities/user.entity';
+import { DataSource } from 'typeorm';
+import { User, UserRole } from '../src/modules/users/entities/user.entity';
 
 function extractCookie(
   headers: Record<string, string | string[] | undefined>,
@@ -44,6 +46,11 @@ describe('AuthController e2e (Auth Flow Smoke Tests)', () => {
     // Mirror main.ts: routes are served under /api and URI-versioned, so the
     // e2e specs must apply the same prefix and versioning or every request
     // 404s against an app whose routes are mounted at the bare path.
+    // main.ts installs cookie-parser. Without it req.cookies is undefined, so
+    // the refresh handler cannot read the HttpOnly refreshToken cookie and
+    // every cookie-based request fails as unauthenticated.
+    app.use(cookieParser());
+
     app.setGlobalPrefix('api');
     app.enableVersioning({
       type: VersioningType.URI,
@@ -70,10 +77,10 @@ describe('AuthController e2e (Auth Flow Smoke Tests)', () => {
         .send(newUser)
         .expect(201);
 
-      expect(res.body).toHaveProperty('user');
-      expect(res.body).toHaveProperty('accessToken');
-      expect(res.body).toHaveProperty('expiresIn');
-      expect(res.body).not.toHaveProperty('refreshToken');
+      expect(res.body.data).toHaveProperty('user');
+      expect(res.body.data).toHaveProperty('accessToken');
+      expect(res.body.data).toHaveProperty('expiresIn');
+      expect(res.body.data).not.toHaveProperty('refreshToken');
     });
 
     it('should set a refreshToken cookie on successful registration', async () => {
@@ -103,7 +110,7 @@ describe('AuthController e2e (Auth Flow Smoke Tests)', () => {
         })
         .expect(201);
 
-      expect(res.body.user.role).toBe(UserRole.USER);
+      expect(res.body.data.user.role).toBe(UserRole.USER);
     });
 
     it('should fail with duplicate email', async () => {
@@ -134,15 +141,15 @@ describe('AuthController e2e (Auth Flow Smoke Tests)', () => {
         })
         .expect(200);
 
-      expect(res.body).toHaveProperty('accessToken');
-      expect(res.body).toHaveProperty('user');
-      expect(res.body).not.toHaveProperty('refreshToken');
+      expect(res.body.data).toHaveProperty('accessToken');
+      expect(res.body.data).toHaveProperty('user');
+      expect(res.body.data).not.toHaveProperty('refreshToken');
 
       const cookie = extractCookie(res.headers, 'refreshToken');
       expect(cookie).toBeDefined();
       expect(cookie?.length).toBeGreaterThan(0);
 
-      accessToken = res.body.accessToken;
+      accessToken = res.body.data.accessToken;
       refreshToken = cookie!;
     });
 
@@ -173,8 +180,12 @@ describe('AuthController e2e (Auth Flow Smoke Tests)', () => {
         .set('Cookie', [`refreshToken=${refreshToken}`])
         .expect(200);
 
-      expect(res.body).toHaveProperty('accessToken');
-      expect(res.body).toHaveProperty('refreshToken');
+      expect(res.body.data).toHaveProperty('accessToken');
+      // The rotated refresh token is delivered only as an HttpOnly cookie.
+      // Returning it in the body too would hand it to any script on the page,
+      // which is exactly what the cookie is there to prevent - so assert it is
+      // absent, and check the cookie below.
+      expect(res.body.data).not.toHaveProperty('refreshToken');
 
       const newCookie = extractCookie(res.headers, 'refreshToken');
       expect(newCookie).toBeDefined();
@@ -195,13 +206,31 @@ describe('AuthController e2e (Auth Flow Smoke Tests)', () => {
   });
 
   describe('Authenticated read via GET /api/v1/certificates/stats', () => {
-    it('should return statistics for an authenticated user', async () => {
+    // GET /certificates/stats is restricted to ADMIN, ISSUER and AUDITOR -
+    // detailed statistics are not something a plain account should read, and
+    // registration deliberately only ever grants `user`. So promote the smoke
+    // user directly in the database and sign in again to pick up a token that
+    // carries the new role.
+    beforeAll(async () => {
+      const dataSource = app.get(DataSource);
+      await dataSource
+        .getRepository(User)
+        .update({ email: newUser.email }, { role: UserRole.ISSUER });
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: newUser.email, password: newUser.password })
+        .expect(200);
+      accessToken = res.body.data.accessToken;
+    });
+
+    it('should return statistics for a user with a reporting role', async () => {
       await request(app.getHttpServer())
         .get('/api/v1/certificates/stats')
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200)
         .expect((res) => {
-          expect(res.body).toBeDefined();
+          expect(res.body.data).toBeDefined();
         });
     });
 

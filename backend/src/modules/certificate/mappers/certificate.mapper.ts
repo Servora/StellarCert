@@ -35,7 +35,7 @@ export interface CertificateResponseDto {
 
 export interface VerificationResultDto {
   isValid: boolean;
-  status: 'valid' | 'revoked' | 'expired' | 'not_found';
+  status: 'valid' | 'revoked' | 'expired' | 'frozen' | 'not_found';
   certificate?: CertificateResponseDto;
   verifiedAt: string;
   verificationDate: string;
@@ -123,7 +123,17 @@ export class CertificateMapper {
       ? new Date() > new Date(certificate.expiresAt)
       : false;
     const isRevoked = certificate.status === 'revoked';
-    const status = isRevoked ? 'revoked' : isExpired ? 'expired' : 'valid';
+    // Frozen is a temporary hold, distinct from revoked: the holder should be
+    // told the certificate is suspended rather than that it was withdrawn (or,
+    // as before this was handled, that it does not exist at all).
+    const isFrozen = certificate.status === 'frozen';
+    const status = isRevoked
+      ? 'revoked'
+      : isFrozen
+        ? 'frozen'
+        : isExpired
+          ? 'expired'
+          : 'valid';
     return {
       isValid: status === 'valid',
       status,
@@ -135,7 +145,9 @@ export class CertificateMapper {
           ? 'Certificate is valid and active'
           : status === 'revoked'
             ? 'Certificate has been revoked'
-            : 'Certificate has expired',
+            : status === 'frozen'
+              ? 'Certificate is temporarily frozen'
+              : 'Certificate has expired',
       verificationId: `ver_${Date.now()}`,
     };
   }

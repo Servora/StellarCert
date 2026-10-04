@@ -78,12 +78,6 @@
 
 ---
 
-**Title:** Analytics cache TTL may be 33 minutes instead of 2 minutes due to unit mismatch
-**Labels:** `bug` `backend`
-**Body:** `admin-analytics.service.ts` passes `this.CACHE_TTL * 1000` to `cacheManager.set`. If `cache-manager` v4+ expects milliseconds this is correct, but if a configured adapter expects seconds the TTL becomes 2,000 seconds (~33 minutes). Audit the installed cache-manager version and confirm the expected unit before applying the multiplier.
-
----
-
 **Title:** `ForgotPasswordDto.email` has no `@IsEmail()` validator
 **Labels:** `bug` `backend`
 **Body:** The email field in `ForgotPasswordDto` (in `change-password.dto.ts`) is decorated with only `@IsString()` and `@IsNotEmpty()`. Any non-empty string passes validation and is handed to the email queue, causing silent delivery failures and potentially leaking the password-reset flow to non-email inputs.
@@ -102,39 +96,9 @@
 
 ---
 
-**Title:** `CertificateTable.tsx` swallows errors from all actions — users never see failure
-**Labels:** `bug` `frontend`
-**Body:** Revoke, CSV export, PDF export, freeze, unfreeze, transfer, and history fetch all catch errors with only `console.error`. There is no toast notification, no error banner, no UI state change. Users clicking action buttons have no way to know their action failed silently.
-
----
-
-**Title:** `NotificationPreferences.tsx` swallows save error — user clicks "Save" and nothing happens
-**Labels:** `bug` `frontend`
-**Body:** The save-preferences error is caught and logged to the console. No toast or error message is shown. From the user's perspective, clicking Save produces no response on failure, leaving them unable to tell whether preferences were saved.
-
----
-
 **Title:** `IssuerProfile.tsx` swallows all data-load and update errors — blank panels silently
 **Labels:** `bug` `frontend`
 **Body:** Profile load, stats load, activity load, and profile update errors are all caught and logged to `console.error` with no user-visible feedback. Blank panels display with no indication of failure, giving users no path to retry or understand what went wrong.
-
----
-
-**Title:** `authApi.refresh` calls `/auth/refresh` — backend route is `/users/refresh-token`
-**Labels:** `bug` `frontend`
-**Body:** Both the explicit `authApi.refresh()` call and the 401-retry interceptor in `endpoints.ts` request `POST /auth/refresh`. The backend route is `POST /users/refresh-token`. Every automatic token refresh fails with 404, causing silent session expiry and forcing users to log in again.
-
----
-
-**Title:** `registerApi` comment says refresh tokens use `HttpOnly` cookies — code stores in `localStorage`
-**Labels:** `tech-debt` `frontend`
-**Body:** The comment at the top of the register response handler reads "Note: refreshToken is handled server-side via httpOnly cookies," but immediately below, `tokenStorage.setRefreshToken(response.refreshToken)` stores the token in `localStorage`. The misleading comment will cause future developers to incorrectly believe the secure pattern is in place.
-
----
-
-**Title:** `AUDITOR` role absent from frontend `UserRole` enum — auditors redirected on every protected page
-**Labels:** `bug` `frontend`
-**Body:** The frontend `UserRole` enum in `api/types.ts` does not include `AUDITOR`. A user with the backend `auditor` role hits `allowedRoutes = []` in `ProtectedRoute` and is redirected to `/` on every page visit. Add `AUDITOR = "auditor"` to the enum and define appropriate allowed paths.
 
 ---
 
@@ -162,12 +126,6 @@
 
 ---
 
-**Title:** `NotFound` page filename case mismatch — import fails on Linux/CI
-**Labels:** `bug` `frontend`
-**Body:** `App.tsx` does `import('./pages/NotFound')` but the file may be named `Notfound.tsx` (lowercase 'f'). On case-sensitive filesystems (Linux, all CI environments) this import fails at runtime when the 404 route is hit, showing a blank screen instead of a 404 page.
-
----
-
 **Title:** `USE_DUMMY_DATA` is a runtime flag — dummy data branches cannot be tree-shaken from production bundle
 **Labels:** `tech-debt` `frontend`
 **Body:** `VITE_USE_DUMMY_DATA` is read at runtime from `import.meta.env` but evaluated into a `const` that is checked in regular `if` branches rather than `if (import.meta.env.VITE_USE_DUMMY_DATA)` which Vite can statically analyze. The dummy data objects (large arrays of hardcoded certificates, users, templates) remain in the production bundle, adding dead weight and exposing internal data structures to anyone inspecting the bundle.
@@ -186,27 +144,9 @@
 
 ---
 
-**Title:** Login redirect after `ProtectedRoute` block does not preserve `returnUrl`
-**Labels:** `enhancement` `frontend`
-**Body:** When `ProtectedRoute` redirects an unauthenticated user to `/login`, no `?returnUrl=...` query parameter is appended. After logging in, the user is always sent to `/` regardless of where they were trying to go. Add `?returnUrl=${encodeURIComponent(location.pathname + location.search)}` to the redirect and honor it in the post-login success handler.
-
----
-
 ---
 
 ## Stellar Contracts
-
----
-
-**Title:** `crl.rs` `set_admin` writes to `instance()` storage, `get_admin` reads from `persistent()` — admin is never readable
-**Labels:** `bug` `contract`
-**Body:** `crl.rs` `set_admin` writes `DataKey::Admin` to `env.storage().instance()`. `get_admin` reads `DataKey::Admin` from `env.storage().persistent()`. The two operations target different storage backends. A written admin value can never be read back, so every admin check in the CRL contract fails.
-
----
-
-**Title:** `crl.rs` `update_crl_metadata` ignores `_issuer` parameter — no authorization performed
-**Labels:** `bug` `security` `contract`
-**Body:** `crl.rs` `update_crl_metadata` accepts an `_issuer: Address` parameter (prefixed with `_` indicating intentional non-use) but performs no authorization check against it. Any account can call this function and update CRL metadata without being the CRL owner or an authorized issuer.
 
 ---
 
@@ -284,65 +224,11 @@
 
 ---
 
-**Title:** No maximum cap on `limit` in `get_certificates_by_issuer` / `get_certificates_by_owner`
-**Labels:** `enhancement` `contract`
-**Body:** `paginate_certificates` respects the caller-supplied `limit` with no upper bound. Passing `limit = u32::MAX` causes the function to iterate over the entire certificate list in a single invocation, exhausting all available compute units and causing the transaction to fail. Enforce a maximum limit constant (e.g. 100) and reject values above it.
-
----
-
 <!-- ============================================================= -->
 <!-- Findings added 2026-08-27 after booting the full stack        -->
 <!-- (backend + frontend + docker services) and running an audit.  -->
 <!-- These are NEW issues, distinct from the ones above.           -->
 <!-- ============================================================= -->
-
-## 🔴 Build Blockers (app does not compile) — ✅ ALL RESOLVED 2026-08-27
-
-> These were discovered by actually running the stack: the backend production build (`nest build`) failed, the app crashed on boot with an unresolved DI dependency, and the Soroban contract crate (`stellar-contracts`) did not compile. **All of the blockers in this section have now been fixed** — `nest build` passes, the backend boots and serves `GET /api/v1/health → 200`, and `npm run build` (frontend `tsc -b && vite build`) passes. The three contract fixes are mechanical and resolve the identified compile errors, but could not be `cargo check`-verified locally (Rust toolchain not installed in the audit environment).
-
----
-
-**Title:** Backend `nest build` fails — `CertificatesController` references undefined `this.certificatesService`
-**Labels:** `bug` `backend` `build-blocker`
-**Status:** ✅ Fixed 2026-08-27 — deleted the orphaned `backend/src/certificates/` directory (controller + dto).
-**Body:** `certificates.controller.ts:13` did `return this.certificatesService.search(queryDto);`, but `CertificatesController` had no constructor and no `certificatesService` property — and no `CertificatesService` class existed anywhere in the repo (verified by grep). `nest build` failed with `TS2339: Property 'certificatesService' does not exist`. The controller was also orphaned (registered in no module) and a redundant duplicate of the already-registered `GET /certificates/search` route in `CertificateController` (`certificate.controller.ts:97`). **Resolution:** removed the dead `src/certificates/` directory. If a standalone certificates search controller is wanted later, wire it to the existing `CertificateSearchService`.
-
----
-
-**Title:** Backend `nest build` fails — `redis.health.ts` imports `Queue` as a value in a decorated signature
-**Labels:** `bug` `backend` `build-blocker`
-**Status:** ✅ Fixed 2026-08-27 — changed to `import type { Queue } from 'bull';`.
-**Body:** `redis.health.ts:8` did `import { Queue } from 'bull'` and used `Queue` as a constructor parameter type decorated with `@InjectQueue(...)`. With `isolatedModules` + `emitDecoratorMetadata` enabled, TypeScript raised `TS1272: A type referenced in a decorated signature must be imported with 'import type'`. **Resolution:** switched to a type-only import. (Note: `tsc --noEmit` via `tsconfig.json` did not surface the `CertificatesController` error while `nest build` did — the two build paths disagree, worth reconciling.)
-
----
-
-**Title:** Backend crashes on boot — `RedisHealthIndicator` cannot resolve `BullQueue_stellar-email-queue`
-**Labels:** `bug` `backend` `build-blocker`
-**Status:** ✅ Fixed 2026-08-27 — registered the queue in `HealthModule`.
-**Body:** Once the two compile errors above were fixed, the app crashed at startup with a Nest DI error: `RedisHealthIndicator` (provided in `HealthModule`) injects `@InjectQueue('stellar-email-queue')`, but `HealthModule` never registered that Bull queue, so the `BullQueue_stellar-email-queue` provider could not be resolved. **Resolution:** added `BullModule.registerQueue({ name: 'stellar-email-queue' })` to `HealthModule.imports` (`backend/src/modules/health/health.module.ts`). The backend now boots and health checks (Redis + Stellar) return `up`.
-
----
-
-**Title:** Soroban contract crate does not compile — stray `issuer.require_auth();` outside any function body in `lib.rs`
-**Labels:** `bug` `contract` `build-blocker`
-**Status:** ✅ Fixed 2026-08-27 — moved the call to the first line of `propose_certificate`.
-**Body:** In `lib.rs:879` the statement `issuer.require_auth();` sat at `impl`-block level, between the closing brace of `update_multisig_config` and the `pub fn propose_certificate` declaration. A bare statement cannot exist outside a function body, so `cargo build` failed to compile the whole crate. **Resolution:** removed the stray line and added `issuer.require_auth();` as the first statement inside `propose_certificate` — this also closes the missing-authorization gap described in the contracts section below.
-
----
-
-**Title:** Soroban `lib.rs` contains a committed raw unified-diff / patch fragment (invalid Rust)
-**Labels:** `bug` `contract` `build-blocker`
-**Status:** ✅ Fixed 2026-08-27 — deleted the diff fragment; applied its intended change.
-**Body:** The tail of `lib.rs` (formerly lines 1459-1470) contained literal diff-hunk text — `@@ -1,4 +1,4 @@`, `-`/`+`-prefixed lines, and a stray `env.events().publish(...)` snippet — leftover from a botched merge/patch application. This was not valid Rust and guaranteed a compile failure. **Resolution:** removed the fragment and applied its intended change (the `transfer_done` symbol fix below) directly in `complete_transfer`.
-
----
-
-**Title:** Soroban `symbol_short!("transfer_done")` exceeds the 9-character limit — will not compile
-**Labels:** `bug` `contract` `build-blocker`
-**Status:** ✅ Fixed 2026-08-27 — replaced with `Symbol::new(&env, "transfer_done")`.
-**Body:** `lib.rs:678` emitted the transfer-completion event with `symbol_short!("transfer_done")`. The `symbol_short!` macro only accepts symbols up to 9 characters; `transfer_done` is 12, so it failed to compile. **Resolution:** switched to `Symbol::new(&env, "transfer_done")` and added `Symbol` to the `soroban_sdk` import list.
-
----
 
 ## Backend (new)
 
@@ -351,19 +237,6 @@
 **Title:** Logout / token blacklist is never enforced on protected routes
 **Labels:** `bug` `security` `backend`
 **Body:** `AuthService.logout` blacklists the access token via `JwtManagementService.blacklistToken` (cache-backed), but the request-time [jwt-auth.guard.ts:58-65](backend/src/common/guards/jwt-auth.guard.ts#L58-L65) only calls `jwtService.verify(token)` and never calls `isTokenBlacklisted`; the passport [jwt.strategy.ts:38-56](backend/src/modules/auth/strategies/jwt.strategy.ts#L38-L56) also never consults the blacklist. As a result, logout has zero effect — a "logged out" token keeps working until natural expiry. The guard also never checks `user.isActive`/existence, so a suspended or deleted user's still-valid token keeps authenticating. Fix: make `JwtAuthGuard` async, check the blacklist, and re-load the user (active check), or route all auth through a single guard that does both.
-
----
-
-**Title:** Two divergent JWT auth guards produce inconsistent `req.user` shapes
-**Labels:** `tech-debt` `backend`
-**Status:** ✅ Fixed 2026-08-31 — deleted the unused passport `JwtStrategy` (only `JwtAuthGuard` remains) and made `JwtAuthGuard` set a single canonical `req.user` shape: `{ id, sub, email, role }` with `id` and `sub` as aliases of the same user id, so both `@CurrentUser('id')` and `@CurrentUser('sub')` resolve regardless of guard.
-**Body:** `JwtAuthGuard` sets `req.user = { ...payload, id: payload.sub }` (raw claims + `sub` + `id`), while passport `JwtStrategy.validate` returns `{ id, email, role, isEmailVerified, twoFactorEnabled }` (no `sub`). Controllers use `@CurrentUser('sub')` in some places (e.g. `certificate-transfer.controller.ts:43,56,73,90`) and `@CurrentUser('id')` in others. A `sub` lookup silently returns `undefined` on any endpoint guarded by the passport strategy, which would break audit logging and ownership checks the moment a `sub`-based controller is switched to the passport guard. Fix: consolidate on one guard and one canonical `req.user` shape.
-
----
-
-**Title:** `CryptoUtils.generateToken` / `generateNumericCode` use `Math.random()` for security tokens
-**Labels:** `bug` `security` `backend`
-**Body:** [crypto.utils.ts:36-55](backend/src/common/utils/crypto.utils.ts#L36-L55) builds tokens and OTP/numeric codes from `Math.random()`, which is not cryptographically secure and is predictable. The doc comments explicitly advertise these for "reset tokens" and "OTP, verification codes" — exactly the security-sensitive uses where predictability enables account takeover. Fix: use `crypto.randomBytes` / `crypto.randomInt` (as `UserPasswordService.generateToken` already does correctly).
 
 ---
 
@@ -382,24 +255,6 @@
 **Title:** Certificate verification checks status but not expiry
 **Labels:** `bug` `backend`
 **Body:** `findByVerificationCode` in `certificate-verification.service.ts:21-38` filters on `status = 'active'` but never checks `expiresAt`, even though the entity exposes an `isExpired()` getter (`certificate.entity.ts:174-177`). Any certificate whose `expiresAt` has passed but which has not yet been swept by the expiration job verifies as fully valid and even emits a `CERTIFICATE_VERIFIED` webhook. Fix: add `AND (certificate.expiresAt IS NULL OR certificate.expiresAt > NOW())` to the query, or reject when `isExpired()`.
-
----
-
-**Title:** Webhook delivery has no SSRF protection on the subscription URL
-**Labels:** `bug` `security` `backend`
-**Body:** The webhook DTO validates the URL only with a bare `@IsUrl()` (`create-webhook-subscription.dto.ts:16-18`), and `webhooks.processor.ts:48-56` does `axios.post(subscription.url, ...)` to whatever host the user supplied. An attacker can register a webhook pointing at `http://169.254.169.254/...` (cloud metadata), `http://localhost:*`, or other internal services and receive the response back via the webhook log — a classic SSRF. Fix: restrict to `https`, resolve the host and reject private/link-local/loopback ranges before dispatch, and consider an allowlist.
-
----
-
-**Title:** NotificationsGateway allows any WebSocket origin (`cors: { origin: '*' }`)
-**Labels:** `bug` `security` `backend`
-**Body:** The gateway in `notifications.gateway.ts:12-16,35` is declared with `cors: { origin: '*' }`, so any website can open an authenticated socket against the API using a victim's token, and it only calls `jwtService.verify` (no blacklist/active check), widening the revocation gap to the realtime channel. Fix: restrict `origin` to the configured `ALLOWED_ORIGINS` and validate token revocation/active status on connect.
-
----
-
-**Title:** `initiateTransfer` does not verify the initiator owns/issued the certificate (IDOR)
-**Labels:** `bug` `security` `backend`
-**Body:** The controller (`certificate-transfer.controller.ts:34-47`) only requires the `ISSUER`/`ADMIN` role; the service (`certificate-transfer.service.ts:32-84`) loads the certificate by ID and never checks that `initiatorId` matches `certificate.issuerId`. Any issuer can therefore initiate — and, with the returned confirmation code, complete — a transfer of a certificate belonging to a different issuer. Fix: verify `certificate.issuerId === initiatorId` (or admin) before creating the transfer.
 
 ---
 
@@ -461,20 +316,6 @@
 
 ---
 
-**Title:** `login()` calls a non-existent `tokenStorage.setRefreshToken` — every login/registration throws
-**Labels:** `bug` `frontend` `build-blocker`
-**Status:** ✅ Fixed 2026-08-27 — dropped the broken `setRefreshToken` call and made `login` a 2-arg `(accessToken, user)` method.
-**Body:** `AuthContext.tsx:141` called `tokenStorage.setRefreshToken(refreshToken)`, but `tokenStorage` (`api/tokens.ts:20-29`) only defines `getAccessToken`, `setAccessToken`, `clearTokens`, and `hasAccessToken`. Invoking `login()` threw `TypeError: tokenStorage.setRefreshToken is not a function` before `setUserState` ran, so auth state was never set and the user was never actually logged in — breaking the primary auth flow end-to-end. **Resolution:** removed the `setRefreshToken` call (the refresh token lives in an HttpOnly cookie), changed the context signature to `login(accessToken, nextUser)`, and now also call `setAccessTokenState(accessToken)` so `isAuthenticated` reacts immediately.
-
----
-
-**Title:** `Login.tsx` calls `login()` with the wrong arguments (user passed as refresh token)
-**Labels:** `bug` `frontend`
-**Status:** ✅ Fixed 2026-08-27 — resolved together with the item above by adopting the 2-arg `login(accessToken, user)` signature, which matches both existing call sites.
-**Body:** The old context signature was `login(accessToken, refreshToken, user)`, but `Login.tsx:52,60` call `login(regRes.accessToken, regRes.user)` / `login(res.accessToken, res.user)` — only two arguments, so `user` was bound to `refreshToken` and the real `nextUser` was `undefined`. **Resolution:** the context now takes `(accessToken, nextUser)`, so the existing two-argument call sites are correct and no longer clear the user.
-
----
-
 **Title:** `IssueCertificate.tsx` (component) has a broken dead function and fakes issuance
 **Labels:** `bug` `frontend`
 **Status:** ⚠️ Partially fixed 2026-08-27 — removed the dead `handleConfirmIssue` function (it blocked `tsc -b`). The **fake issuance still remains**: `handleSubmit` still just `await`s a 1500 ms timeout and `alert()`s success without calling any API. Still needs wiring to the real create-certificate API (or deletion, along with its aspirational `IssueCertificate.test.tsx`).
@@ -482,22 +323,9 @@
 
 ---
 
-**Title:** Frontend production build (`tsc -b`) failed on several pre-existing type errors
-**Labels:** `bug` `frontend` `build-blocker`
-**Status:** ✅ Fixed 2026-08-27 — `npm run build` (`tsc -b && vite build`) now passes.
-**Body:** Beyond the login crash, `npm run build:frontend` was already red due to several pre-existing `tsc -b` errors, all now fixed: (1) `endpoints.ts:107` — the `retryCondition` default dereferenced `error.statusCode` on an `unknown` param (now narrowed); (2) `endpoints.ts:1395-1396` — audit-log mapping read `createdAt`/`errorMessage`/`userEmail` which were absent from `AuditLogItem` (added as optional fields in `types.ts`) and passed a possibly-`undefined` value into `new Date(...)` (added a `Date.now()` fallback); (3) `CertificatePreview.tsx` — `Toast` props and `showToast` param were implicitly `any`, and a corner-ornament `style` spread leaked a numeric `rotate` into `CSSProperties` (destructured `rotate` out before spreading); (4) `IssuerProfile.tsx` (component) was a broken 10-line stub with an undefined `setFormData` and no default export despite having a test — implemented as a minimal working component (state + "Generate Stellar Keypair" button) that satisfies `IssuerProfile.test.tsx`.
-
----
-
 **Title:** `ErrorBoundary` is defined but never mounted — a render error white-screens the whole app
 **Labels:** `bug` `frontend`
 **Body:** A working class-based `ErrorBoundary` exists (`components/ErrorBoundary.tsx`) but is imported by no file (verified). Because `App` (`App.tsx:41-172`) wraps the lazy `Suspense`/`Routes` tree without any error boundary, a render error or a failed `lazy()` chunk load white-screens the entire app with no recovery UI. Fix: wrap the `<Suspense>`/`<Routes>` (and ideally each lazy page) in `<ErrorBoundary>`.
-
----
-
-**Title:** `isAuthenticated` memo omits the reactive `accessToken` dependency
-**Labels:** `bug` `frontend`
-**Body:** In `AuthContext.tsx:46-54`, `accessToken` state was added "so `isAuthenticated` is reactive," but the `useMemo` reads `tokenStorage.getAccessToken()` directly and lists only `[user]` as a dependency. After a silent refresh where the user object is unchanged (the refresh response carries no `user`), `setAccessTokenState` fires but the memo does not recompute, so consumers keep the stale auth value until the next user change. Fix: add `accessToken` to the dependency array and derive from that state rather than re-reading storage.
 
 ---
 
@@ -510,30 +338,6 @@
 **Title:** `isTokenExpired` uses `atob` on a base64url JWT payload — can misdecode/throw and spuriously log out
 **Labels:** `bug` `frontend`
 **Body:** `AuthContext.tsx:6-14` decodes the JWT payload with `atob`, but JWT segments are base64url (`-`/`_`) while `atob` expects standard base64; payloads containing those characters decode incorrectly or throw, and the `catch` then treats the token as expired. This can spuriously log a user out immediately after a valid login. Fix: convert base64url→base64 (`replace(/-/g,'+').replace(/_/g,'/')` + padding) before `atob`, or use a JWT-aware decoder.
-
----
-
-**Title:** Access token stored in `localStorage` — exposed to XSS token theft
-**Labels:** `security` `frontend`
-**Body:** The JWT access token and serialized `user` are persisted in `localStorage` (`api/tokens.ts:20-29`, `AuthContext.tsx:36-41,109`), which is readable by any injected script; a single XSS payload can exfiltrate the bearer token. The refresh token is correctly HttpOnly, but the access token is not. Fix: keep the access token in memory only (rehydrate via the refresh endpoint on load) or move it to an HttpOnly cookie so JS-accessible storage never holds a usable bearer token.
-
----
-
-**Title:** Header shows a "Wallet" link to roles the route rejects (`USER`, `AUDITOR`)
-**Labels:** `bug` `frontend`
-**Body:** For any authenticated non-issuer/admin user, `Header.tsx:43-45` renders a `Wallet → /wallet` nav item, but the `/wallet` route's `allowedRoles` (`App.tsx:56-69`) is `[RECIPIENT, VERIFIER, ISSUER, ADMIN]` — excluding `USER` (the default role assigned at registration) and `AUDITOR`. A freshly registered `USER` sees a Wallet link that redirects to `/` on click. Fix: gate the nav item on the same allowed roles, or add `USER`/`AUDITOR` to the route.
-
----
-
-**Title:** "View Certificate" action button in the certificate table does nothing
-**Labels:** `bug` `frontend`
-**Body:** The final `FileText` action button in each row of `CertificateTable.tsx:612-617` has `title="View Certificate"` but no `onClick` handler, so clicking it is a no-op. Users see a visible, enabled control that silently does nothing. Fix: wire it to open the certificate detail/preview view, or remove the button.
-
----
-
-**Title:** `RevokeCertificate` always renders a hardcoded green "Active" badge for found certificates
-**Labels:** `bug` `frontend`
-**Body:** In `RevokeCertificate.tsx:67-83,193`, the lookup only special-cases `status === 'revoked'`; any other status (including `expired` or `frozen`) falls into the preview branch, which unconditionally renders `<span ...>Active</span>`. An expired or frozen certificate is therefore mislabeled "Active" and offered up for revocation. Fix: render the badge from `certificate.status` and block/adjust the revoke flow for non-active statuses.
 
 ---
 
@@ -552,12 +356,6 @@
 **Title:** Notification-preferences link is a raw `<a href>` that triggers a full page reload
 **Labels:** `tech-debt` `frontend`
 **Body:** `NotificationDropdown.tsx:103` uses `<a href="/preferences">` instead of a React Router `<Link>`. Clicking it forces a full document navigation, tearing down and re-bootstrapping the SPA (re-fetching bundles, re-running auth/notification providers) instead of a client-side transition. Fix: replace with `<Link to="/preferences">`.
-
----
-
-**Title:** `CertificateWallet` has no dark-mode styling despite an app-wide dark theme
-**Labels:** `enhancement` `frontend`
-**Body:** The entire wallet page (`CertificateWallet.tsx:232-425`) uses light-only utility classes (`bg-white`, `text-gray-600`, `bg-green-100 text-green-800`, …) with no `dark:` variants, while the rest of the app supports dark mode via `ThemeContext`. In dark mode the wallet renders as bright white cards with low-contrast text — inconsistent and jarring. Fix: add `dark:` variants to the cards, status badges, and modal.
 
 ---
 
@@ -580,12 +378,6 @@
 **Title:** `lib.rs` `reject_request` does not verify the rejector is an authorized signer
 **Labels:** `bug` `security` `contract`
 **Body:** Unlike `approve_request` (which checks `config.signers.contains(&approver)`) and unlike `multisig.rs::reject_request` (which checks at line 274), `lib.rs::reject_request` (lines 987-1035) only calls `rejector.require_auth()` and never confirms the rejector is a configured signer. Any account can push rejections; once `signers.len() - rejections.len() < threshold` the request is force-set to `Rejected`, letting an outsider unilaterally kill any pending request. Fix: after loading `config`, panic/return failure if `!config.signers.contains(&rejector)`.
-
----
-
-**Title:** `multisig.rs` `set_certificate_contract` lets anyone hijack the target certificate contract
-**Labels:** `bug` `security` `contract`
-**Body:** `set_certificate_contract` (`multisig.rs:353-356`) takes an `admin` param, calls `admin.require_auth()`, then overwrites `DataKey::CertificateContract` — but never checks that `admin` is a stored/expected admin. Any account can authorize itself and repoint the multisig contract at a malicious certificate contract, so subsequent `issue_approved_certificate` calls invoke attacker-controlled code. Fix: store an admin/config at init and require `admin` to match it (mirroring the `IssuerAdmin` pattern), or restrict to a configured signer set.
 
 ---
 
@@ -637,12 +429,6 @@
 
 ---
 
-**Title:** `admin_multisig.rs` stores every proposal in instance storage (unbounded growth)
-**Labels:** `bug` `contract`
-**Body:** Config, every `AdminProposal`, `CertificateContractId`, and each `RemovedIssuer` flag all live in the single instance storage entry (`admin_multisig.rs:146,210,238,352` via `set_instance`), which must be deserialized in full on every call and has a hard size ceiling. As proposals accumulate, the instance entry grows unbounded, raising per-call cost and eventually risking exceeding the limit — the same class of bug already flagged for `multisig.rs`/`shadow.rs`, but this file was not previously covered. Fix: move `AdminProposal` (and `RemovedIssuer`) records to `persistent()` storage keyed per id, keeping only config in instance storage.
-
----
-
 <!-- ============================================================= -->
 <!-- Second audit batch — added 2026-08-27.                        -->
 <!-- Covers areas not reached in the first pass: infra/DevOps/CI,   -->
@@ -655,18 +441,6 @@
 
 ---
 
-**Title:** Backend Docker healthcheck probes `/health` but the route is `/api/v1/health` — container is permanently "unhealthy"
-**Labels:** `bug` `devops`
-**Body:** The backend sets `app.setGlobalPrefix('api')` plus URI versioning (`defaultVersion: '1'`) and the health controller is `@Controller('health')`, so the endpoint is `/api/v1/health`. The compose healthcheck [docker-compose.yml:79](docker-compose.yml#L79) runs `wget ... http://localhost:3000/health`, which always 404s, so the container reports `unhealthy` forever and any orchestrator gating on health will never route traffic to it. `DOCKER_STARTUP_GUIDE.md:30-31` also tells users to open `http://localhost:3000/health`. Fix: point the healthcheck and docs at `http://localhost:3000/api/v1/health`.
-
----
-
-**Title:** Prometheus scrapes `backend:3000/metrics` but metrics are served at `/api/v1/metrics` — no backend metrics collected
-**Labels:** `bug` `devops`
-**Body:** `MetricsController` is `@Controller('metrics')` with `@Get()`, so with the global `api` prefix + version the real path is `/api/v1/metrics`. [monitoring/prometheus.yml:6-9](monitoring/prometheus.yml#L6-L9) sets `metrics_path: '/metrics'`, so every scrape 404s and the monitoring stack collects nothing. Fix: set `metrics_path: '/api/v1/metrics'`, and decide whether the metrics route should be excluded from the versioned prefix.
-
----
-
 **Title:** `VITE_API_URL` points at internal Docker host `backend` and drops `/v1` — the browser SPA cannot reach the API
 **Labels:** `bug` `devops`
 **Body:** The frontend is a browser app, so [docker-compose.yml:94](docker-compose.yml#L94) `VITE_API_URL: http://backend:3000/api` is unusable: `backend` resolves only inside the Docker network, not in the user's browser (which needs `http://localhost:3000`), and it omits the `/v1` version segment the backend requires. Also, Vite bakes env at build time, so this must be a build arg, not a runtime env. Fix: set `VITE_API_URL: http://localhost:3000/api/v1` (or route via nginx) and pass it as a build arg.
@@ -676,12 +450,6 @@
 **Title:** No `.dockerignore` — `COPY . .` bakes `node_modules`, `.env`, and `.git` into images
 **Labels:** `security` `devops`
 **Body:** Both Dockerfiles do `COPY . .` with no `.dockerignore` anywhere in the repo (verified via `find`), so any local `.env` (real secrets), the entire `.git` history, and host `node_modules` (native binaries built for the wrong platform) get copied into image layers. Secrets copied into a layer persist even if later deleted. Fix: add `.dockerignore` files excluding `node_modules`, `.env*`, `.git`, `dist`, `coverage`, etc.
-
----
-
-**Title:** CI workflow is a no-op that can never fail and pins a non-existent action version
-**Labels:** `bug` `devops` `ci`
-**Body:** [.github/workflows/ci.yml:14-15](.github/workflows/ci.yml#L14-L15) runs `npm test 2>/dev/null || echo "Tests completed"`, swallowing every failure so the job is always green; there is no build, lint, typecheck, or `cargo` step despite the root `ci:check`/`ci:build` scripts. It also uses `actions/checkout@v7`, which does not exist (current major is v4), so the workflow cannot even resolve the action, and `setup-node` has no dependency caching. Fix: use `actions/checkout@v4`, run real `npm ci && npm run ci:check && npm run ci:build` without swallowing exit codes, and add contract checks.
 
 ---
 
@@ -703,21 +471,9 @@
 
 ---
 
-**Title:** nginx "production" profile exposes 443 but defines no TLS server and proxies to the Vite dev server
-**Labels:** `security` `devops`
-**Body:** The `nginx` service (production profile) publishes `443:443` and mounts `./nginx/ssl`, but [nginx/nginx.conf:20-44](nginx/nginx.conf#L20-L44) only has a `listen 80;` server — no `listen 443 ssl`, no cert directives, and no HTTP→HTTPS redirect, so "production" serves plaintext. It also `proxy_pass`es `/` to `frontend:5173` (the Vite dev server) and sets no security headers, gzip, or rate limiting; the mounted `./nginx/ssl` directory doesn't even exist in the repo. Fix: add a TLS server block with certs and an 80→443 redirect, serve a built static frontend, and add baseline hardening headers.
-
----
-
 **Title:** Postgres migration bind-mount is ineffective — TypeORM `.ts` migrations mounted into a subdir the entrypoint never runs
 **Labels:** `bug` `devops`
 **Body:** [docker-compose.yml:14](docker-compose.yml#L14) mounts `./backend/src/database/migrations` into `/docker-entrypoint-initdb.d/migrations`, but the Postgres image only executes top-level `*.sql`/`*.sh` files (not nested subdirs), and TypeORM migrations are TypeScript, not SQL — so no schema is ever created this way. Yet `DOCKER_STARTUP_GUIDE.md:107` claims "the backend will automatically run database migrations." Fix: run migrations from the backend container on startup (e.g. `typeorm migration:run` in an entrypoint) and correct the guide.
-
----
-
-**Title:** Frontend Dockerfile ships the Vite dev server as the container command; production profile uses it too
-**Labels:** `tech-debt` `devops`
-**Body:** [frontend/Dockerfile](frontend/Dockerfile) is `FROM node:18`, runs `npm install` (no lockfile determinism), never builds, and `CMD ["npm","run","dev"]` — a hot-reloading dev server with source maps, no optimization, running as root. Because the same `frontend` service is a dependency of the production-profile nginx, production effectively serves the dev server. Fix: add a multi-stage build (`vite build` → static assets served by nginx), pin a consistent Node version, use `npm ci`, and drop privileges.
 
 ---
 
@@ -727,31 +483,13 @@
 
 ---
 
-**Title:** `.gitignore` excludes `package-lock.json` while CI and Dockerfiles depend on a committed lockfile
-**Labels:** `tech-debt` `devops`
-**Body:** [.gitignore:3](.gitignore#L3) ignores `package-lock.json`/`yarn.lock`, yet the lockfiles are currently tracked, CI calls `npm ci` (which _requires_ a lockfile), and reproducible Docker builds assume one. This is a footgun: regenerated lockfiles won't be staged by tooling that respects `.gitignore`, silently drifting dependency pins. Fix: remove the lockfiles from `.gitignore` and commit them intentionally.
-
----
-
 **Title:** `.env.example` defaults to `NODE_ENV=production`, ships a placeholder secret, and omits required variables
 **Labels:** `enhancement` `devops`
 **Body:** Copying the example (as the guide instructs) yields `NODE_ENV=production` and a literal `JWT_SECRET=your-super-secret-jwt-key-change-this-in-production`, nudging developers into prod mode with a placeholder secret. It also omits variables the stack needs: the Soroban block lives only in `.env.soroban.example`, and `STORAGE_REQUIRED`, `EMAIL_*`, and `EMAIL_QUEUE_NAME` (referenced in `main.ts:27`) are absent. Fix: default the example to `NODE_ENV=development`, mark secrets as clearly fake, and consolidate all required keys into one documented template.
 
 ---
 
-**Title:** Dependabot does not monitor Docker base images
-**Labels:** `enhancement` `devops`
-**Body:** [.github/dependabot.yml](.github/dependabot.yml) declares `npm` (root), `cargo`, and `github-actions` ecosystems but no `docker` ecosystem, so pinned bases (`node:18`, `postgres:15`, `nginx:alpine`) never get CVE/security updates. With npm declared only at `/` under workspaces, transitive updates to the `frontend`/`backend` sub-manifests may also be missed. Fix: add `package-ecosystem: docker` entries for `/backend` and `/frontend`, and consider explicit per-workspace npm entries. (Also verify the `@Servora/*` teams referenced in CODEOWNERS actually exist, or review requests will never fire.)
-
----
-
 ## Backend (second batch)
-
----
-
-**Title:** Refresh token is signed with the access secret but verified with the refresh secret — refresh breaks whenever the two differ
-**Labels:** `bug` `backend` `auth`
-**Body:** `generateTokens` signs the refresh token via `this.jwtService.sign(payload, { expiresIn: '7d' })` (`user-auth.service.ts:300-301`), which uses the JwtModule secret = `JWT_ACCESS_SECRET`, but `refreshTokens()` verifies with `secret: JWT_REFRESH_SECRET` (`user-auth.service.ts:186-187`). In any correct production setup where the two secrets are distinct, every `/users/refresh-token` call fails with "Invalid refresh token", forcing constant re-logins. Fix: sign the refresh token explicitly with `JWT_REFRESH_SECRET` (and its own expiry) to match the verify call.
 
 ---
 
@@ -851,31 +589,7 @@
 
 ---
 
-**Title:** Daily cleanup crons have no distributed lock — every replica runs them simultaneously
-**Labels:** `tech-debt` `backend`
-**Body:** Both `@Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)` handlers (`audit/jobs/audit-cleanup.job.ts:16-17`, `files/services/cleanup.service.ts:16-17`) assume a single instance. In a multi-replica deployment every pod fires the audit-purge and temp-file cleanup at midnight concurrently, duplicating deletes and audit "job start/complete" records and racing on the same rows/filesystem. Fix: gate scheduled jobs behind a shared lock (Redis `SETNX`/leader election) or run them from a single dedicated worker.
-
----
-
 ## Frontend (second batch)
-
----
-
-**Title:** 401-refresh retry reuses a stale `Authorization` header — silent refresh always re-sends the expired token
-**Labels:** `bug` `frontend` `auth`
-**Body:** The `headers` object is built once at the top of `apiClient` (`endpoints.ts:124-131`) with the current bearer token. On a 401, the code refreshes and calls `tokenStorage.setAccessToken(...)` then re-invokes `attemptRequest(attempt, true)`, but it never rebuilds `headers` or re-sets `Authorization` (`endpoints.ts:148-156`), so the retried request carries the same expired token and 401s again — making the whole silent-refresh mechanism a no-op even after the refresh route is fixed. Fix: after a successful refresh, `headers.set("Authorization", \`Bearer ${refreshResponse.accessToken}\`)`before retrying (or rebuild headers inside`attemptRequest`).
-
----
-
-**Title:** `NotificationProvider` effect runs once with empty deps — notifications never start after an in-app login
-**Labels:** `bug` `frontend`
-**Body:** The mount effect (`NotificationContext.tsx:77-101`) reads `tokenStorage.getAccessToken()` and returns early if there is no token, with a `[]` dependency array. Since login happens client-side without a page reload, a user who logs in after mount never triggers `fetchNotifications()`/`connectSocket()`, so the bell stays empty and the socket never connects until a manual refresh. Fix: subscribe to auth/user state (or the token-refresh callback) and (re)connect when a token becomes available.
-
----
-
-**Title:** `verifyCertificate` interpolates the raw serial into the URL path without encoding
-**Labels:** `bug` `frontend`
-**Body:** [endpoints.ts:412](frontend/src/api/endpoints.ts#L412) does `apiClient(\`/certificates/verify/${serialNumber}\`)`, inserting user input directly into the path. A serial containing spaces, `/`, `#`, `?`, or other reserved characters (plausible from a scanned QR payload) produces a malformed request or routes to the wrong path. Fix: `encodeURIComponent(serialNumber)`.
 
 ---
 
@@ -915,39 +629,15 @@
 
 ---
 
-**Title:** `ProtectedRoute` preserves only `pathname` in `returnUrl`, dropping the query string
-**Labels:** `bug` `frontend`
-**Body:** The unauthenticated redirect (`guard/ProtectedRoute.tsx:50-52`) builds `returnUrl` from `encodeURIComponent(location.pathname)` only, omitting `location.search`. A user deep-linked to `/certificates?status=revoked&page=3` is bounced to login and, after authenticating, returned to `/certificates` with all filters/pagination lost. Fix: use `encodeURIComponent(location.pathname + location.search)`. (Related to the already-filed returnUrl item, but this is the query-string-drop specifically.)
-
----
-
-**Title:** `ProtectedRoute` role-path tables (`roleRoutes`/`PUBLIC_PATHS`/`isPathAllowed`) are dead, competing authorization logic
-**Labels:** `tech-debt` `frontend`
-**Body:** Every `<ProtectedRoute>` in `App.tsx` passes an explicit `allowedRoles`, so the `else` branch that consults `roleRoutes` via `isPathAllowed` (`guard/ProtectedRoute.tsx:5-40,56-65`) is never reached, and `PUBLIC_PATHS` (`/verify`) is redundant. This creates two drifting sources of truth for authorization (e.g. `roleRoutes[VERIFIER]` grants `/verify` while `App.tsx` does not). Fix: remove the unused branch/tables or drive all routing authorization from a single source.
-
----
-
 **Title:** Duplicate QR-scanner implementations; the better lazy-loaded `QRScannerModal` is orphaned
 **Labels:** `tech-debt` `frontend`
 **Body:** Two full QR scanners exist: `VerifyCertificate` rolls its own with `Html5QrcodeScanner`, while the more capable `QRScannerModal` (torch, camera flip, dynamic import, friendly error mapping) is imported only by the unrouted `CertificateDemoPage`, so it never ships to users. This is duplicated, diverging maintenance surface. Fix: delete one implementation and route the survivor (prefer `QRScannerModal`).
 
 ---
 
-**Title:** Three page components (`Home`, `View`, `Create`) are committed but routed nowhere
-**Labels:** `tech-debt` `frontend`
-**Body:** `pages/Home.tsx`, `pages/View.tsx`, and `pages/Create.tsx` are referenced in no route or lazy import (verified by grep), so they are dead files that still carry typecheck/lint overhead and mislead contributors about the real routing surface (distinct from the admin/`page.tsx` orphans already noted). Fix: wire them into the router if intended, otherwise delete them.
-
----
-
 **Title:** Theme applied only in a post-mount `useEffect` — flash of wrong theme (FOUC) on load
 **Labels:** `enhancement` `frontend`
 **Body:** `applyTheme` runs inside a `useEffect` after React mounts (`ThemeContext.tsx:54-60`), so the initial HTML paints without the `dark` class before hydration corrects it; a dark-mode user sees a white flash on every full load. Fix: add a tiny inline `<script>` in `index.html` that reads `localStorage`/`prefers-color-scheme` and sets `document.documentElement.classList` before the app bundle executes.
-
----
-
-**Title:** Vite build has no `manualChunks`/vendor splitting — large third-party libs bundle into route chunks
-**Labels:** `performance` `frontend`
-**Body:** [vite.config.ts:5-16](frontend/vite.config.ts#L5-L16) has no `build.rollupOptions.output.manualChunks`, so heavy deps (`html5-qrcode`, `socket.io-client`, `qrcode.react`, `lucide-react`) are duplicated into whichever route chunk imports them instead of a shared, long-cacheable vendor chunk — inflating first-load and defeating cross-route caching. Fix: add a `manualChunks` strategy (e.g. split `node_modules` vendors) and annotate `chunkSizeWarningLimit`.
 
 ---
 
@@ -1030,3 +720,197 @@
 **Title:** Several contract test files are not wired into the crate — reported "tests" never run
 **Labels:** `tech-debt` `contract`
 **Body:** Only `admin_multisig_test`, `crl_test`, `issuer_test`, `multisig_test`, and `status_test` are declared under `#[cfg(test)]` in `lib.rs:41-50`. The remaining `*_test.rs` files (`comprehensive_tests.rs`, `test.rs`, `test_backend.rs`, `metadata_test.rs`, `issuer_management_test.rs`) are never compiled or run, and `test/CertificateManager.test.ts` is a stray TypeScript file inside the Rust crate — creating a false impression of coverage (`cargo test` skips them). Fix: declare the intended test modules (fixing any that reference dead code), and move/remove the TS file.
+
+---
+
+# Run-Verification Pass — 2026-09-25
+
+**What was executed on this pass** (branch `main`, already up to date with `origin/main` at `09c83a86`):
+
+| Check                                 | Result                                             |
+| ------------------------------------- | -------------------------------------------------- |
+| `npm install` (from committed lock)   | ✅ installs, but see blockers below                |
+| `npm install` (clean, no lock)        | ❌ **failed** — ERESOLVE peer conflicts            |
+| Backend `tsc --noEmit`                | ❌ 28 errors → ✅ 4 errors after fix (spec-only)   |
+| Backend boot (`nest start`)           | ❌ would not compile → ✅ **starts, port 3000**    |
+| `GET /api/v1/health`                  | ✅ 200                                             |
+| `GET /api/docs` (Swagger)             | ✅ 200                                             |
+| Frontend `tsc -b`                     | ✅ clean                                           |
+| Frontend `vite build`                 | ✅ built in 8.4 s                                  |
+| Frontend dev server                   | ✅ port 5173                                       |
+| Backend `jest`                        | ✅ 259 passed / 25 suites                          |
+| Frontend `vitest`                     | ✅ 77 passed / 16 files                            |
+| Contracts `cargo check --all-targets` | ✅ compiles (43 deprecation warnings)              |
+| Contracts `cargo test`                | ✅ 44 passed                                       |
+| `npm audit`                           | ⚠️ 18 vulns (13 high) → 9 vulns (6 high) after fix |
+
+**Environment note:** the backend needs Postgres and Redis. Neither is started by any repo script — they were provisioned manually (`postgres:16-alpine` on 5432, `redis:7-alpine` on 6379). The backend also only creates its schema with `TYPEORM_SYNCHRONIZE=true`; see the migration issues below.
+
+**Three fixes were applied to make the app start** (`package.json`, `frontend/package.json`) — filed below as RESOLVED for traceability.
+
+**Tracker audit.** Every pre-existing issue was re-checked against the code on this date. 49 entries were
+verified as already fixed and removed: 43 individual issues plus the 6-issue "Build Blockers" section that
+was already marked resolved. The tracker went from 184 entries to 135. Entries were deleted only on positive
+evidence of a fix; anything that could not be confirmed either way was kept.
+
+---
+
+## Infrastructure / Build (third batch)
+
+---
+
+**Title:** RESOLVED — Duplicate `rxjs` copies broke the backend build entirely (28 TS errors, app could not start)
+**Labels:** `bug` `build-blocker` `backend` `resolved`
+**Body:** `@angular-devkit/core` (pulled in by the `@nestjs/cli` devDependency) pins `rxjs` to exactly `7.8.1`, so npm nested that copy at `backend/node_modules/rxjs` while hoisting `7.8.2` to the workspace root. Backend source therefore resolved `rxjs` → 7.8.1 while `@nestjs/common` resolved → 7.8.2, giving two distinct nominal type identities. Every interceptor failed with `TS2416`/`TS2322` (`Property 'isStopped' is protected but type 'Subscriber<T>' is not a class derived from 'Subscriber<T>'`) — 28 errors across `cache.interceptor.ts`, `security/interceptor.ts` and others, so `nest start` never produced a running app. `npm ls rxjs` confirmed the committed lockfile was _invalid_: it placed 7.8.1 inside `backend/` despite `backend/package.json` declaring `^7.8.2` (`rxjs@7.8.1 deduped invalid: "^7.8.2" from backend`). **Fix applied:** added `"overrides": { "rxjs": "^7.8.2" }` to the root `package.json`, collapsing the tree to a single hoisted copy. Backend now compiles with 0 errors and boots.
+
+---
+
+**Title:** RESOLVED — A clean `npm install` (no lockfile) fails: `@vitejs/plugin-react@4` does not support Vite 8
+**Labels:** `bug` `build-blocker` `frontend` `resolved`
+**Body:** `frontend/package.json` declared `vite@^8.2.2` alongside `@vitejs/plugin-react@^4.3.4`, whose peer range is `vite@^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0`. Installing from the committed lockfile masked this, but any from-scratch `npm install` (a fresh clone with no lock, or CI running `npm ci` after a lock refresh) aborted with `ERESOLVE could not resolve`. The mismatch also produced deprecation warnings on every dev-server start (`esbuild` option was specified by "vite:react-babel" plugin…, `optimizeDeps.esbuildOptions` … now deprecated). **Fix applied:** bumped to `@vitejs/plugin-react@^5.2.0`, whose peer range is `^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0`. It stays Babel-based (v6 switches to oxc), so no config change was needed; the deprecation warnings are gone and `vite build` and all 77 vitest tests pass. Consider `@vitejs/plugin-react@6` as a separate, deliberate migration.
+
+---
+
+**Title:** RESOLVED — `eslint-plugin-react-refresh` was an unused dependency with an unsatisfiable peer range
+**Labels:** `bug` `tech-debt` `frontend` `resolved`
+**Body:** `frontend/package.json` declared `eslint-plugin-react-refresh@^0.5.5`, but **every** `0.5.x` release requires `eslint@^9 || ^10` while the repo pins `eslint@^8.57.1` (only `0.4.x` supports eslint 8). This was the second `ERESOLVE` blocker on a clean install. The plugin is also referenced _nowhere_: `.eslintrc.cjs` does not list it under `plugins` or `extends` — a comment there explains the React Refresh rule is intentionally disabled. **Fix applied:** removed the dependency. If the rule is ever wanted back, it requires the ESLint 9 flat-config migration first (see next issue).
+
+---
+
+**Title:** Frontend is pinned to ESLint 8, which is end-of-life and blocks the modern plugin ecosystem
+**Labels:** `enhancement` `tech-debt` `frontend`
+**Body:** `frontend/package.json` pins `eslint@^8.57.1` (npm itself warns `eslint@8.57.1: This version is no longer supported`) with a legacy `.eslintrc.cjs`. This is what makes current plugin versions uninstallable — `eslint-plugin-react-refresh@0.5.x` needs ESLint 9+, and `@typescript-eslint` is held back at v7 for the same reason. Fix: migrate to ESLint 9 with flat config (`eslint.config.js`), bump `@typescript-eslint/*` to v8, and re-add `eslint-plugin-react-refresh` if the HMR rule is wanted.
+
+---
+
+**Title:** `puppeteer` is declared as a root dependency but used nowhere — and causes 4 of the 6 remaining high-severity advisories
+**Labels:** `security` `tech-debt` `infrastructure`
+**Body:** `puppeteer@^24.42.0` is listed in the root `package.json` dependencies. A repo-wide search (excluding `node_modules` and the lockfile) finds exactly one reference: **the declaration itself**. Nothing in `backend/src` or `frontend/src` imports it. It nonetheless installs Chromium on every `npm install` and contributes `puppeteer`, `puppeteer-core`, `@puppeteer/browsers` and `extract-zip` (unvalidated symlink path traversal / arbitrary file write) to the audit report — 4 of the 6 high-severity advisories that remain after the rxjs fix. Removing it would cut high-severity findings from 6 to 2. Fix: delete the dependency, or move it to `backend` devDependencies if PDF generation is genuinely planned.
+
+---
+
+**Title:** Root `package.json` duplicates backend runtime dependencies at _different_ version ranges
+**Labels:** `bug` `infrastructure`
+**Body:** The root manifest is a workspace manager but declares five backend runtime dependencies that `backend/package.json` also declares — at ranges that do not match: `bull` (root `^4.16.5` vs backend `^4.15.1`) and `handlebars` (root `^4.7.9` vs backend `^4.7.8`); `@nestjs/bull`, `@nestjs/platform-express` and `nodemailer` are duplicated at matching ranges. Divergent ranges for the same package across a workspace are exactly what pushes npm into nesting a second copy inside `backend/node_modules` — the same class of failure that produced the rxjs build blocker above. Fix: remove all five from the root manifest and let `backend/package.json` own them.
+
+---
+
+**Title:** `shared` is declared as an npm workspace but the directory does not exist
+**Labels:** `bug` `infrastructure`
+**Body:** Root `package.json` declares `"workspaces": ["frontend", "backend", "shared"]`, but there is no `shared/` directory in the repository. npm tolerates the dangling entry today, but it is dead configuration that misleads contributors into expecting a shared types/util package (and any tooling that enumerates workspaces will resolve one fewer than declared). Fix: create `shared/` if a shared package is intended — it would be a natural home for the API types currently duplicated between `frontend/src/api/types.ts` and the backend DTOs — otherwise drop the entry.
+
+---
+
+**Title:** No script or compose target starts the Postgres/Redis the backend requires
+**Labels:** `enhancement` `infrastructure` `dx`
+**Body:** `npm run dev` runs `nest start --watch` and `vite` concurrently, but the backend needs Postgres on 5432 and Redis on 6379 and neither is started by any script. `docker-compose.yml` builds the full application images rather than offering a dependencies-only target, so a contributor wanting the fast local loop (`npm run dev`) must hand-provision both containers — this pass did so manually. Fix: add a `docker-compose.dev.yml` (or a `services` profile) containing only Postgres + Redis, plus an `npm run dev:deps` script, and reference it from `CONTRIBUTING.md`.
+
+---
+
+**Title:** `npm audit` reports 9 vulnerabilities (6 high) and there is no CI gate on them
+**Labels:** `security` `infrastructure`
+**Body:** After the dependency fixes on this pass the tree reports 9 advisories, 6 of them high: 4 via the unused `puppeteer` (above), and `@stellar/stellar-sdk` → `toml` (`toml-node: Uncontrolled Recursion`; `Prototype Pollution Leads to Object.prototype Corruption`). The root manifest defines a `security:audit` script but nothing in `.github/workflows` runs it, so the count drifts silently. Fix: drop `puppeteer`, bump `@stellar/stellar-sdk` to a release that ships a patched `toml`, and add `npm audit --audit-level=high` as a CI step.
+
+---
+
+## Backend (third batch)
+
+---
+
+**Title:** `MultisigModule` is never imported into `AppModule` — the entire multisig feature is unreachable dead code
+**Labels:** `bug` `backend`
+**Body:** `backend/src/modules/multisig/` defines `MultisigModule`, `MultisigController` and `MultisigService`, but `app.module.ts` imports 18 modules and `MultisigModule` is not among them. Grepping the whole of `backend/src` for `MultisigModule` returns exactly one hit — its own `export class` declaration in `multisig.module.ts`. Nest therefore never instantiates it, no multisig route is registered, and none of the endpoints exist at runtime (confirmed on this pass: the app boots and serves no multisig path). This materially changes the reading of the several multisig defects already filed in earlier batches — the DTO-constructor bug, the un-polled `getTransaction` calls, the hardcoded mock return values — all sit in code that is not wired up. Fix: either add `MultisigModule` to the `AppModule` imports and then resolve the outstanding multisig bugs before exposing it, or delete the module until the feature is ready.
+
+---
+
+**Title:** Three orphaned top-level directories shadow real modules and are imported by nothing
+**Labels:** `tech-debt` `backend`
+**Body:** `backend/src/` contains `email/`, `metadata-schema/` and `security/` as siblings of `modules/`, each duplicating the name of a real module under `modules/`. None of them is referenced anywhere: `src/email/email.service.ts` and `src/email/template-version.service.ts`, `src/metadata-schema/{metadata-schema.controller,metadata-schema.service}.ts`, and `src/security/{auth-throttler.module,throttler-config}.ts` have zero importers (every `metadata-schema` import in the tree resolves to `modules/metadata-schema/`). They are stale copies that predate the move into `modules/`, and their existence makes `src/security/…` vs `modules/security/…` ambiguous when reading imports or grepping. Fix: delete all three directories.
+
+---
+
+**Title:** `GET /health` omits the database indicator — reports `ok` while Postgres is unreachable
+**Labels:** `bug` `backend`
+**Body:** `HealthController` injects `DatabaseHealthIndicator` ([health.controller.ts:16](backend/src/modules/health/health.controller.ts#L16)) and uses it in `readiness()` ([:72](backend/src/modules/health/health.controller.ts#L72)) and `databaseCheck()` ([:125](backend/src/modules/health/health.controller.ts#L125)) — but the primary `check()` handler calls only `stellarHealth` and `redisHealth` ([:35-37](backend/src/modules/health/health.controller.ts#L35-L37)). Verified at runtime: `GET /api/v1/health` returned `{"status":"ok","info":{"stellar":…,"redis":…}}` with no `database` key. Since `/health` is the conventional endpoint for load balancers and uptime monitors, an instance that has lost its database connection still advertises itself as healthy and keeps receiving traffic. Fix: add `() => this.databaseHealth.isHealthy()` to `check()`.
+
+---
+
+**Title:** Legacy `forRoutes('*')` wildcards emit five deprecation warnings on every boot and rely on auto-conversion
+**Labels:** `tech-debt` `backend`
+**Body:** Three modules register middleware with the pre-Nest-11 wildcard syntax: [common.module.ts:142](backend/src/common/common.module.ts#L142) (`CorrelationIdMiddleware`, `MetricsMiddleware`), [audit.module.ts:28](backend/src/modules/audit/audit.module.ts#L28) (`AuditContextMiddleware`) and [security.module.ts:32](backend/src/modules/security/security.module.ts#L32) (`{ path: '*', method: RequestMethod.ALL }`). `path-to-regexp` v8 no longer accepts a bare `*`, so every startup logs five `WARN [LegacyRouteConverter] Unsupported route path: "/api/*"… Attempting to auto-convert to "/api/{*path}"` lines. The auto-conversion is an explicitly temporary shim. Fix: change each to the named form `'{*path}'` (e.g. `.forRoutes({ path: '{*path}', method: RequestMethod.ALL })`).
+
+---
+
+**Title:** `ssrf.utils.spec.ts` fails typecheck — `npm run typecheck:backend` and `ci:check` are red
+**Labels:** `bug` `tech-debt` `backend`
+**Body:** With the rxjs duplication fixed, `tsc --noEmit` in `backend/` still reports 4 errors, all `TS2349: This expression is not callable. Type 'ResolveOptions' has no call signatures.` at [ssrf.utils.spec.ts:15,18,24,27](backend/src/common/utils/ssrf.utils.spec.ts#L15). `dns.resolve4`/`resolve6` are overloaded, and `jest.MockedFunction<typeof dns.resolve4>` collapses to the `(hostname, options)` overload, so the `(_hostname, cb) => cb(null, ipv4)` mock implementations are typed against `ResolveOptions` instead of a callback. The tests themselves pass (`jest` is transpile-only and `tsconfig.build.json` excludes `**/*spec.ts`, which is why the app still builds and boots) — but `npm run typecheck` and therefore `npm run ci:check` fail. Fix: type the mocks against the callback overload explicitly, e.g. `jest.fn() as unknown as jest.MockedFunction<(h: string, cb: (e: Error | null, a: string[]) => void) => void>`.
+
+---
+
+**Title:** Ethereal SMTP credentials are written to the application log in plaintext
+**Labels:** `security` `backend`
+**Body:** When no mail credentials are configured, `EmailService` provisions an Ethereal test account and logs it verbatim: `` `Ethereal test account: ${testAccount.user} / ${testAccount.pass}` `` at [email.service.ts:83](backend/src/modules/email/email.service.ts#L83), at `LOG` level. Observed on this pass in the startup output. Although Ethereal is a throwaway dev mailbox, this is a credential pair going to stdout and into whatever log aggregator collects it, and the surrounding fallback has no environment guard — any deployment that starts without SMTP settings will do the same. Fix: log only the account name (or the preview URL), and gate the message behind `NODE_ENV === 'development'`.
+
+---
+
+**Title:** No initial-schema migration exists — a fresh database cannot be provisioned by migrations at all
+**Labels:** `bug` `backend`
+**Body:** Distinct from the already-filed wrong-glob issue: even with the `migrations` path corrected, there is nothing to create the schema. `backend/src/database/migrations/` contains exactly one file, `1780272000000-AddPasswordResetLookupAndRecipientName.ts`, and its `up()` runs `ALTER TABLE "users" ADD COLUMN …` and `ALTER TABLE "certificates" ADD COLUMN …` — it assumes both tables already exist. There are 12 `*.entity.ts` files and no migration that creates any of them. On this pass a fresh Postgres produced zero tables until the app was started with `TYPEORM_SYNCHRONIZE=true`, which then created 13. Fix: generate and commit a baseline `InitialSchema` migration (`npm run migration:generate`) so `migration:run` can provision an empty database, making `synchronize` unnecessary outside local development.
+
+---
+
+**Title:** `pg` deprecation warning on startup — concurrent `client.query()` on a single client
+**Labels:** `tech-debt` `backend`
+**Body:** Boot emits `DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.` The warning fires during TypeORM's schema step, indicating queries are being issued on a client that has one in flight — behaviour that becomes a hard error in `pg@9`. Fix: run with `node --trace-deprecation` to identify the call site, and ensure the offending path awaits each query (or uses a pool client per logical operation) before `pg` is upgraded.
+
+---
+
+## Frontend (third batch)
+
+---
+
+**Title:** `vite.config.ts` uses `__dirname`, which the native config loader cannot support
+**Labels:** `tech-debt` `frontend`
+**Body:** `frontend/package.json` sets `"type": "module"`, and [vite.config.ts:9](frontend/vite.config.ts#L9) resolves the `@` alias with `path.resolve(__dirname, 'src')`. Vite 8 warns on every dev-server and build invocation: `Your Vite config uses features that are unsupported by configLoader: 'native', which is planned to become the default in a future major version of Vite: __dirname (vite.config.ts:9:25). Use import.meta.dirname instead.` When `configLoader: 'native'` becomes the default this stops being a warning. Fix: replace `__dirname` with `import.meta.dirname` (the `node:path` import is still needed for `resolve`).
+
+---
+
+**Title:** `api/endpoints.ts` is a single 1,533-line module holding the entire client API surface
+**Labels:** `tech-debt` `frontend`
+**Body:** [endpoints.ts](frontend/src/api/endpoints.ts) is 1,533 lines and imports 32 types from `./types`. It contains the fetch wrapper, the retry/backoff policy, the token-refresh de-duplication logic, the dummy-data switch, _and_ every endpoint group (auth, certificates, issuers, audit, analytics, notifications, transfers, webhooks, metadata schemas). Every feature touching any endpoint edits the same file, which makes conflicts routine and keeps the transport concerns entangled with the resource calls. Fix: keep the client/transport core in `api/client.ts` and split the resource groups into `api/resources/{auth,certificates,issuers,audit,analytics,notifications}.ts`, re-exported from `api/index.ts` so call sites do not change.
+
+---
+
+**Title:** No server-state caching layer — every page refetches on each mount
+**Labels:** `enhancement` `frontend`
+**Body:** The app has no data-fetching/caching library (no TanStack Query, SWR or RTK Query in `frontend/package.json`); components call `endpoints.ts` helpers directly from `useEffect`. Consequences visible in the code: no request de-duplication across sibling components, no background revalidation, no shared cache between routes, and hand-rolled loading/error state repeated in every page. The API layer already had to grow bespoke retry/backoff and refresh-coalescing logic ([endpoints.ts:88-110](frontend/src/api/endpoints.ts#L88-L110)) that a query library provides for free. Fix: adopt TanStack Query for server state and reduce `endpoints.ts` to plain fetchers.
+
+---
+
+**Title:** `AuthContext` keeps the access token in memory only — a page refresh always costs a refresh round-trip
+**Labels:** `enhancement` `frontend`
+**Body:** `tokenStorage` in [tokens.ts](frontend/src/api/tokens.ts) holds the access token in a module-level `_inMemoryAccessToken` with no persistence — a deliberate and correct XSS-hardening choice, since the refresh token is an HttpOnly cookie. The cost is that every full page load starts unauthenticated and must hit `/auth/refresh` before any protected data can load; the code already carries a de-duplication guard and a 10-second cooldown specifically because that endpoint is IP rate-limited and a page full of 401s would trip a 429 ([endpoints.ts:88-110](frontend/src/api/endpoints.ts#L88-L110)). This is a workaround for a missing bootstrap step, not a fix. Fix: have the app perform one explicit `/auth/refresh` during initial mount, gate route rendering on it, and let protected requests assume a valid token.
+
+---
+
+## Stellar Contracts (third batch)
+
+---
+
+**Title:** 14 uses of the deprecated `env.events().publish` API — soroban-sdk 27 wants `#[contractevent]`
+**Labels:** `tech-debt` `contract`
+**Body:** `cargo check` reports 14 instances of `use of deprecated method 'soroban_sdk::events::Events::publish': use the #[contractevent] macro on a contract event type` — 10 in [lib.rs](stellar-contracts/src/lib.rs) (lines 216, 240, 274, 297, 321, 344, 462, 578, 650, 672) and 4 in [admin_multisig.rs](stellar-contracts/src/admin_multisig.rs) (158, 205, 251, 377). The tuple-topic form these call sites use is untyped: topics and payload shapes are not checked at compile time, which is precisely why the SDK is moving to declared event types. Migrating also makes the event schema introspectable for the backend indexer. Fix: define `#[contractevent]` structs for each event and publish those; this pairs naturally with the already-filed issues about missing and ambiguous events (`TransferInitiated`, the reused `"issued"` topic).
+
+---
+
+**Title:** 29 uses of the deprecated `env.register_contract` in contract tests
+**Labels:** `tech-debt` `contract`
+**Body:** `cargo check --all-targets` reports 29 instances of `use of deprecated method 'soroban_sdk::Env::register_contract': use 'register'` across [multisig_test.rs](stellar-contracts/src/multisig_test.rs) (18), [issuer_test.rs](stellar-contracts/src/issuer_test.rs) (8) and [crl_test.rs](stellar-contracts/src/crl_test.rs) (2, plus one stub registration). All 44 tests pass, so this is purely forward-compatibility debt, but it is 29 of the crate's 43 total warnings — enough noise to hide a real warning. Fix: mechanically replace `env.register_contract(None, X)` with `env.register(X, ())`.
+
+---
+
+**Title:** The contract crate builds with 43 warnings and no `deny(warnings)` gate in CI
+**Labels:** `tech-debt` `contract`
+**Body:** `cargo check --all-targets` completes successfully but emits 43 warnings (the two deprecation families above account for all of them). Nothing in `.github/workflows` fails a build on warnings, and `npm run lint:contracts` runs `cargo clippy` without `-- -D warnings`, so the count can grow unnoticed and a genuinely new warning is easy to miss in the noise. Fix: clear the existing deprecations, then add `-- -D warnings` to the clippy step so regressions fail CI.
+
+---

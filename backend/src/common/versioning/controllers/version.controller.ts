@@ -1,5 +1,6 @@
 import { Controller, Get, Query, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { Public } from '../../decorators/public.decorator';
 import { VersionService } from '../services/version.service';
 import {
   ApiVersionsResponseDto,
@@ -8,6 +9,12 @@ import {
 import { ApiVersion } from '../version.enum';
 
 @ApiTags('API Versioning')
+// Version discovery is unauthenticated on purpose. A client has to know which
+// API versions exist, and which one to migrate to, before it can construct a
+// request against a version - so putting this behind the JWT guard is a
+// bootstrapping deadlock. Neither route reads user data; both return static
+// metadata about the API itself.
+@Public()
 @Controller('versions')
 export class VersionController {
   constructor(private readonly versionService: VersionService) {}

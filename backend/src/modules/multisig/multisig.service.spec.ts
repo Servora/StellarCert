@@ -22,17 +22,19 @@ describe('MultisigService', () => {
 
       const internals = service as unknown as {
         server: { getTransaction: jest.Mock };
-        pollTransaction: (
+        waitForTransaction: (
           hash: string,
-          maxRetries: number,
-          delayMs: number,
+          options?: { maxAttempts?: number; intervalMs?: number },
         ) => Promise<unknown>;
       };
       internals.server = { getTransaction };
 
-      await expect(internals.pollTransaction('tx-hash', 3, 0)).resolves.toBe(
-        success,
-      );
+      await expect(
+        internals.waitForTransaction('tx-hash', {
+          maxAttempts: 3,
+          intervalMs: 0,
+        }),
+      ).resolves.toBe(success);
       expect(getTransaction).toHaveBeenCalledTimes(2);
     });
 
@@ -43,17 +45,19 @@ describe('MultisigService', () => {
 
       const internals = service as unknown as {
         server: { getTransaction: jest.Mock };
-        pollTransaction: (
+        waitForTransaction: (
           hash: string,
-          maxRetries: number,
-          delayMs: number,
+          options?: { maxAttempts?: number; intervalMs?: number },
         ) => Promise<unknown>;
       };
       internals.server = { getTransaction };
 
-      await expect(internals.pollTransaction('tx-hash', 2, 0)).rejects.toThrow(
-        'did not settle',
-      );
+      await expect(
+        internals.waitForTransaction('tx-hash', {
+          maxAttempts: 2,
+          intervalMs: 0,
+        }),
+      ).rejects.toThrow('not finalized');
       expect(getTransaction).toHaveBeenCalledTimes(2);
     });
   });

@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { UserRole } from '../src/modules/users/entities/user.entity';
@@ -36,6 +40,15 @@ describe('AuthController e2e (Auth Flow Smoke Tests)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+
+    // Mirror main.ts: routes are served under /api and URI-versioned, so the
+    // e2e specs must apply the same prefix and versioning or every request
+    // 404s against an app whose routes are mounted at the bare path.
+    app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+    });
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,

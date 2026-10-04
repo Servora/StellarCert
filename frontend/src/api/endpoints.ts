@@ -13,7 +13,6 @@ import {
   CertificateExportFilters,
   StatusDistribution,
   User,
-  AdminAnalytics,
   UserRole,
   VerificationResult,
   LoginCredentials,
@@ -46,7 +45,8 @@ interface AuditLogQueryParams {
 // Configuration flag - can be enabled via Vite env `VITE_(import.meta.env.VITE_USE_DUMMY_DATA === 'true')` ("true"/"false") in development only.
 const viteEnv = import.meta as unknown as { env: Record<string, string> };
 
-const API_URL_BASE = viteEnv.env?.VITE_API_URL || "http://localhost:3000/api/v1";
+const API_URL_BASE =
+  viteEnv.env?.VITE_API_URL || "http://localhost:3000/api/v1";
 export const API_URL = API_URL_BASE;
 
 // Helper function to simulate API delay
@@ -55,7 +55,8 @@ const simulateDelay = () => new Promise((resolve) => setTimeout(resolve, 300));
 // Common error handler
 const handleError = (error: unknown, endpointName: string): never => {
   console.error(`Error in ${endpointName}:`, error);
-  const message = error instanceof Error ? error.message : "An unexpected error occurred";
+  const message =
+    error instanceof Error ? error.message : "An unexpected error occurred";
   const statusCode =
     error && typeof error === "object" && "statusCode" in error
       ? (error as { statusCode: number }).statusCode
@@ -93,7 +94,7 @@ const refreshTokens = async (): Promise<AuthResponse> => {
   if (_refreshInFlight) return _refreshInFlight;
 
   _refreshInFlight = apiClient<AuthResponse>(AUTH_ENDPOINTS.REFRESH, {
-    method: 'POST',
+    method: "POST",
     skipAuth: true,
   }).finally(() => {
     _refreshInFlight = null;
@@ -131,13 +132,15 @@ export async function apiClient<T>(
     }
   }
 
-  const attemptRequest = async (hasTriedRefresh: boolean = false): Promise<T> => {
+  const attemptRequest = async (
+    hasTriedRefresh: boolean = false,
+  ): Promise<T> => {
     let response: Response;
     try {
       response = await fetch(url, {
         ...options,
         headers,
-        credentials: 'include',
+        credentials: "include",
       });
     } catch (error) {
       // A rejected fetch is a network-level failure, not an HTTP status, so
@@ -167,12 +170,19 @@ export async function apiClient<T>(
           headers.set("Authorization", `Bearer ${refreshResponse.accessToken}`);
           // Forward the fresh user too so AuthContext updates both the user
           // object and isAuthenticated, not just the stored token (#560).
-          notifyTokenRefreshed(refreshResponse.accessToken, refreshResponse.user);
+          notifyTokenRefreshed(
+            refreshResponse.accessToken,
+            refreshResponse.user,
+          );
           // Replay the original request with the refreshed credential.
           return attemptRequest(true);
         } catch {
           tokenStorage.clearTokens();
-          throw new ApiError(errorData.message, errorData.statusCode, errorData.error);
+          throw new ApiError(
+            errorData.message,
+            errorData.statusCode,
+            errorData.error,
+          );
         }
       }
 
@@ -189,7 +199,12 @@ export async function apiClient<T>(
 
     const json = await response.json();
     // Unwrap the global ResponseInterceptor envelope { statusCode, message, data }
-    if (json && typeof json === 'object' && 'data' in json && 'statusCode' in json) {
+    if (
+      json &&
+      typeof json === "object" &&
+      "data" in json &&
+      "statusCode" in json
+    ) {
       return json.data as T;
     }
     return json as T;
@@ -217,7 +232,11 @@ export async function apiClientRaw(
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
 
-  let response = await fetch(url, { ...options, headers, credentials: "include" });
+  let response = await fetch(url, {
+    ...options,
+    headers,
+    credentials: "include",
+  });
 
   if (response.status === 401 && !options.skipAuth) {
     try {
@@ -225,7 +244,11 @@ export async function apiClientRaw(
       tokenStorage.setAccessToken(refreshResponse.accessToken);
       headers.set("Authorization", `Bearer ${refreshResponse.accessToken}`);
       notifyTokenRefreshed(refreshResponse.accessToken, refreshResponse.user);
-      response = await fetch(url, { ...options, headers, credentials: "include" });
+      response = await fetch(url, {
+        ...options,
+        headers,
+        credentials: "include",
+      });
     } catch {
       tokenStorage.clearTokens();
     }
@@ -303,7 +326,7 @@ const dummyData = {
 // ==================== USER MANAGEMENT ====================
 
 export const fetchUserByEmail = async (email: string): Promise<User | null> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const user = dummyData.users.find((user) => user.email === email);
 
@@ -352,13 +375,14 @@ export const userApi = {
       method: "PATCH",
       body: JSON.stringify({ isActive }),
     }),
-  delete: async (id: string) => apiClient<void>(`/users/${id}`, { method: "DELETE" }),
+  delete: async (id: string) =>
+    apiClient<void>(`/users/${id}`, { method: "DELETE" }),
 };
 
 // ==================== TEMPLATE MANAGEMENT ====================
 
 export const fetchDefaultTemplate = async (): Promise<CertificateTemplate> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const template = dummyData.templates[0];
     console.log("Dummy Template Data:", template);
@@ -374,7 +398,7 @@ export const fetchDefaultTemplate = async (): Promise<CertificateTemplate> => {
 
 export const templateApi = {
   list: async (): Promise<CertificateTemplate[]> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return dummyData.templates;
     }
@@ -388,7 +412,7 @@ export const templateApi = {
 export const verifyCertificate = async (
   serialNumber: string,
 ): Promise<VerificationResult> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const certificate = dummyData.certificates.find(
       (cert) => cert.serialNumber === serialNumber,
@@ -430,7 +454,7 @@ export const verifyCertificate = async (
 export const createCertificate = async (
   data: CreateCertificateData,
 ): Promise<Certificate> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const newCertificate: Certificate = {
       id: `cert-${Date.now()}`,
@@ -479,7 +503,7 @@ export const revokeCertificate = async (
   id: string,
   reason: string,
 ): Promise<Certificate> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const certificate = dummyData.certificates.find((cert) => cert.id === id);
     if (certificate) {
@@ -503,7 +527,7 @@ export const revokeCertificate = async (
 export const findCertBySerialNumber = async (
   serialNumber: string,
 ): Promise<Certificate | null> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const certificate = dummyData.certificates.find(
       (cert) => cert.serialNumber === serialNumber,
@@ -524,7 +548,7 @@ export const findCertBySerialNumber = async (
 export const getCertificatePdfUrl = async (
   certificateId: string,
 ): Promise<string | null> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const certificate = dummyData.certificates.find(
       (cert) => cert.id === certificateId,
@@ -545,7 +569,7 @@ export const getCertificatePdfUrl = async (
 export const getUserCertificates = async (
   userId: string,
 ): Promise<Certificate[]> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     return dummyData.certificates.filter(
       (cert) => cert.recipientEmail === userId || cert.id === userId,
@@ -553,10 +577,16 @@ export const getUserCertificates = async (
   }
 
   try {
-    const result = await apiClient<Certificate[] | { certificates: Certificate[]; total: number } | PaginatedResponse<Certificate>>(`/certificates/user/${userId}`);
+    const result = await apiClient<
+      | Certificate[]
+      | { certificates: Certificate[]; total: number }
+      | PaginatedResponse<Certificate>
+    >(`/certificates/user/${userId}`);
     if (Array.isArray(result)) return result;
-    if ('data' in result) return (result as PaginatedResponse<Certificate>).data;
-    if ('certificates' in result) return (result as { certificates: Certificate[] }).certificates;
+    if ("data" in result)
+      return (result as PaginatedResponse<Certificate>).data;
+    if ("certificates" in result)
+      return (result as { certificates: Certificate[] }).certificates;
     return [];
   } catch (error) {
     return handleError(error, "getUserCertificates");
@@ -566,7 +596,7 @@ export const getUserCertificates = async (
 export const getCertificateQR = async (
   certificateId: string,
 ): Promise<string> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     // Return a dummy QR code URL
     return `data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+CiAgPHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzMzMyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkJJIENvZGU6ICR7Y2VydGlmaWNhdGVJZH08L3RleHQ+Cjwvc3ZnPg==`;
@@ -621,7 +651,7 @@ export const certificateApi = {
       });
     }
 
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         data: dummyData.certificates,
@@ -642,7 +672,7 @@ export const certificateApi = {
     certificateIds: string[],
     filters?: CertificateExportFilters,
   ): Promise<Blob> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       const headers = [
         "ID",
@@ -706,7 +736,7 @@ export const certificateApi = {
     return response.blob();
   },
   bulkExportAll: async (filters?: CertificateExportFilters): Promise<Blob> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       const headers = [
         "ID",
@@ -769,11 +799,13 @@ export const certificateApi = {
     certificateIds: string[],
     reason?: string,
   ): Promise<Certificate[]> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       const updatedCerts: Certificate[] = [];
       for (const id of certificateIds) {
-        const cert = dummyData.certificates.find((certificate) => certificate.id === id);
+        const cert = dummyData.certificates.find(
+          (certificate) => certificate.id === id,
+        );
         if (cert) {
           cert.status = "revoked";
           updatedCerts.push(cert);
@@ -792,9 +824,11 @@ export const certificateApi = {
     reason: string,
     durationDays: number,
   ): Promise<Certificate> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
-      const cert = dummyData.certificates.find((certificate) => certificate.id === certificateId);
+      const cert = dummyData.certificates.find(
+        (certificate) => certificate.id === certificateId,
+      );
       if (!cert) {
         throw new Error("Certificate not found");
       }
@@ -814,9 +848,11 @@ export const certificateApi = {
     });
   },
   unfreeze: async (certificateId: string): Promise<Certificate> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
-      const cert = dummyData.certificates.find((certificate) => certificate.id === certificateId);
+      const cert = dummyData.certificates.find(
+        (certificate) => certificate.id === certificateId,
+      );
       if (!cert) {
         throw new Error("Certificate not found");
       }
@@ -836,7 +872,9 @@ export const certificateApi = {
 
   // Certificate Transfer API (#286)
   transfer: {
-    initiate: async (data: InitiateTransferDto): Promise<CertificateTransfer> => {
+    initiate: async (
+      data: InitiateTransferDto,
+    ): Promise<CertificateTransfer> => {
       return apiClient("/certificates/transfers/initiate", {
         method: "POST",
         body: JSON.stringify(data),
@@ -857,7 +895,7 @@ export const certificateApi = {
     getPending: async (): Promise<CertificateTransfer[]> => {
       return apiClient("/certificates/transfers/pending");
     },
-  }
+  },
 };
 
 // ==================== AUTHENTICATION ====================
@@ -865,7 +903,7 @@ export const certificateApi = {
 export const loginApi = async (
   credentials: LoginCredentials,
 ): Promise<AuthResponse> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const user = dummyData.users.find((u) => u.email === credentials.email);
     if (user && credentials.password === "password123") {
@@ -883,7 +921,10 @@ export const loginApi = async (
   try {
     const response = await apiClient<AuthResponse>(AUTH_ENDPOINTS.LOGIN, {
       method: "POST",
-      body: JSON.stringify({ email: credentials.email, password: credentials.password }),
+      body: JSON.stringify({
+        email: credentials.email,
+        password: credentials.password,
+      }),
       skipAuth: true,
     });
     tokenStorage.setAccessToken(response.accessToken);
@@ -896,7 +937,7 @@ export const loginApi = async (
 export const registerApi = async (
   data: RegisterData,
 ): Promise<AuthResponse> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const newUser: User = {
       id: `user-${Date.now()}`,
@@ -952,25 +993,29 @@ export const authApi = {
   refresh: (): Promise<AuthResponse> => refreshTokens(),
   logout: async (): Promise<void> => {
     try {
-      if (!(import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+      if (!(import.meta.env.VITE_USE_DUMMY_DATA === "true")) {
         const accessToken = tokenStorage.getAccessToken();
         await apiClient(AUTH_ENDPOINTS.LOGOUT, {
           method: "POST",
-          body: JSON.stringify({ accessToken: accessToken ?? '' }),
+          body: JSON.stringify({ accessToken: accessToken ?? "" }),
         });
       }
     } finally {
       tokenStorage.clearTokens();
     }
   },
-  forgotPassword: async (data: ForgotPasswordRequest): Promise<{ message: string }> => {
+  forgotPassword: async (
+    data: ForgotPasswordRequest,
+  ): Promise<{ message: string }> => {
     return apiClient("/users/forgot-password", {
       method: "POST",
       body: JSON.stringify(data),
       skipAuth: true,
     });
   },
-  resetPassword: async (data: ResetPasswordRequest): Promise<{ message: string }> => {
+  resetPassword: async (
+    data: ResetPasswordRequest,
+  ): Promise<{ message: string }> => {
     return apiClient("/users/reset-password", {
       method: "POST",
       body: JSON.stringify(data),
@@ -1053,7 +1098,9 @@ const buildRecentActivityFromCertificates = (
 ): ActivityItem[] =>
   certificates
     .map((cert) => ({
-      type: (cert.status === "revoked" ? "revoke" : "issue") as ActivityItem["type"],
+      type: (cert.status === "revoked"
+        ? "revoke"
+        : "issue") as ActivityItem["type"],
       date: cert.issueDate,
       description:
         cert.status === "revoked"
@@ -1064,7 +1111,7 @@ const buildRecentActivityFromCertificates = (
 
 export const dailyCertificateVerification =
   async (): Promise<DailyVerificationStats> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return { count: Math.floor(Math.random() * 50) + 20 };
     }
@@ -1074,7 +1121,7 @@ export const dailyCertificateVerification =
   };
 
 export const totalCertificates = async (): Promise<TotalCertificatesStats> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     return { total: dummyData.certificates.length };
   }
@@ -1082,7 +1129,7 @@ export const totalCertificates = async (): Promise<TotalCertificatesStats> => {
 };
 
 export const totalActiveUsers = async (): Promise<TotalActiveUsersStats> => {
-  if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     return { total: dummyData.users.length };
   }
@@ -1099,7 +1146,7 @@ export const analyticsApi = {
     endDate?: string;
     issuerId?: string;
   }): Promise<DashboardStats> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
 
       let certificates = dummyData.certificates;
@@ -1163,7 +1210,7 @@ export const adminAnalyticsApi = {
     startDate?: string;
     endDate?: string;
   }): Promise<import("./types").AdminAnalytics> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         usersByRole: {
@@ -1179,9 +1226,15 @@ export const adminAnalyticsApi = {
           pendingVerification: 0,
         },
         certificatesByStatus: {
-          active: dummyData.certificates.filter((cert) => cert.status === "active").length,
-          revoked: dummyData.certificates.filter((cert) => cert.status === "revoked").length,
-          expired: dummyData.certificates.filter((cert) => cert.status === "expired").length,
+          active: dummyData.certificates.filter(
+            (cert) => cert.status === "active",
+          ).length,
+          revoked: dummyData.certificates.filter(
+            (cert) => cert.status === "revoked",
+          ).length,
+          expired: dummyData.certificates.filter(
+            (cert) => cert.status === "expired",
+          ).length,
           total: dummyData.certificates.length,
         },
         topIssuers: [
@@ -1202,7 +1255,10 @@ export const adminAnalyticsApi = {
           last30Days: 830,
         },
         userRegistrationTrend: [
-          { date: params?.startDate ?? new Date().toISOString().slice(0, 10), count: 2 },
+          {
+            date: params?.startDate ?? new Date().toISOString().slice(0, 10),
+            count: 2,
+          },
         ],
         certificateIssuanceTrend: buildIssuanceTrendFromCertificates(
           dummyData.certificates,
@@ -1220,7 +1276,7 @@ export const adminAnalyticsApi = {
 
 export const issuerProfileApi = {
   getStats: async (): Promise<IssuerStats> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         totalCertificates: 125,
@@ -1237,13 +1293,14 @@ export const issuerProfileApi = {
     page: number = 1,
     limit: number = 10,
   ): Promise<PaginatedActivityLog> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       const activities = [
         {
           id: "1",
           action: "ISSUE_CERTIFICATE",
-          description: 'Issued "Blockchain Fundamentals" certificate to Alice Johnson',
+          description:
+            'Issued "Blockchain Fundamentals" certificate to Alice Johnson',
           ipAddress: "192.168.1.100",
           userAgent: "Mozilla/5.0",
           timestamp: new Date().toISOString(),
@@ -1264,7 +1321,7 @@ export const issuerProfileApi = {
     );
   },
   updateProfile: async (data: ProfileUpdateData): Promise<User> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return dummyData.users[0];
     }
@@ -1276,7 +1333,7 @@ export const issuerProfileApi = {
   uploadProfilePicture: async (
     file: File,
   ): Promise<{ profilePicture: string; message: string }> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         profilePicture: URL.createObjectURL(file),
@@ -1299,7 +1356,12 @@ export const issuerProfileApi = {
         message: response.statusText || "Profile picture upload failed",
         statusCode: response.status,
       }));
-      throw new ApiError(errorData.message, errorData.statusCode, errorData.error, errorData.details);
+      throw new ApiError(
+        errorData.message,
+        errorData.statusCode,
+        errorData.error,
+        errorData.details,
+      );
     }
     return response.json();
   },
@@ -1327,7 +1389,7 @@ export const issuerProfileApi = {
 
 export const dashboardApi = {
   getStats: async (): Promise<DashboardStats> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         totalCertificates: 1250,
@@ -1345,7 +1407,7 @@ export const dashboardApi = {
         statusDistribution: {
           active: 1200,
           revoked: 30,
-          expired: 20
+          expired: 20,
         },
         recentActivity: [
           {
@@ -1371,7 +1433,7 @@ export const dashboardApi = {
   },
 
   getRecentActivity: async (limit = 10): Promise<ActivityItem[]> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return [
         {
@@ -1381,14 +1443,18 @@ export const dashboardApi = {
         },
       ];
     }
-    return apiClient<ActivityItem[]>(`/admin/analytics/activity?limit=${limit}`);
+    return apiClient<ActivityItem[]>(
+      `/admin/analytics/activity?limit=${limit}`,
+    );
   },
 };
 
 // ==================== AUDIT LOGS (#283) ====================
 
 export const auditApi = {
-  getLogs: async (params?: AuditLogQueryParams): Promise<PaginatedActivityLog> => {
+  getLogs: async (
+    params?: AuditLogQueryParams,
+  ): Promise<PaginatedActivityLog> => {
     const searchParams = new URLSearchParams();
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -1397,8 +1463,10 @@ export const auditApi = {
     }
     return apiClient<PaginatedActivityLog>(`/audit?${searchParams.toString()}`);
   },
-  getCertificateHistory: async (certificateId: string): Promise<ActivityItem[]> => {
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+  getCertificateHistory: async (
+    certificateId: string,
+  ): Promise<ActivityItem[]> => {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return [
         {
@@ -1413,7 +1481,9 @@ export const auditApi = {
         },
       ];
     }
-    const response = await apiClient<AuditLogItem[]>(`/audit/certificates/${certificateId}/history`);
+    const response = await apiClient<AuditLogItem[]>(
+      `/audit/certificates/${certificateId}/history`,
+    );
     return response.map((log) => {
       let type: "issue" | "verify" | "revoke" = "issue";
       const actionLower = (log.action || "").toLowerCase();
@@ -1428,8 +1498,13 @@ export const auditApi = {
       }
       return {
         type,
-        date: new Date(Number(log.timestamp) || log.createdAt || Date.now()).toISOString(),
-        description: log.description || log.errorMessage || `${String(log.action).replace(/_/g, " ")} by ${log.userEmail || "unknown"}`,
+        date: new Date(
+          Number(log.timestamp) || log.createdAt || Date.now(),
+        ).toISOString(),
+        description:
+          log.description ||
+          log.errorMessage ||
+          `${String(log.action).replace(/_/g, " ")} by ${log.userEmail || "unknown"}`,
       };
     });
   },
@@ -1445,7 +1520,7 @@ export const auditApi = {
       });
     }
 
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         data: [
@@ -1475,7 +1550,7 @@ export const auditApi = {
       });
     }
 
-    if ((import.meta.env.VITE_USE_DUMMY_DATA === 'true')) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         total: 1,

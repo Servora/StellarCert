@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import {
@@ -34,6 +38,15 @@ describe('UsersController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+
+    // Mirror main.ts: routes are served under /api and URI-versioned, so the
+    // e2e specs must apply the same prefix and versioning or every request
+    // 404s against an app whose routes are mounted at the bare path.
+    app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+    });
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -52,7 +65,7 @@ describe('UsersController (e2e)', () => {
     describe('POST /users/register', () => {
       it('should register a new user', () => {
         return request(app.getHttpServer())
-          .post('/users/register')
+          .post('/api/v1/users/register')
           .send(testUser)
           .expect(201)
           .expect((res) => {
@@ -68,28 +81,28 @@ describe('UsersController (e2e)', () => {
 
       it('should fail with duplicate email', () => {
         return request(app.getHttpServer())
-          .post('/users/register')
+          .post('/api/v1/users/register')
           .send(testUser)
           .expect(409);
       });
 
       it('should fail with invalid email', () => {
         return request(app.getHttpServer())
-          .post('/users/register')
+          .post('/api/v1/users/register')
           .send({ ...testUser, email: 'invalid-email' })
           .expect(400);
       });
 
       it('should fail with weak password', () => {
         return request(app.getHttpServer())
-          .post('/users/register')
+          .post('/api/v1/users/register')
           .send({ ...testUser, email: 'new@example.com', password: 'weak' })
           .expect(400);
       });
 
       it('should fail with missing required fields', () => {
         return request(app.getHttpServer())
-          .post('/users/register')
+          .post('/api/v1/users/register')
           .send({ email: 'test@example.com' })
           .expect(400);
       });
@@ -98,7 +111,7 @@ describe('UsersController (e2e)', () => {
     describe('POST /users/login', () => {
       it('should login successfully', () => {
         return request(app.getHttpServer())
-          .post('/users/login')
+          .post('/api/v1/users/login')
           .send({
             email: testUser.email,
             password: testUser.password,
@@ -113,7 +126,7 @@ describe('UsersController (e2e)', () => {
 
       it('should fail with invalid credentials', () => {
         return request(app.getHttpServer())
-          .post('/users/login')
+          .post('/api/v1/users/login')
           .send({
             email: testUser.email,
             password: 'WrongP@ss123',
@@ -123,7 +136,7 @@ describe('UsersController (e2e)', () => {
 
       it('should fail with non-existent email', () => {
         return request(app.getHttpServer())
-          .post('/users/login')
+          .post('/api/v1/users/login')
           .send({
             email: 'nonexistent@example.com',
             password: 'SomeP@ss123',
@@ -135,7 +148,7 @@ describe('UsersController (e2e)', () => {
     describe('POST /users/logout', () => {
       it('should logout successfully', () => {
         return request(app.getHttpServer())
-          .post('/users/logout')
+          .post('/api/v1/users/logout')
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(200)
           .expect((res) => {
@@ -144,7 +157,9 @@ describe('UsersController (e2e)', () => {
       });
 
       it('should fail without authentication', () => {
-        return request(app.getHttpServer()).post('/users/logout').expect(401);
+        return request(app.getHttpServer())
+          .post('/api/v1/users/logout')
+          .expect(401);
       });
     });
 
@@ -153,7 +168,7 @@ describe('UsersController (e2e)', () => {
 
       beforeAll(async () => {
         const res = await request(app.getHttpServer())
-          .post('/users/login')
+          .post('/api/v1/users/login')
           .send({
             email: testUser.email,
             password: testUser.password,
@@ -164,7 +179,7 @@ describe('UsersController (e2e)', () => {
 
       it('should refresh tokens successfully', () => {
         return request(app.getHttpServer())
-          .post('/users/refresh-token')
+          .post('/api/v1/users/refresh-token')
           .send({ refreshToken })
           .expect(200)
           .expect((res) => {
@@ -175,7 +190,7 @@ describe('UsersController (e2e)', () => {
 
       it('should fail with invalid refresh token', () => {
         return request(app.getHttpServer())
-          .post('/users/refresh-token')
+          .post('/api/v1/users/refresh-token')
           .send({ refreshToken: 'invalid-token' })
           .expect(401);
       });
@@ -186,7 +201,7 @@ describe('UsersController (e2e)', () => {
     describe('POST /users/verify-email', () => {
       it('should fail with invalid token', () => {
         return request(app.getHttpServer())
-          .post('/users/verify-email')
+          .post('/api/v1/users/verify-email')
           .send({ token: 'invalid-token' })
           .expect(400);
       });
@@ -195,7 +210,7 @@ describe('UsersController (e2e)', () => {
     describe('POST /users/resend-verification', () => {
       it('should return success message regardless of email existence', () => {
         return request(app.getHttpServer())
-          .post('/users/resend-verification')
+          .post('/api/v1/users/resend-verification')
           .send({ email: 'nonexistent@example.com' })
           .expect(200)
           .expect((res) => {
@@ -209,7 +224,7 @@ describe('UsersController (e2e)', () => {
     describe('POST /users/forgot-password', () => {
       it('should return success message regardless of email existence', () => {
         return request(app.getHttpServer())
-          .post('/users/forgot-password')
+          .post('/api/v1/users/forgot-password')
           .send({ email: 'nonexistent@example.com' })
           .expect(200)
           .expect((res) => {
@@ -221,7 +236,7 @@ describe('UsersController (e2e)', () => {
     describe('POST /users/reset-password', () => {
       it('should fail with invalid token', () => {
         return request(app.getHttpServer())
-          .post('/users/reset-password')
+          .post('/api/v1/users/reset-password')
           .send({
             token: 'invalid-token',
             newPassword: 'NewP@ss456',
@@ -232,7 +247,7 @@ describe('UsersController (e2e)', () => {
 
       it('should fail with mismatched passwords', () => {
         return request(app.getHttpServer())
-          .post('/users/reset-password')
+          .post('/api/v1/users/reset-password')
           .send({
             token: 'some-token',
             newPassword: 'NewP@ss456',
@@ -245,7 +260,7 @@ describe('UsersController (e2e)', () => {
     describe('PUT /users/change-password', () => {
       it('should change password successfully', () => {
         return request(app.getHttpServer())
-          .put('/users/change-password')
+          .put('/api/v1/users/change-password')
           .set('Authorization', `Bearer ${accessToken}`)
           .send({
             currentPassword: testUser.password,
@@ -260,7 +275,7 @@ describe('UsersController (e2e)', () => {
 
       it('should fail with incorrect current password', () => {
         return request(app.getHttpServer())
-          .put('/users/change-password')
+          .put('/api/v1/users/change-password')
           .set('Authorization', `Bearer ${accessToken}`)
           .send({
             currentPassword: 'WrongP@ss123',
@@ -272,7 +287,7 @@ describe('UsersController (e2e)', () => {
 
       it('should fail without authentication', () => {
         return request(app.getHttpServer())
-          .put('/users/change-password')
+          .put('/api/v1/users/change-password')
           .send({
             currentPassword: 'OldP@ss123',
             newPassword: 'NewP@ss456',
@@ -284,7 +299,7 @@ describe('UsersController (e2e)', () => {
       // Update password for subsequent tests
       afterAll(async () => {
         await request(app.getHttpServer())
-          .put('/users/change-password')
+          .put('/api/v1/users/change-password')
           .set('Authorization', `Bearer ${accessToken}`)
           .send({
             currentPassword: 'NewSecureP@ss456',
@@ -299,7 +314,7 @@ describe('UsersController (e2e)', () => {
     describe('GET /users/profile', () => {
       it('should get user profile', () => {
         return request(app.getHttpServer())
-          .get('/users/profile')
+          .get('/api/v1/users/profile')
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(200)
           .expect((res) => {
@@ -310,14 +325,16 @@ describe('UsersController (e2e)', () => {
       });
 
       it('should fail without authentication', () => {
-        return request(app.getHttpServer()).get('/users/profile').expect(401);
+        return request(app.getHttpServer())
+          .get('/api/v1/users/profile')
+          .expect(401);
       });
     });
 
     describe('PUT /users/profile', () => {
       it('should update user profile', () => {
         return request(app.getHttpServer())
-          .put('/users/profile')
+          .put('/api/v1/users/profile')
           .set('Authorization', `Bearer ${accessToken}`)
           .send({
             firstName: 'Updated',
@@ -332,7 +349,7 @@ describe('UsersController (e2e)', () => {
 
       it('should fail with invalid data', () => {
         return request(app.getHttpServer())
-          .put('/users/profile')
+          .put('/api/v1/users/profile')
           .set('Authorization', `Bearer ${accessToken}`)
           .send({
             firstName: 'A', // Too short
@@ -342,7 +359,7 @@ describe('UsersController (e2e)', () => {
 
       it('should fail without authentication', () => {
         return request(app.getHttpServer())
-          .put('/users/profile')
+          .put('/api/v1/users/profile')
           .send({ firstName: 'Test' })
           .expect(401);
       });
@@ -354,7 +371,7 @@ describe('UsersController (e2e)', () => {
     beforeAll(async () => {
       // Register admin user
       const registerRes = await request(app.getHttpServer())
-        .post('/users/register')
+        .post('/api/v1/users/register')
         .send(adminUser);
 
       adminUserId = registerRes.body.user.id;
@@ -368,7 +385,7 @@ describe('UsersController (e2e)', () => {
     describe('GET /users', () => {
       it('should return paginated users for admin', () => {
         return request(app.getHttpServer())
-          .get('/users')
+          .get('/api/v1/users')
           .set('Authorization', `Bearer ${adminAccessToken}`)
           .query({ page: 1, limit: 10 })
           .expect((res) => {
@@ -378,14 +395,14 @@ describe('UsersController (e2e)', () => {
       });
 
       it('should fail without authentication', () => {
-        return request(app.getHttpServer()).get('/users').expect(401);
+        return request(app.getHttpServer()).get('/api/v1/users').expect(401);
       });
     });
 
     describe('GET /users/stats', () => {
       it('should return user statistics for admin', () => {
         return request(app.getHttpServer())
-          .get('/users/stats')
+          .get('/api/v1/users/stats')
           .set('Authorization', `Bearer ${adminAccessToken}`)
           .expect((res) => {
             // Will be 403 if user is not admin, 200 if admin
@@ -397,7 +414,7 @@ describe('UsersController (e2e)', () => {
     describe('GET /users/:id', () => {
       it('should return user by ID for admin', () => {
         return request(app.getHttpServer())
-          .get(`/users/${testUserId}`)
+          .get(`/api/v1/users/${testUserId}`)
           .set('Authorization', `Bearer ${adminAccessToken}`)
           .expect((res) => {
             // Will be 403 if user is not admin, 200 if admin
@@ -407,7 +424,7 @@ describe('UsersController (e2e)', () => {
 
       it('should fail with invalid UUID', () => {
         return request(app.getHttpServer())
-          .get('/users/invalid-uuid')
+          .get('/api/v1/users/invalid-uuid')
           .set('Authorization', `Bearer ${adminAccessToken}`)
           .expect(400);
       });
@@ -416,7 +433,7 @@ describe('UsersController (e2e)', () => {
     describe('PATCH /users/:id/role', () => {
       it('should update user role for admin', () => {
         return request(app.getHttpServer())
-          .patch(`/users/${testUserId}/role`)
+          .patch(`/api/v1/users/${testUserId}/role`)
           .set('Authorization', `Bearer ${adminAccessToken}`)
           .send({ role: UserRole.ISSUER })
           .expect((res) => {
@@ -429,7 +446,7 @@ describe('UsersController (e2e)', () => {
     describe('PATCH /users/:id/status', () => {
       it('should update user status for admin', () => {
         return request(app.getHttpServer())
-          .patch(`/users/${testUserId}/status`)
+          .patch(`/api/v1/users/${testUserId}/status`)
           .set('Authorization', `Bearer ${adminAccessToken}`)
           .send({ status: UserStatus.SUSPENDED })
           .expect((res) => {
@@ -442,7 +459,7 @@ describe('UsersController (e2e)', () => {
     describe('PATCH /users/:id/deactivate', () => {
       it('should deactivate user for admin', () => {
         return request(app.getHttpServer())
-          .patch(`/users/${testUserId}/deactivate`)
+          .patch(`/api/v1/users/${testUserId}/deactivate`)
           .set('Authorization', `Bearer ${adminAccessToken}`)
           .send({ reason: 'Test deactivation' })
           .expect((res) => {
@@ -455,7 +472,7 @@ describe('UsersController (e2e)', () => {
     describe('PATCH /users/:id/reactivate', () => {
       it('should reactivate user for admin', () => {
         return request(app.getHttpServer())
-          .patch(`/users/${testUserId}/reactivate`)
+          .patch(`/api/v1/users/${testUserId}/reactivate`)
           .set('Authorization', `Bearer ${adminAccessToken}`)
           .expect((res) => {
             // Will be 403 if user is not admin, 200 if admin
@@ -469,7 +486,7 @@ describe('UsersController (e2e)', () => {
     describe('DELETE /users/profile', () => {
       it('should soft delete user profile', () => {
         return request(app.getHttpServer())
-          .delete('/users/profile')
+          .delete('/api/v1/users/profile')
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(200)
           .expect((res) => {

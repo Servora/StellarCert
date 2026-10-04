@@ -86,6 +86,15 @@ class EnvironmentVariables {
   @IsString()
   STELLAR_ISSUER_PUBLIC_KEY: string;
 
+  /**
+   * 'false' issues certificates off-chain only. Local and CI have no funded
+   * issuer key, and on-chain issuance re-throws on failure, so anchoring has
+   * to be switchable without one.
+   */
+  @IsOptional()
+  @IsString()
+  STELLAR_ANCHORING_ENABLED?: string;
+
   @IsString()
   ALLOWED_ORIGINS: string;
 
@@ -259,6 +268,10 @@ export function validateEnv(
         e('STELLAR_HORIZON_URL') || 'https://horizon-testnet.stellar.org',
       STELLAR_ISSUER_SECRET_KEY: e('STELLAR_ISSUER_SECRET_KEY') || '',
       STELLAR_ISSUER_PUBLIC_KEY: e('STELLAR_ISSUER_PUBLIC_KEY') || '',
+      // NB: this object is an allow-list. A variable that is not named here is
+      // dropped, and ConfigService.get() then returns undefined for it however
+      // it is set in .env - which is silent and easy to miss.
+      STELLAR_ANCHORING_ENABLED: e('STELLAR_ANCHORING_ENABLED') || 'true',
       ALLOWED_ORIGINS: e('ALLOWED_ORIGINS') || 'http://localhost:5173',
       SENTRY_DSN: e('SENTRY_DSN'),
       ENABLE_SENTRY: e('ENABLE_SENTRY') === 'true',

@@ -28,6 +28,7 @@ import { MetadataSchemaService } from '../metadata-schema/services/metadata-sche
 import { UserRole } from '../users/entities/user.entity';
 import { SorobanService } from '../stellar/services/soroban.service';
 import { MAX_EXPORT_LIMIT, MAX_PAGE_LIMIT } from './dto/export-filters.dto';
+import { ConfigService } from '@nestjs/config';
 import { CryptoUtils } from '../../common/utils/crypto.utils';
 import { toCsv } from '../../common/utils/csv.utils';
 
@@ -48,6 +49,7 @@ export class CertificateService {
     private readonly metadataSchemaService: MetadataSchemaService,
     private readonly dataSource: DataSource,
     private readonly sorobanService: SorobanService,
+    private readonly configService: ConfigService,
   ) {}
 
   async create(
@@ -154,7 +156,25 @@ export class CertificateService {
       // fails we surface the error to the caller so they are aware the DB and
       // the chain are out of sync — callers can retry via the dedicated
       // stellar endpoint.
-      if (this.sorobanService.isConfigured()) {
+      // `skipStellar` on the request, or STELLAR_ANCHORING_ENABLED=false in the
+      // environment, keeps issuance entirely off-chain. The DTO has advertised
+      // skipStellar for a while but nothing read it, so passing it changed
+      // nothing; local and CI setups have no funded issuer key and need a
+      // supported way to opt out rather than relying on the address check
+      // below happening to be empty.
+      const anchoringEnabled =
+        this.configService.get<string>('STELLAR_ANCHORING_ENABLED') !== 'false';
+      const skipOnChain = dto.skipStellar === true || !anchoringEnabled;
+
+      if (skipOnChain) {
+        this.logger.log(
+          `Certificate ${savedCertificate.id}: on-chain issuance skipped (${
+            dto.skipStellar === true
+              ? 'skipStellar requested'
+              : 'STELLAR_ANCHORING_ENABLED=false'
+          })`,
+        );
+      } else if (this.sorobanService.isConfigured()) {
         try {
           const metadataUri =
             savedCertificate.verificationCode ?? savedCertificate.id;

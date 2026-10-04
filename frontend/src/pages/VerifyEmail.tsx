@@ -11,7 +11,8 @@ const VerifyEmail = () => {
   const token = searchParams.get("token") || "";
   // `mutate` is referentially stable, so it is safe as an effect dependency and
   // does not re-submit the token when the mutation's state changes.
-  const { mutate, isIdle, isPending, isError, error, data } = useVerifyEmailMutation();
+  const { mutate, isIdle, isPending, isError, error, data } =
+    useVerifyEmailMutation();
 
   // Confirming an address is a one-shot command, not cached server state, so it
   // is a mutation. The mutation owns the pending/error state, which removes the
@@ -45,7 +46,7 @@ const VerifyEmail = () => {
       ? "Verifying your email address..."
       : isError
         ? getErrorMessage(error)
-        : (data?.message || "Email verified successfully.");
+        : data?.message || "Email verified successfully.";
 
   const icon =
     state === "loading" ? (
@@ -63,7 +64,16 @@ const VerifyEmail = () => {
         <h1 className="mb-3 text-2xl font-bold text-gray-900 dark:text-white">
           Email Verification
         </h1>
-        <p className="mb-6 text-sm text-gray-600 dark:text-slate-300">
+        {/* While verification is in flight the status has to be announced:
+            the only visual cue is a spinner, which a screen reader ignores.
+            role="status" with aria-live="polite" reads the message without
+            interrupting, and the same element carries the result afterwards. */}
+        <p
+          className="mb-6 text-sm text-gray-600 dark:text-slate-300"
+          role="status"
+          aria-live="polite"
+          aria-busy={state === "loading"}
+        >
           {message}
         </p>
         {state !== "loading" && (

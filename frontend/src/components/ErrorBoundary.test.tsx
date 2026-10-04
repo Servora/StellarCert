@@ -1,8 +1,16 @@
 import React, { lazy, Suspense } from "react";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ErrorBoundary from "./ErrorBoundary";
+
+// ErrorBoundary calls useLocation so it can reset itself on navigation, which
+// means every render of it needs a router in the tree.
+const render = (ui: React.ReactElement) =>
+  rtlRender(ui, {
+    wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+  });
 
 function Boom({ message = "boom" }: { message?: string }): React.ReactElement {
   throw new Error(message);
@@ -25,7 +33,9 @@ describe("ErrorBoundary", () => {
   });
 
   it("renders the default fallback with the thrown message", () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
 
     render(
       <ErrorBoundary>
@@ -35,7 +45,9 @@ describe("ErrorBoundary", () => {
 
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
     expect(screen.getByText("certificate exploded")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Try again" }),
+    ).toBeInTheDocument();
     expect(consoleError).toHaveBeenCalled();
   });
 

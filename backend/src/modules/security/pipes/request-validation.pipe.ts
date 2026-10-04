@@ -19,7 +19,13 @@ export class RequestValidationPipe implements PipeTransform {
       return sanitizedValue;
     }
 
-    const object = plainToClass(metatype, sanitizedValue);
+    // A body-less request (POST /auth/logout, for instance) arrives as
+    // undefined. plainToClass then yields undefined and class-validator
+    // dereferences it - "Cannot read properties of undefined (reading
+    // 'constructor')" - which surfaced as a 500 on an ordinary logout.
+    // Validating an empty object instead keeps DTOs with required fields
+    // failing as proper 400s while letting empty-bodied DTOs through.
+    const object = plainToClass(metatype, sanitizedValue ?? {});
     const errors = await validate(object, {
       skipMissingProperties: false,
       whitelist: true,

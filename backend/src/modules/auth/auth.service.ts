@@ -219,9 +219,12 @@ export class AuthService {
       await this.jwtManagementService.blacklistToken(logoutDto.accessToken);
     }
 
-    // Optionally invalidate refresh token stored in database
+    // Clear the stored refresh token. This has to be null, not undefined:
+    // TypeORM's update() skips undefined fields entirely, so the previous
+    // version wrote nothing at all and the refresh cookie kept minting new
+    // access tokens after logout - the session never actually ended.
     await this.userRepository.update(user.id, {
-      refreshToken: undefined,
+      refreshToken: null,
     });
 
     return {

@@ -151,16 +151,20 @@ describe('EmailService', () => {
     it('should return true when the transport verifies', async () => {
       // Stub the transporter so the test does not attempt a real SMTP round-trip
       // (which hangs and times out in the test environment).
-      (service as unknown as { transporter: { verify: jest.Mock } }).transporter =
-        { verify: jest.fn().mockResolvedValue(true) };
+      (
+        service as unknown as { transporter: { verify: jest.Mock } }
+      ).transporter = { verify: jest.fn().mockResolvedValue(true) };
       const result = await service.verifyConnection();
       expect(typeof result).toBe('boolean');
       expect(result).toBe(true);
     });
 
     it('should return false when the transport fails to verify', async () => {
-      (service as unknown as { transporter: { verify: jest.Mock } }).transporter =
-        { verify: jest.fn().mockRejectedValue(new Error('smtp unavailable')) };
+      (
+        service as unknown as { transporter: { verify: jest.Mock } }
+      ).transporter = {
+        verify: jest.fn().mockRejectedValue(new Error('smtp unavailable')),
+      };
       const result = await service.verifyConnection();
       expect(result).toBe(false);
     });

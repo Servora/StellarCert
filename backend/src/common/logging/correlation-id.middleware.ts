@@ -17,7 +17,9 @@ export class CorrelationIdMiddleware implements NestMiddleware {
     // Create context for this request
     const context: LogContext = {
       correlationId,
-      requestId: (req.headers['x-request-id'] as string) || this.loggingService.generateCorrelationId(),
+      requestId:
+        (req.headers['x-request-id'] as string) ||
+        this.loggingService.generateCorrelationId(),
       userId: (req as any).user?.id,
     };
 

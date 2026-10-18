@@ -1,7 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Download, ShieldCheck, Users, FileText, Activity } from 'lucide-react';
-import { adminAnalyticsApi, auditApi, tokenStorage } from '../api';
+import { auditApi, tokenStorage } from '../api';
+import {
+  useAdminAnalyticsQuery,
+  useAuditSearchQuery,
+  useAuditStatisticsQuery,
+} from '../api/queries';
 import type { AdminAnalytics, AuditLogItem, AuditStatistics } from '../api';
+import { ApiError } from '../api/types';
 
 type DateRange = {
   startDate: string;
@@ -49,7 +55,11 @@ async function downloadAuditCsv(params?: Record<string, string | number | boolea
   });
 
   if (!response.ok) {
-    throw new Error('Failed to export audit logs');
+    const errorData = await response.json().catch(() => ({
+      message: response.statusText || "Failed to export audit logs",
+      statusCode: response.status,
+    }));
+    throw new ApiError(errorData.message, errorData.statusCode, errorData.error);
   }
 
   const blob = await response.blob();
@@ -62,48 +72,58 @@ async function downloadAuditCsv(params?: Record<string, string | number | boolea
 }
 
 export default function AdminAnalyticsDashboard() {
+  // `dateRange` is the editor's draft; `appliedDateRange` is what the queries
+  // are keyed on. Keeping them separate preserves the original behaviour where
+  // nothing is fetched until Apply is pressed — keying the queries on the draft
+  // would fire three requests per date edit.
   const [dateRange, setDateRange] = useState<DateRange>(createInitialDateRange);
+  const [appliedDateRange, setAppliedDateRange] = useState<DateRange>(createInitialDateRange);
   const [filterDirty, setFilterDirty] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
-  const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
-  const [auditStats, setAuditStats] = useState<AuditStatistics | null>(null);
-  const [recentAudit, setRecentAudit] = useState<AuditLogItem[]>([]);
+  // Three independent queries, each with its own cache entry, so re-opening
+  // this dashboard (or returning to a range already seen) is instant.
+  const analyticsQuery = useAdminAnalyticsQuery(appliedDateRange);
+  const auditStatsQuery = useAuditStatisticsQuery(appliedDateRange);
+  const recentAuditQuery = useAuditSearchQuery({ ...appliedDateRange, limit: 20 });
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const analytics: AdminAnalytics | null = analyticsQuery.data ?? null;
+  const auditStats: AuditStatistics | null = auditStatsQuery.data ?? null;
+  const recentAudit: AuditLogItem[] = recentAuditQuery.data?.data ?? [];
+
+  const loading =
+    analyticsQuery.isPending ||
+    auditStatsQuery.isPending ||
+    recentAuditQuery.isPending;
+
+  const loadError = [analyticsQuery, auditStatsQuery, recentAuditQuery].find(
+    (query) => query.isError,
+  )?.error as { message?: string } | undefined;
+
+  const error = exportError ?? (loadError ? (loadError.message ?? 'Failed to load admin analytics') : null);
 
   const handleDateChange = (field: keyof DateRange, value: string) => {
     setDateRange((prev) => ({ ...prev, [field]: value }));
     setFilterDirty(true);
   };
 
-  const load = async (range: DateRange) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [analyticsData, auditStatistics, auditLogs] = await Promise.all([
-        adminAnalyticsApi.getAnalytics(range),
-        auditApi.getStatistics(range),
-        auditApi.searchLogs({ ...range, limit: 20 }),
-      ]);
-      setAnalytics(analyticsData);
-      setAuditStats(auditStatistics);
-      setRecentAudit(auditLogs.data ?? []);
-    } catch (err) {
-      const message =
-        err && typeof err === 'object' && 'message' in err
-          ? String((err as { message?: string }).message)
-          : 'Failed to load admin analytics';
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+  // Apply promotes the draft to the applied range, which is what re-keys the
+  // queries. Repeatedly applying the same range is a no-op.
+  const handleApplyFilters = () => {
+    setAppliedDateRange((prev) =>
+      prev.startDate === dateRange.startDate && prev.endDate === dateRange.endDate
+        ? prev
+        : dateRange,
+    );
+    setFilterDirty(false);
   };
 
-  useEffect(() => {
-    void load(dateRange);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const handleResetFilters = () => {
+    const initial = createInitialDateRange();
+    setDateRange(initial);
+    setAppliedDateRange(initial);
+    setFilterDirty(false);
+  };
 
   const topIssuers = useMemo(() => analytics?.topIssuers ?? [], [analytics]);
 
@@ -122,10 +142,11 @@ export default function AdminAnalyticsDashboard() {
           <button
             type="button"
             onClick={async () => {
+              setExportError(null);
               try {
                 await downloadAuditCsv(dateRange);
               } catch (e) {
-                setError(e instanceof Error ? e.message : 'Failed to export audit logs');
+                setExportError(e instanceof Error ? e.message : 'Failed to export audit logs');
               }
             }}
             className="inline-flex items-center gap-2 rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-slate-300 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors duration-250"
@@ -175,9 +196,7 @@ export default function AdminAnalyticsDashboard() {
             <div className="mt-4 flex items-center gap-2 md:mt-6">
               <button
                 type="button"
-                onClick={() => {
-                  void load(dateRange).then(() => setFilterDirty(false));
-                }}
+                onClick={handleApplyFilters}
                 disabled={loading || !filterDirty || !dateRange.startDate || !dateRange.endDate}
                 className="rounded-md bg-blue-600 dark:bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 dark:hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60 transition-colors duration-250"
               >
@@ -185,12 +204,7 @@ export default function AdminAnalyticsDashboard() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const initial = createInitialDateRange();
-                  setDateRange(initial);
-                  setFilterDirty(false);
-                  void load(initial);
-                }}
+                onClick={handleResetFilters}
                 disabled={loading}
                 className="rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 transition-colors duration-250"
               >

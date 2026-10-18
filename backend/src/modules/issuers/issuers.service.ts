@@ -4,10 +4,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, ILike } from 'typeorm';
 import { Issuer } from './entities/issuer.entity';
 import { CreateIssuerDto } from './dto/create-issuer.dto';
 import { isValidStellarPublicKey } from './utils/stellar';
+import { IssuerPaginationQueryDto, IPaginatedResult } from './dto/pagination.dto';
+import { IssuerTier } from '../../common/rate-limiting/rate-limit.types';
 
 @Injectable()
 export class IssuersService {
@@ -30,8 +32,49 @@ export class IssuersService {
     return this.issuerRepo.remove(issuer);
   }
 
-  async listIssuers() {
-    return this.issuerRepo.find();
+  async listIssuers(query: IssuerPaginationQueryDto): Promise<IPaginatedResult<Issuer>> {
+    const { page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'DESC', isActive, search, tier } = query;
+    const skip = (page - 1) * limit;
+
+    const queryBuilder = this.issuerRepo.createQueryBuilder('issuer');
+
+    if (isActive !== undefined) {
+      queryBuilder.andWhere('issuer.isActive = :isActive', { isActive });
+    }
+
+    if (search) {
+      queryBuilder.andWhere(
+        '(issuer.name ILIKE :search OR issuer.stellarPublicKey ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    if (tier) {
+      queryBuilder.andWhere('issuer.tier = :tier', { tier: tier as IssuerTier });
+    }
+
+    const allowedSortFields = ['createdAt', 'updatedAt', 'name', 'stellarPublicKey', 'tier', 'certificateCount'];
+    const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    queryBuilder.orderBy(`issuer.${sortField}`, sortOrder);
+
+    const [data, total] = await queryBuilder
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
   }
 
   async incrementCertificateCount(issuerId: string) {

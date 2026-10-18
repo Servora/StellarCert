@@ -8,6 +8,7 @@ import { DuplicateDetectionConfig } from '../interfaces/duplicate-detection.inte
 import { WebhooksService } from '../../webhooks/webhooks.service';
 import { WebhookEvent } from '../../webhooks/entities/webhook-subscription.entity';
 import { MetadataSchemaService } from '../../metadata-schema/services/metadata-schema.service';
+import { CryptoUtils } from '../../../common/utils/crypto.utils';
 
 @Injectable()
 export class CertificateIssuanceService {
@@ -76,14 +77,16 @@ export class CertificateIssuanceService {
     await queryRunner.startTransaction();
 
     try {
+      const certificateId = await this.generateCertificateId();
+      const verificationCode =
+        createCertificateDto.verificationCode ||
+        (await this.generateVerificationCode());
       const certificate = queryRunner.manager.create(Certificate, {
         ...createCertificateDto,
-        certificateId: this.generateCertificateId(),
+        certificateId,
         expiresAt:
           createCertificateDto.expiresAt || this.calculateDefaultExpiry(),
-        verificationCode:
-          createCertificateDto.verificationCode ||
-          this.generateVerificationCode(),
+        verificationCode,
         isDuplicate: false,
       });
 
@@ -138,22 +141,35 @@ export class CertificateIssuanceService {
     return expiry;
   }
 
-  private generateVerificationCode(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 8; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+  private async generateVerificationCode(): Promise<string> {
+    const maxRetries = 10;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const code = CryptoUtils.generateAlphanumericCode(8);
+      const exists = await this.certificateRepository.findOne({
+        where: { verificationCode: code },
+        select: ['id'],
+      });
+      if (!exists) return code;
     }
-    return code;
+    throw new ConflictException(
+      'Failed to generate a unique verification code after multiple attempts',
+    );
   }
 
-  private generateCertificateId(): string {
+  private async generateCertificateId(): Promise<string> {
     const year = new Date().getFullYear();
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let suffix = '';
-    for (let i = 0; i < 8; i++) {
-      suffix += chars.charAt(Math.floor(Math.random() * chars.length));
+    const maxRetries = 10;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const suffix = CryptoUtils.generateAlphanumericCode(8);
+      const certificateId = `CERT-${year}-${suffix}`;
+      const exists = await this.certificateRepository.findOne({
+        where: { certificateId },
+        select: ['id'],
+      });
+      if (!exists) return certificateId;
     }
-    return `CERT-${year}-${suffix}`;
+    throw new ConflictException(
+      'Failed to generate a unique certificate ID after multiple attempts',
+    );
   }
 }

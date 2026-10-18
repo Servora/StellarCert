@@ -15,7 +15,9 @@ import { CertificateModule } from '../certificate/certificate.module';
   imports: [
     TypeOrmModule.forFeature([User, Certificate, Verification, Issuer]),
     CacheModule.register({
-      ttl: 120, // 2 minutes
+      // cache-manager v5+ (installed: v7) interprets `ttl` in MILLISECONDS, so a
+      // bare 120 would have meant 120 ms instead of the intended 2 minutes.
+      ttl: 120_000, // 2 minutes in milliseconds
       max: 100,
     }),
     AuthModule,

@@ -25,7 +25,11 @@ export class CertificateVerificationService {
       .where('certificate.verificationCode = :verificationCode', {
         verificationCode,
       })
-      .andWhere('certificate.status = :status', { status: 'active' })
+      // Deliberately NOT filtered to status='active'. Verification has to be
+      // able to answer "this certificate was revoked" or "this one is frozen";
+      // filtering non-active rows out here made every one of them come back as
+      // "Certificate not found", which is both wrong and the opposite of what
+      // a revocation check is for. The mapper classifies the status instead.
       .getOne();
 
     if (!certificate) {

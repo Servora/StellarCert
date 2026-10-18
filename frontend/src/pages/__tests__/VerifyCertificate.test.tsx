@@ -1,12 +1,14 @@
 import React from "react";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { createTestQueryClient, renderWithProviders } from "../../test/renderWithProviders";
 
 // ── API mock ───────────────────────────────────────────────────────────────
+// Mocked at the endpoints module: verification now runs through the query layer,
+// which imports its fetcher from there.
 const { verifyMock } = vi.hoisted(() => ({ verifyMock: vi.fn() }));
 
-vi.mock("../../api", () => ({
+vi.mock("../../api/endpoints", () => ({
   certificateApi: {
     verify: verifyMock,
   },
@@ -67,11 +69,10 @@ describe("VerifyCertificate share actions (toast, not alert)", () => {
   });
 
   function renderPage() {
-    return render(
-      <MemoryRouter initialEntries={["/verify?serial=CERT-123"]}>
-        <VerifyCertificate />
-      </MemoryRouter>,
-    );
+    return renderWithProviders(<VerifyCertificate />, {
+      queryClient: createTestQueryClient(),
+      routerEntries: ["/verify?serial=CERT-123"],
+    });
   }
 
   async function openSharePanel() {

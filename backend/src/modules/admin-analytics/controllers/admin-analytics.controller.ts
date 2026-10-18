@@ -8,17 +8,19 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
   ApiBearerAuth,
+  ApiOperation,
   ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
+
 import { AdminAnalyticsService } from '../services/admin-analytics.service';
 import {
-  AdminAnalyticsQueryDto,
   AdminAnalyticsDto,
+  AdminAnalyticsQueryDto,
 } from '../dto/admin-analytics.dto';
+
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
@@ -28,38 +30,42 @@ import { UserRole } from '../../users/entities/user.entity';
 @ApiBearerAuth()
 @Controller('admin/analytics')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN)
 export class AdminAnalyticsController {
-  constructor(private readonly analyticsService: AdminAnalyticsService) {}
+  constructor(
+    private readonly analyticsService: AdminAnalyticsService,
+  ) {}
 
   /**
-   * Get platform-wide analytics for admin dashboard
-   * Returns comprehensive statistics including:
-   * - Total users by role
-   * - All-issuer certificate counts
-   * - System-wide verification trends
-   * - Top issuers
+   * Retrieves platform-wide analytics for the admin dashboard.
+   *
+   * Analytics may optionally be filtered using the supported
+   * query parameters defined in AdminAnalyticsQueryDto.
    */
   @Get()
   @HttpCode(HttpStatus.OK)
-  @Roles(UserRole.ADMIN)
   @ApiOperation({
-    summary: 'Get admin analytics',
+    summary: 'Get platform analytics',
     description:
-      'Retrieves platform-wide analytics for admin dashboard. Requires admin role.',
+      'Retrieves platform-wide analytics and statistics for the admin dashboard, including user, certificate, verification, and issuer metrics.',
   })
-  @ApiQuery({ type: AdminAnalyticsQueryDto, required: false })
+  @ApiQuery({
+    type: AdminAnalyticsQueryDto,
+    required: false,
+    description: 'Optional filters for the analytics query.',
+  })
   @ApiResponse({
-    status: 200,
-    description: 'Admin analytics data retrieved successfully',
+    status: HttpStatus.OK,
+    description: 'Platform analytics retrieved successfully.',
     type: AdminAnalyticsDto,
   })
   @ApiResponse({
-    status: 401,
-    description: 'Unauthorized - Invalid or missing authentication token',
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Authentication is required or the access token is invalid.',
   })
   @ApiResponse({
-    status: 403,
-    description: 'Forbidden - Requires admin role',
+    status: HttpStatus.FORBIDDEN,
+    description: 'Access denied. Admin privileges are required.',
   })
   async getAnalytics(
     @Query() query: AdminAnalyticsQueryDto,
@@ -68,27 +74,29 @@ export class AdminAnalyticsController {
   }
 
   /**
-   * Clear analytics cache
-   * Useful after bulk operations or data imports
+   * Invalidates the cached admin analytics.
+   *
+   * This can be used after bulk data operations or imports to ensure
+   * subsequent analytics requests use fresh data.
    */
   @Post('cache/clear')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Clear analytics cache',
-    description: 'Clears the cached analytics data. Requires admin role.',
+    description:
+      'Invalidates the cached admin analytics so that subsequent requests retrieve fresh data.',
   })
   @ApiResponse({
-    status: 204,
-    description: 'Cache cleared successfully',
+    status: HttpStatus.NO_CONTENT,
+    description: 'Analytics cache cleared successfully.',
   })
   @ApiResponse({
-    status: 401,
-    description: 'Unauthorized - Invalid or missing authentication token',
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Authentication is required or the access token is invalid.',
   })
   @ApiResponse({
-    status: 403,
-    description: 'Forbidden - Requires admin role',
+    status: HttpStatus.FORBIDDEN,
+    description: 'Access denied. Admin privileges are required.',
   })
   async clearCache(): Promise<void> {
     await this.analyticsService.clearCache();

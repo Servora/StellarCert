@@ -6,7 +6,7 @@ import {
 } from '@nestjs/terminus';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 @Injectable()
 export class RedisHealthIndicator extends HealthIndicator {

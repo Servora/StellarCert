@@ -8,7 +8,7 @@ fn test_remove_issuer_clears_issuer_storage() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -32,7 +32,7 @@ fn test_remove_issuer_is_idempotent() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);

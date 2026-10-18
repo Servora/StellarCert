@@ -2,6 +2,7 @@ import { IsBoolean, IsInt, Min } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { RequestValidationPipe } from './request-validation.pipe';
 import { ValidationException } from '../../../common/exceptions';
+import { LogoutDto } from '../../auth/dto/logout.dto';
 
 class SampleDto {
   @Type(() => Number)
@@ -64,6 +65,19 @@ describe('RequestValidationPipe', () => {
         data: undefined,
       }),
     ).rejects.toBeInstanceOf(ValidationException);
+  });
+
+  it('accepts the optional access token in LogoutDto', async () => {
+    const input = { accessToken: 'access-token' };
+
+    const result = await pipe.transform(input, {
+      type: 'body',
+      metatype: LogoutDto,
+      data: undefined,
+    });
+
+    expect(result).toBeInstanceOf(LogoutDto);
+    expect((result as LogoutDto).accessToken).toBe('access-token');
   });
 
   it('returns the value unchanged when no metatype is provided', async () => {

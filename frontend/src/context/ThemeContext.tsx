@@ -92,7 +92,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-/* eslint-disable react-refresh/only-export-components */
 /**
  * Hook to use theme context
  */

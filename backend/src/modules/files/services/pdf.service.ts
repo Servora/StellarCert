@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 export interface CertificateData {
   tokenId?: string;
@@ -147,6 +147,5 @@ export class PdfService {
     });
   }
 
-    constructor(private readonly logger: LoggingService) {
-    }
+  constructor(private readonly logger: LoggingService) {}
 }

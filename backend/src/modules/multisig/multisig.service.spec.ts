@@ -3,11 +3,64 @@ import { ConfigService } from '@nestjs/config';
 import { MultisigService } from './multisig.service';
 import { StellarService } from '../stellar/services/stellar.service';
 import { LoggingService } from '../../common/logging/logging.service';
+import { rpc, xdr } from '@stellar/stellar-sdk';
 
 describe('MultisigService', () => {
   let service: MultisigService;
   let configService: ConfigService;
   let stellarService: StellarService;
+
+  describe('transaction polling', () => {
+    it('keeps polling until the transaction succeeds', async () => {
+      const success = { status: rpc.Api.GetTransactionStatus.SUCCESS };
+      const getTransaction = jest
+        .fn()
+        .mockResolvedValueOnce({
+          status: rpc.Api.GetTransactionStatus.NOT_FOUND,
+        })
+        .mockResolvedValueOnce(success);
+
+      const internals = service as unknown as {
+        server: { getTransaction: jest.Mock };
+        waitForTransaction: (
+          hash: string,
+          options?: { maxAttempts?: number; intervalMs?: number },
+        ) => Promise<unknown>;
+      };
+      internals.server = { getTransaction };
+
+      await expect(
+        internals.waitForTransaction('tx-hash', {
+          maxAttempts: 3,
+          intervalMs: 0,
+        }),
+      ).resolves.toBe(success);
+      expect(getTransaction).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects when the transaction never settles', async () => {
+      const getTransaction = jest.fn().mockResolvedValue({
+        status: rpc.Api.GetTransactionStatus.NOT_FOUND,
+      });
+
+      const internals = service as unknown as {
+        server: { getTransaction: jest.Mock };
+        waitForTransaction: (
+          hash: string,
+          options?: { maxAttempts?: number; intervalMs?: number },
+        ) => Promise<unknown>;
+      };
+      internals.server = { getTransaction };
+
+      await expect(
+        internals.waitForTransaction('tx-hash', {
+          maxAttempts: 2,
+          intervalMs: 0,
+        }),
+      ).rejects.toThrow('not finalized');
+      expect(getTransaction).toHaveBeenCalledTimes(2);
+    });
+  });
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -43,6 +96,29 @@ describe('MultisigService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  describe('contract boolean results', () => {
+    const parseBooleanResult = (retval: xdr.ScVal | undefined) =>
+      (
+        service as unknown as {
+          parseBooleanResult: (value: xdr.ScVal | undefined) => boolean;
+        }
+      ).parseBooleanResult(retval);
+
+    it('returns the contract boolean value', () => {
+      expect(parseBooleanResult(xdr.ScVal.scvBool(true))).toBe(true);
+      expect(parseBooleanResult(xdr.ScVal.scvBool(false))).toBe(false);
+    });
+
+    it('rejects a missing or non-boolean contract result', () => {
+      expect(() => parseBooleanResult(undefined)).toThrow(
+        'Invalid boolean response from contract',
+      );
+      expect(() => parseBooleanResult(xdr.ScVal.scvU32(1))).toThrow(
+        'Invalid boolean response from contract',
+      );
+    });
   });
 
   describe('initMultisigConfig', () => {

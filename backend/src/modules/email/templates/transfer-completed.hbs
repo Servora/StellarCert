@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .content {
+            padding: 40px 20px;
+        }
+        .content h2 {
+            color: #333;
+            margin: 0 0 20px 0;
+        }
+        .content p {
+            color: #666;
+            line-height: 1.6;
+            margin: 10px 0;
+        }
+        .info-box {
+            background-color: #ecfdf5;
+            border-left: 4px solid #10b981;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #10b981;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-top: 20px;
+            font-weight: bold;
+        }
+        .footer {
+            background-color: #f9f9f9;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #999;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Transfer Completed</h1>
+        </div>
+        <div class="content">
+            <h2>Hello {{recipientName}},</h2>
+            <div class="info-box">
+                <p>The transfer of certificate <strong>"{{certificateTitle}}"</strong> has been successfully completed and assigned to you.</p>
+            </div>
+            <a href="{{certificateLink}}" class="button">View Certificate</a>
+        </div>
+        <div class="footer">
+            <p>&copy; 2026 StellarCert. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

@@ -10,7 +10,7 @@ import {
   Operation,
 } from '@stellar/stellar-sdk';
 import axios from 'axios';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 export interface CreateAccountResult {
   publicKey: string;
@@ -31,7 +31,10 @@ export class StellarService implements OnModuleInit {
   private networkPassphrase: string;
   private issuerKeypair: Keypair;
 
-  constructor(private readonly configService: ConfigService, private readonly logger: LoggingService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly logger: LoggingService,
+  ) {}
 
   onModuleInit() {
     this.initializeStellar();

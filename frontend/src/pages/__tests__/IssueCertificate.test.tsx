@@ -1,6 +1,7 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
+import { createTestQueryClient, renderWithProviders } from '../../test/renderWithProviders';
 
 const {
   createCertificateMock,
@@ -26,7 +27,9 @@ vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ user: issuerUser }),
 }));
 
-vi.mock('../../api', () => ({
+// Mocked at the endpoints module: the page's template query and issuance
+// mutation both go through the query layer, which imports from there.
+vi.mock('../../api/endpoints', () => ({
   createCertificate: createCertificateMock,
   fetchDefaultTemplate: vi.fn().mockResolvedValue({
     id: 'template-default',
@@ -55,7 +58,9 @@ describe('IssueCertificate', () => {
   });
 
   it('opens a preview before confirming certificate issuance', async () => {
-    render(<IssueCertificate />);
+    renderWithProviders(<IssueCertificate />, {
+      queryClient: createTestQueryClient(),
+    });
 
     // Templates load from the API and the default template is preselected
     await waitFor(() => {
@@ -78,8 +83,7 @@ describe('IssueCertificate', () => {
     fireEvent.change(screen.getByLabelText(/Grade \/ Achievement Level/i), {
       target: { value: 'Distinction' },
     });
-    fireEvent.change(screen.getByLabelText(/Issue Date/i), {
-      target: { value: '2026-03-29' },
+    fireEvent.change(screen.getByLabelText(/Issue Date/i), {      target: { value: '2026-03-29' },
     });
 
     fireEvent.click(screen.getByRole('button', { name: /Preview Certificate/i }));

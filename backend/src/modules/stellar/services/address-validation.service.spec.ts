@@ -7,7 +7,8 @@ import { StellarNetwork } from '../dto/address-validation.dto';
 import { LoggingService } from '../../../common/logging/logging.service';
 
 // A structurally valid Stellar ed25519 public key (all zeroes + valid checksum)
-const VALID_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+const VALID_ADDRESS =
+  'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 
 describe('AddressValidationService', () => {
   let service: AddressValidationService;
@@ -106,8 +107,7 @@ describe('AddressValidationService', () => {
 
     it('should reject address with invalid checksum', async () => {
       const invalidChecksumAddress =
-        VALID_ADDRESS.slice(0, -1) +
-        (VALID_ADDRESS.endsWith('F') ? 'E' : 'F');
+        VALID_ADDRESS.slice(0, -1) + (VALID_ADDRESS.endsWith('F') ? 'E' : 'F');
 
       const result = await service.validate({
         address: invalidChecksumAddress,
@@ -125,11 +125,13 @@ describe('AddressValidationService', () => {
       value: unknown | (() => Promise<unknown>),
     ): void {
       const server = (service as any).servers.get(StellarNetwork.PUBLIC);
-      server.loadAccount = jest.fn().mockImplementation(() =>
-        typeof value === 'function'
-          ? (value as () => Promise<unknown>)()
-          : Promise.resolve(value),
-      );
+      server.loadAccount = jest
+        .fn()
+        .mockImplementation(() =>
+          typeof value === 'function'
+            ? (value as () => Promise<unknown>)()
+            : Promise.resolve(value),
+        );
     }
 
     it('should validate address and check existence', async () => {

@@ -18,23 +18,50 @@ export class CertificatePdfService {
         .font('Helvetica-Bold')
         .text('Certificate of Achievement', { align: 'center' });
       doc.moveDown();
-      doc.fontSize(13).font('Helvetica').text('This certifies that', { align: 'center' });
+      doc
+        .fontSize(13)
+        .font('Helvetica')
+        .text('This certifies that', { align: 'center' });
       doc.moveDown(0.5);
-      doc.fontSize(20).font('Helvetica-Bold').text(certificate.recipientName, { align: 'center' });
+      doc
+        .fontSize(20)
+        .font('Helvetica-Bold')
+        .text(certificate.recipientName, { align: 'center' });
       doc.moveDown();
-      doc.fontSize(13).font('Helvetica').text(certificate.title, { align: 'center' });
+      doc
+        .fontSize(13)
+        .font('Helvetica')
+        .text(certificate.title, { align: 'center' });
 
       if (certificate.courseName) {
-        doc.fontSize(12).text(`Course: ${certificate.courseName}`, { align: 'center' });
+        doc
+          .fontSize(12)
+          .text(`Course: ${certificate.courseName}`, { align: 'center' });
       }
 
       doc.moveDown();
-      doc.fontSize(11).text(`Certificate ID: ${certificate.certificateId}`, { align: 'center' });
-      doc.fontSize(11).text(`Issued by: ${certificate.issuerName ?? 'Unknown'}`, { align: 'center' });
-      doc.fontSize(11).text(`Issued on: ${new Date(certificate.issuedAt).toLocaleDateString()}`, { align: 'center' });
+      doc.fontSize(11).text(`Certificate ID: ${certificate.certificateId}`, {
+        align: 'center',
+      });
+      doc
+        .fontSize(11)
+        .text(`Issued by: ${certificate.issuerName ?? 'Unknown'}`, {
+          align: 'center',
+        });
+      doc
+        .fontSize(11)
+        .text(
+          `Issued on: ${new Date(certificate.issuedAt).toLocaleDateString()}`,
+          { align: 'center' },
+        );
 
       if (certificate.expiresAt) {
-        doc.fontSize(11).text(`Expires: ${new Date(certificate.expiresAt).toLocaleDateString()}`, { align: 'center' });
+        doc
+          .fontSize(11)
+          .text(
+            `Expires: ${new Date(certificate.expiresAt).toLocaleDateString()}`,
+            { align: 'center' },
+          );
       }
 
       doc.end();

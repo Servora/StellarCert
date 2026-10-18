@@ -233,7 +233,7 @@ export class UserRepository {
   async resetLoginAttempts(id: string): Promise<void> {
     await this.repository.update(id, {
       loginAttempts: 0,
-      lockedUntil: undefined as any,
+      lockedUntil: undefined,
     });
   }
 

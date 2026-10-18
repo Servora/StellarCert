@@ -8,11 +8,19 @@ import { LoggingService } from './common/logging/logging.service';
 import { MonitoringInterceptor } from './common/monitoring/monitoring.interceptor';
 import { MetricsService } from './common/monitoring/metrics.service';
 import { SecurityHeadersInterceptor } from './modules/security/interceptor';
-import { VersioningType } from '@nestjs/common';
+import { Logger, VersioningType } from '@nestjs/common';
 import express from 'express';
 import cookieParser from 'cookie-parser';
+import { migrationStrategyWarnings } from './config/typeorm.config';
 
 async function bootstrap() {
+  // Report configuration that contradicts the documented migration strategy
+  // before anything else starts (e.g. TYPEORM_SYNCHRONIZE=true, which is no
+  // longer honoured — see #956 and MIGRATION_STRATEGY.md).
+  for (const warning of migrationStrategyWarnings()) {
+    Logger.warn(warning, 'Bootstrap');
+  }
+
   const app = await NestFactory.create(AppModule);
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.set('trust proxy', true);
@@ -23,7 +31,7 @@ async function bootstrap() {
 
   loggingService.log('🚀 Starting application...');
   loggingService.log(
-    '📧 Email queue name: ' + (process.env.EMAIL_QUEUE_NAME || 'email-queue')
+    '📧 Email queue name: ' + (process.env.EMAIL_QUEUE_NAME || 'email-queue'),
   );
 
   const requestLimit = process.env.REQUEST_SIZE_LIMIT || '1mb';
@@ -71,7 +79,11 @@ async function bootstrap() {
 
   // Use global pipes and filters
   app.useGlobalFilters(
-    new GlobalExceptionFilter(app.get(ConfigService), sentryService, loggingService),
+    new GlobalExceptionFilter(
+      app.get(ConfigService),
+      sentryService,
+      loggingService,
+    ),
   );
 
   // Add global security and monitoring interceptors
@@ -123,8 +135,12 @@ async function bootstrap() {
   };
 
   // Listen for shutdown signals
-  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => {
+    void gracefulShutdown('SIGTERM');
+  });
+  process.on('SIGINT', () => {
+    void gracefulShutdown('SIGINT');
+  });
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);

@@ -5,6 +5,7 @@ import {
   IsUUID,
   IsDate,
   IsObject,
+  IsBoolean,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -102,4 +103,14 @@ export class CreateCertificateDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, any>;
+
+  @ApiPropertyOptional({
+    description:
+      'Skip recording this certificate on Soroban and store it off-chain only. ' +
+      'Useful for local development and CI, which have no funded issuer key.',
+    example: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  skipStellar?: boolean;
 }

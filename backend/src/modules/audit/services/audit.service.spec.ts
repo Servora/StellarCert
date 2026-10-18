@@ -314,7 +314,7 @@ describe('AuditService', () => {
 
       const result = await service.exportToCsv({});
 
-      expect(result).toContain('ID,Action,Resource Type');
+      expect(result).toContain('"ID","Action","Resource Type"');
       expect(result).toContain(mockAuditLog.id);
       expect(result).toContain(AuditAction.USER_LOGIN);
     });
@@ -333,7 +333,7 @@ describe('AuditService', () => {
 
       const result = await service.exportToCsv({});
 
-      expect(result).toContain('ID,Action,Resource Type');
+      expect(result).toContain('"ID","Action","Resource Type"');
       expect(result.split('\n').length).toBeGreaterThan(5000);
     });
   });

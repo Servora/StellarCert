@@ -2,7 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
-  ConflictException
+  ConflictException,
 } from '@nestjs/common';
 import { User, UserRole, UserStatus } from '../entities/user.entity';
 import { UserRepository } from '../repositories/user.repository';
@@ -24,7 +24,7 @@ export class UserAdminService {
     private readonly userRepository: UserRepository,
     private readonly logger: LoggingService,
     private readonly certificateStatsService: CertificateStatsService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
   ) {}
 
   async findAllUsers(

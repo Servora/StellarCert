@@ -14,55 +14,65 @@ import {
 } from "lucide-react";
 import {
   Certificate,
-  getUserCertificates,
   certificateApi,
   getCertificatePdfUrl,
 } from "../api";
+import { UserRole, User } from "../api/types";
+import { useUserCertificatesQuery } from "../api/queries";
 import { useAuth } from "../context/AuthContext";
 
 
+/**
+ * Returns true if the logged-in user is the recipient of the given certificate.
+ * Compared case-insensitively against recipientEmail; falls back to a user-id
+ * match on the metadata field for legacy records that lack an email.
+ */
+function isCertOwner(cert: Certificate, user: User): boolean {
+  if (cert.recipientEmail) {
+    return cert.recipientEmail.toLowerCase() === user.email.toLowerCase();
+  }
+  // Fallback: some older records only carry recipientName — not reliable enough
+  // to grant write actions, so treat as non-owner.
+  return false;
+}
+
+/** Roles that may download any certificate regardless of ownership. */
+const DOWNLOAD_ROLES: readonly UserRole[] = [UserRole.ISSUER, UserRole.ADMIN];
+
 const CertificateWallet = () => {
   const { user } = useAuth();
-  const [certificates, setCertificates] = useState<Certificate[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // Shared with the recipient dashboard: the certificates are fetched once and
+  // both routes read the same cache entry.
+  const {
+    data: certificates = [],
+    isPending: loading,
+    isError: certificatesFailed,
+  } = useUserCertificatesQuery(user?.id);
 
   // QR states
   const [qrCodes, setQrCodes] = useState<Record<string, string>>({});
   const [selectedQR, setSelectedQR] = useState<string | null>(null);
   const [loadingQR, setLoadingQR] = useState<Record<string, boolean>>({});
 
-  const [error, setError] = useState<string | null>(null);
+  // Only the list request feeds the banner; the QR/PDF actions keep their own
+  // message so a failed download never masquerades as a failed page load. The
+  // raw transport message is not surfaced -- it is unhelpful to a user and was
+  // never shown before the migration.
+  const loadError = certificatesFailed
+    ? "Failed to load your certificates. Please check your connection and try again."
+    : null;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? loadError;
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(9);
 
+  // A newly signed-in user has a different wallet; never page into a stale index.
   useEffect(() => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
-    const fetchCertificates = async () => {
-      setError(null);
-      try {
-        const data = await getUserCertificates(user.id);
-        if (data) {
-          setCertificates(data);
-          setPage(1);
-        }
-      } catch (err) {
-        console.error("Error fetching certificates:", err);
-        setError(
-          "Failed to load your certificates. Please check your connection and try again.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchCertificates();
-  }, [user]);
+    setPage(1);
+  }, [user?.id]);
 
   // QR CODE LOGIC
   const fetchQRCode = async (certificateId: string) => {
@@ -120,7 +130,7 @@ const CertificateWallet = () => {
     cert: Certificate,
     action: "view" | "download",
   ) => {
-    setError(null);
+    setActionError(null);
     setActionLoadingId(cert.id);
 
     try {
@@ -174,7 +184,7 @@ const CertificateWallet = () => {
           "Certificate is still being processed. PDF will be available soon.";
       }
 
-      setError(
+      setActionError(
         `Failed to ${action} certificate "${cert.title}". ${userFriendlyMessage}`,
       );
     } finally {
@@ -297,50 +307,75 @@ const CertificateWallet = () => {
                   </p>
                 </div>
 
-                <div className="flex justify-between">
-                  <button
-                    onClick={() => handlePdfAction(cert, "view")}
-                    disabled={actionLoadingId === cert.id}
-                    className="flex items-center gap-2 text-blue-600 dark:text-blue-400 disabled:opacity-50"
-                  >
-                    <Eye className="w-4 h-4" />
-                    View
-                  </button>
+                {(() => {
+                  const owner = !!user && isCertOwner(cert, user);
+                  const canDownload = owner || (!!user && DOWNLOAD_ROLES.includes(user.role as UserRole));
+                  const canShare = owner;
+                  const readOnly = !canDownload && !canShare;
 
-                  <button
-                    onClick={() => handleShowQR(cert.id)}
-                    disabled={loadingQR[cert.id]}
-                    className="flex items-center gap-2 text-purple-600 dark:text-purple-400 disabled:opacity-50"
-                  >
-                    {loadingQR[cert.id] ? (
-                      <div className="animate-spin h-4 w-4 border-b-2 border-purple-600 dark:border-purple-400 rounded-full"></div>
-                    ) : (
-                      <QrCode className="w-4 h-4" />
-                    )}
-                    QR
-                  </button>
+                  return (
+                    <div className="space-y-3">
+                      {/* Read-only actions — visible to every role */}
+                      <div className="flex justify-between">
+                        <button
+                          onClick={() => handlePdfAction(cert, "view")}
+                          disabled={actionLoadingId === cert.id}
+                          className="flex items-center gap-2 text-blue-600 dark:text-blue-400 disabled:opacity-50"
+                        >
+                          <Eye className="w-4 h-4" />
+                          View
+                        </button>
 
-                  <button
-                    onClick={() => handlePdfAction(cert, "download")}
-                    disabled={actionLoadingId === cert.id}
-                    className="flex items-center gap-2 text-green-600 dark:text-green-400 disabled:opacity-50"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download
-                  </button>
+                        <button
+                          onClick={() => handleShowQR(cert.id)}
+                          disabled={loadingQR[cert.id]}
+                          className="flex items-center gap-2 text-purple-600 dark:text-purple-400 disabled:opacity-50"
+                        >
+                          {loadingQR[cert.id] ? (
+                            <div className="animate-spin h-4 w-4 border-b-2 border-purple-600 dark:border-purple-400 rounded-full"></div>
+                          ) : (
+                            <QrCode className="w-4 h-4" />
+                          )}
+                          QR
+                        </button>
 
-                  <button
-                    onClick={() => handleShare(cert)}
-                    className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400"
-                  >
-                    {copiedId === cert.id ? (
-                      <Check className="w-4 h-4" />
-                    ) : (
-                      <Share2 className="w-4 h-4" />
-                    )}
-                    {copiedId === cert.id ? "Copied!" : "Share"}
-                  </button>
-                </div>
+                        {/* Download: recipient owner OR issuer/admin */}
+                        {canDownload && (
+                          <button
+                            onClick={() => handlePdfAction(cert, "download")}
+                            disabled={actionLoadingId === cert.id}
+                            className="flex items-center gap-2 text-green-600 dark:text-green-400 disabled:opacity-50"
+                          >
+                            <Download className="w-4 h-4" />
+                            Download
+                          </button>
+                        )}
+
+                        {/* Share: recipient owner only */}
+                        {canShare && (
+                          <button
+                            onClick={() => handleShare(cert)}
+                            className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400"
+                          >
+                            {copiedId === cert.id ? (
+                              <Check className="w-4 h-4" />
+                            ) : (
+                              <Share2 className="w-4 h-4" />
+                            )}
+                            {copiedId === cert.id ? "Copied!" : "Share"}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Inform non-owners (e.g. verifiers) that they have read-only access */}
+                      {readOnly && (
+                        <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
+                          View-only — download and share are available to the certificate owner.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             ))}
           </div>

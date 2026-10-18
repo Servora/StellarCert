@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as QRCode from 'qrcode';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 @Injectable()
 export class QrCodeService {
@@ -33,6 +33,5 @@ export class QrCodeService {
     }
   }
 
-    constructor(private readonly logger: LoggingService) {
-    }
+  constructor(private readonly logger: LoggingService) {}
 }

@@ -9,7 +9,7 @@ use soroban_sdk::{
 #[test]
 fn test_issuer_management() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -17,6 +17,7 @@ fn test_issuer_management() {
     let issuer2 = Address::generate(&env);
 
     // Initialize with admin
+    env.mock_all_auths();
     client.initialize(&admin);
 
     // Initial count should be 0
@@ -53,7 +54,7 @@ fn test_issuer_management() {
 #[test]
 fn test_issued_certificate_ttl_is_extended() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -62,6 +63,7 @@ fn test_issued_certificate_ttl_is_extended() {
     let id = String::from_str(&env, "cert-ttl-001");
     let metadata_uri = String::from_str(&env, "ipfs://ttl");
 
+    env.mock_all_auths();
     client.initialize(&admin);
     env.mock_all_auths();
     client.add_issuer(&issuer);
@@ -82,13 +84,14 @@ fn test_issued_certificate_ttl_is_extended() {
 #[test]
 fn test_remove_issuer_updates_vec_and_count() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
     let issuer1 = Address::generate(&env);
     let issuer2 = Address::generate(&env);
 
+    env.mock_all_auths();
     client.initialize(&admin);
     env.mock_all_auths();
 
@@ -113,13 +116,14 @@ fn test_remove_issuer_idempotent_on_missing_issuer() {
     // Removing an address that was never added must not panic, and must not
     // corrupt the count or list.
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
     let issuer1 = Address::generate(&env);
     let ghost = Address::generate(&env);
 
+    env.mock_all_auths();
     client.initialize(&admin);
     env.mock_all_auths();
 
@@ -137,7 +141,7 @@ fn test_remove_issuer_idempotent_on_missing_issuer() {
 #[test]
 fn test_remove_all_issuers_reaches_zero() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -145,6 +149,7 @@ fn test_remove_all_issuers_reaches_zero() {
     let issuer2 = Address::generate(&env);
     let issuer3 = Address::generate(&env);
 
+    env.mock_all_auths();
     client.initialize(&admin);
     env.mock_all_auths();
 
@@ -168,7 +173,7 @@ fn test_remove_all_issuers_reaches_zero() {
 #[should_panic(expected = "Pagination limit exceeds maximum allowed")]
 fn test_get_certificates_by_issuer_rejects_oversized_limit() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -188,7 +193,7 @@ fn test_get_certificates_by_issuer_rejects_oversized_limit() {
 #[should_panic(expected = "Pagination limit exceeds maximum allowed")]
 fn test_get_certificates_by_owner_rejects_oversized_limit() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let owner = Address::generate(&env);
@@ -205,7 +210,7 @@ fn test_get_certificates_by_owner_rejects_oversized_limit() {
 #[test]
 fn test_get_certificates_by_issuer_accepts_limit_at_max() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, CertificateContract);
+    let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
 
     let issuer = Address::generate(&env);
@@ -221,4 +226,78 @@ fn test_get_certificates_by_issuer_accepts_limit_at_max() {
     assert_eq!(result.total, 0);
     assert_eq!(result.data.len(), 0);
     assert!(!result.has_next);
+}
+
+#[test]
+fn test_freeze_certificate_allows_authorized_issuer() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-freeze-authorized");
+    let metadata_uri = String::from_str(&env, "ipfs://freeze-authorized");
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
+
+    client.freeze_certificate(&id, &String::from_str(&env, "authorized freeze"));
+
+    let cert = client.get_certificate(&id).unwrap();
+    assert_eq!(cert.status, CertificateStatus::Frozen);
+}
+
+#[test]
+#[should_panic(expected = "Address is not an authorized issuer")]
+fn test_freeze_certificate_rejects_removed_issuer() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-freeze-removed-issuer");
+    let metadata_uri = String::from_str(&env, "ipfs://freeze-removed");
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
+
+    // The certificate stays valid, but the issuer loses authorization.
+    client.remove_issuer(&issuer);
+
+    // A removed issuer must not be able to freeze certificates it issued.
+    client.freeze_certificate(&id, &String::from_str(&env, "stale issuer freeze"));
+}
+
+#[test]
+#[should_panic(expected = "Address is not an authorized issuer")]
+fn test_unfreeze_certificate_rejects_removed_issuer() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, CertificateContract);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-unfreeze-removed-issuer");
+    let metadata_uri = String::from_str(&env, "ipfs://unfreeze-removed");
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
+
+    // Freeze while the issuer is still authorized.
+    client.freeze_certificate(&id, &String::from_str(&env, "freeze while authorized"));
+
+    // Once authorization is revoked the stale issuer can no longer unfreeze.
+    client.remove_issuer(&issuer);
+    client.unfreeze_certificate(&id);
 }

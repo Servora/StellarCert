@@ -1,11 +1,14 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { MetricsService } from '../monitoring/metrics.service';
-import { LoggingService } from "../logging/logging.service";
+import { LoggingService } from '../logging/logging.service';
 
 @Injectable()
 export class MetricsMiddleware implements NestMiddleware {
-  constructor(private metricsService: MetricsService, private readonly logger: LoggingService) {}
+  constructor(
+    private metricsService: MetricsService,
+    private readonly logger: LoggingService,
+  ) {}
 
   use(req: Request, res: Response, next: NextFunction): void {
     const startTime = Date.now();

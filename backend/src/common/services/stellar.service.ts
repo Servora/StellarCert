@@ -1,14 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as StellarSdk from '@stellar/stellar-sdk';
-import { LoggingService } from "../logging/logging.service";
+import { LoggingService } from '../logging/logging.service';
 
 @Injectable()
 export class StellarService {
   private server: any;
   private networkPassphrase: string;
 
-  constructor(private configService: ConfigService, private readonly logger: LoggingService) {
+  constructor(
+    private configService: ConfigService,
+    private readonly logger: LoggingService,
+  ) {
     this.networkPassphrase =
       configService.get<string>('STELLAR_NETWORK') === 'testnet'
         ? StellarSdk.Networks.TESTNET

@@ -46,6 +46,21 @@ export class CryptoUtils {
   }
 
   /**
+   * Generates a cryptographically secure random alphanumeric code
+   * using uppercase letters and digits only
+   * (useful for verification codes, certificate IDs)
+   * @param length - Length of the code (default: 8)
+   */
+  static generateAlphanumericCode(length: number = 8): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    for (let i = 0; i < length; i++) {
+      code += chars.charAt(crypto.randomInt(chars.length));
+    }
+    return code;
+  }
+
+  /**
    * Generates a cryptographically secure random numeric code
    * (useful for OTP, verification codes)
    * @param length - Length of the code (default: 6)

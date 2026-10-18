@@ -9,7 +9,7 @@ import { SendVerificationDto } from './dto/send-verification.dto';
 import { SendPasswordResetDto } from './dto/send-password-reset.dto';
 import { SendRevocationNoticeDto } from './dto/send-revocation-notice.dto';
 import { SendEmailDto } from './dto/send-email.dto';
-import { LoggingService } from "../../common/logging/logging.service";
+import { LoggingService } from '../../common/logging/logging.service';
 
 interface EmailConfig {
   service?: string;
@@ -27,8 +27,11 @@ export class EmailService {
   private transporter: nodemailer.Transporter;
   private templates: Map<string, HandlebarsTemplateDelegate> = new Map();
 
-  constructor(private configService: ConfigService, private readonly logger: LoggingService) {
-    this.initializeTransporter().catch(err =>
+  constructor(
+    private configService: ConfigService,
+    private readonly logger: LoggingService,
+  ) {
+    this.initializeTransporter().catch((err) =>
       this.logger.error(`Email transporter init failed: ${err.message}`),
     );
     this.loadTemplates();
@@ -64,8 +67,23 @@ export class EmailService {
       return;
     }
 
-    // No credentials configured — use Ethereal test account in dev
-    this.logger.log('No email credentials configured — creating Ethereal test account...');
+    // No credentials configured — use Ethereal only in non-production environments
+    if (process.env.NODE_ENV === 'production') {
+      this.logger.warn(
+        'No email credentials configured in production — email sending is disabled. ' +
+          'Set EMAIL_HOST/EMAIL_USERNAME or SENDGRID_API_KEY to enable.',
+      );
+      this.transporter = nodemailer.createTransport({
+        streamTransport: true,
+        newline: 'unix',
+        buffer: true,
+      });
+      return;
+    }
+
+    this.logger.log(
+      'No email credentials configured — creating Ethereal test account...',
+    );
     try {
       const testAccount = await nodemailer.createTestAccount();
       this.transporter = nodemailer.createTransport({
@@ -74,12 +92,20 @@ export class EmailService {
         secure: false,
         auth: { user: testAccount.user, pass: testAccount.pass },
       });
-      this.logger.log(`Ethereal test account: ${testAccount.user} / ${testAccount.pass}`);
-      this.logger.log('Email previews available at https://ethereal.email');
+      // Log only the inbox address, never the password
+      this.logger.log(
+        `Ethereal test account created: ${testAccount.user} — visit https://ethereal.email to read sent mail`,
+      );
     } catch (err) {
-      this.logger.error(`Failed to create Ethereal test account: ${err.message}`);
+      this.logger.error(
+        `Failed to create Ethereal test account: ${err.message}`,
+      );
       // Fallback: create a no-op transporter so the app still starts
-      this.transporter = nodemailer.createTransport({ streamTransport: true, newline: 'unix', buffer: true });
+      this.transporter = nodemailer.createTransport({
+        streamTransport: true,
+        newline: 'unix',
+        buffer: true,
+      });
     }
   }
 
@@ -90,6 +116,8 @@ export class EmailService {
       'verification-email',
       'password-reset',
       'revocation-notice',
+      'transfer-confirmation',
+      'transfer-completed',
     ];
 
     templates.forEach((templateName) => {
@@ -109,7 +137,9 @@ export class EmailService {
 
   async sendEmail(dto: SendEmailDto): Promise<void> {
     if (!this.transporter) {
-      this.logger.warn(`Email transporter not ready — skipping email to ${dto.to}`);
+      this.logger.warn(
+        `Email transporter not ready — skipping email to ${dto.to}`,
+      );
       return;
     }
     try {
@@ -211,6 +241,49 @@ export class EmailService {
             day: 'numeric',
           },
         ),
+      },
+    };
+
+    await this.sendEmail(emailDto);
+  }
+
+  async sendTransferConfirmationCode(dto: {
+    to: string;
+    recipientName?: string;
+    certificateTitle: string;
+    certificateId: string;
+    confirmationCode: string;
+  }): Promise<void> {
+    const emailDto: SendEmailDto = {
+      to: dto.to,
+      subject: `Certificate Transfer Confirmation: ${dto.certificateTitle}`,
+      template: 'transfer-confirmation',
+      data: {
+        recipientName: dto.recipientName || 'User',
+        certificateTitle: dto.certificateTitle,
+        certificateId: dto.certificateId,
+        confirmationCode: dto.confirmationCode,
+      },
+    };
+
+    await this.sendEmail(emailDto);
+  }
+
+  async sendTransferCompletedNotice(dto: {
+    to: string;
+    recipientName?: string;
+    certificateTitle: string;
+    certificateId: string;
+  }): Promise<void> {
+    const emailDto: SendEmailDto = {
+      to: dto.to,
+      subject: `Certificate Transfer Completed: ${dto.certificateTitle}`,
+      template: 'transfer-completed',
+      data: {
+        recipientName: dto.recipientName || 'User',
+        certificateTitle: dto.certificateTitle,
+        certificateId: dto.certificateId,
+        certificateLink: `${this.getBaseUrl()}/certificates/${dto.certificateId}`,
       },
     };
 

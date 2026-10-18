@@ -88,5 +88,4 @@ export class CreateUserDto {
     message: 'Please provide a valid Stellar public key',
   })
   stellarPublicKey?: string;
-
 }

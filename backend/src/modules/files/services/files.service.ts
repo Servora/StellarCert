@@ -2,14 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { StorageService } from './storage.service';
 import { PdfService, CertificateData } from './pdf.service';
 import { QrCodeService } from './qrcode.service';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 @Injectable()
 export class FilesService {
   constructor(
     private readonly storageService: StorageService,
     private readonly pdfService: PdfService,
-    private readonly qrCodeService: QrCodeService, private readonly logger: LoggingService
+    private readonly qrCodeService: QrCodeService,
+    private readonly logger: LoggingService,
   ) {}
 
   async generateAndUploadQrCode(

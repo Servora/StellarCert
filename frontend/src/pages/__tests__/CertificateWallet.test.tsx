@@ -1,10 +1,10 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import type { Mock } from "vitest";
 
 // ── API mock ───────────────────────────────────────────────────────────────
-vi.mock("../../api", () => ({
+vi.mock("../../api/endpoints", () => ({
   certificateApi: {
     getQR: vi.fn().mockResolvedValue("data:image/png;base64,MOCK"),
   },
@@ -35,7 +35,8 @@ vi.mock("../../context/AuthContext", () => ({
 }));
 
 import CertificateWallet from "../CertificateWallet";
-import { getUserCertificates } from "../../api";
+import { getUserCertificates } from "../../api/endpoints";
+import { createTestQueryClient, renderWithProviders } from "../../test/renderWithProviders";
 
 // Typed reference to the mocked function for easy per-test overrides
 const mockedGetUserCertificates = getUserCertificates as Mock;
@@ -59,7 +60,7 @@ describe("CertificateWallet", () => {
   it("renders certificates when fetch succeeds", async () => {
     mockedGetUserCertificates.mockResolvedValueOnce([MOCK_CERT]);
 
-    render(<CertificateWallet />);
+    renderWithProviders(<CertificateWallet />, { queryClient: createTestQueryClient() });
 
     await waitFor(() =>
       expect(
@@ -74,7 +75,7 @@ describe("CertificateWallet", () => {
       new Error("Network error"),
     );
 
-    render(<CertificateWallet />);
+    renderWithProviders(<CertificateWallet />, { queryClient: createTestQueryClient() });
 
     // The error banner must appear — not just a silent console.error
     await waitFor(() =>
@@ -96,7 +97,10 @@ describe("CertificateWallet", () => {
       new Error("Network error"),
     );
 
-    const { rerender } = render(<CertificateWallet />);
+    // `rerender` re-applies the provider wrapper, so the cache survives.
+    const { rerender } = renderWithProviders(<CertificateWallet />, {
+      queryClient: createTestQueryClient(),
+    });
 
     await waitFor(() =>
       expect(
@@ -105,28 +109,27 @@ describe("CertificateWallet", () => {
     );
 
     // Next call succeeds — changing the authenticated user changes the
-    // identity of `user`, which re-runs the page's user-dependent effect
-    // and triggers a fresh fetch.
+    // identity of `user`, which is part of the query key, so a fresh fetch
+    // runs for the new account.
     mockedGetUserCertificates.mockResolvedValueOnce([MOCK_CERT]);
     walletAuth.user = { id: "u2" };
     rerender(<CertificateWallet />);
 
+    // The stale error disappears as soon as the new key mounts.
     await waitFor(() =>
       expect(
         screen.queryByText(/Failed to load your certificates/i),
       ).not.toBeInTheDocument(),
     );
 
-    expect(
-      screen.getByText(/Blockchain Fundamentals/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Blockchain Fundamentals/i)).toBeInTheDocument();
   });
 
   // ── Dark mode fix (#795) ────────────────────────────────────────────────
   it("renders with correct dark mode classes", async () => {
     mockedGetUserCertificates.mockResolvedValueOnce([MOCK_CERT]);
 
-    render(<CertificateWallet />);
+    renderWithProviders(<CertificateWallet />, { queryClient: createTestQueryClient() });
 
     await waitFor(() =>
       expect(screen.getByText(/Blockchain Fundamentals/i)).toBeInTheDocument()
@@ -146,7 +149,7 @@ describe("CertificateWallet", () => {
   it("renders empty state with correct classes", async () => {
     mockedGetUserCertificates.mockResolvedValueOnce([]);
 
-    render(<CertificateWallet />);
+    renderWithProviders(<CertificateWallet />, { queryClient: createTestQueryClient() });
 
     await waitFor(() =>
       expect(screen.getByText(/No Certificates Yet/i)).toBeInTheDocument()

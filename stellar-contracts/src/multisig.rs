@@ -20,7 +20,10 @@ impl MultisigCertificateContract {
     }
 
     /// Initialize the contract with a global admin. Can only be called once.
+    /// Initializes the contract admin. See `CertificateContract::initialize`
+    /// for why `require_auth` alone does not close the deploy-to-init race.
     pub fn initialize(env: Env, admin: Address) {
+        admin.require_auth();
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("Admin already initialized");
         }
@@ -135,11 +138,19 @@ impl MultisigCertificateContract {
         metadata: String,
         expiration_days: u32,
     ) -> PendingRequest {
+        // Without this anyone could raise requests in an issuer's name and
+        // fill every signer's SignerRequestIds list with junk. The lib.rs
+        // counterpart has always required it; this one did not.
+        issuer.require_auth();
+
+        // An issuer with no multisig configuration is not an issuer this
+        // contract recognises. Reported as an authorization failure rather
+        // than a missing-config detail.
         let config: MultisigConfig = env
             .storage()
             .instance()
             .get(&DataKey::MultisigConfig(issuer.clone()))
-            .expect("Issuer does not have multisig configuration");
+            .expect("Issuer is not authorized: no multisig configuration");
 
         // Check if request already exists
         if env
@@ -383,11 +394,42 @@ impl MultisigCertificateContract {
     }
 
     /// Get a pending request by ID
-    pub fn get_pending_request(env: Env, request_id: String) -> PendingRequest {
-        env.storage()
+    /// Reads a pending request.
+    ///
+    /// Takes a `caller` and enforces the same access control as the `lib.rs`
+    /// counterpart. Previously this was world-readable, so anyone could
+    /// enumerate requests — including recipient addresses and metadata — for
+    /// any issuer.
+    pub fn get_pending_request(env: Env, request_id: String, caller: Address) -> PendingRequest {
+        caller.require_auth();
+
+        let request: PendingRequest = env
+            .storage()
             .instance()
             .get(&DataKey::PendingRequest(request_id))
-            .expect("Request not found")
+            .expect("Request not found");
+
+        // The admin is one authorized role among several. If none is set the
+        // branch simply cannot match — an uninitialized admin must not make
+        // the request unreadable to the issuer, proposer or its signers.
+        let admin: Option<Address> = env.storage().instance().get(&DataKey::Admin);
+
+        // Only the issuer, the proposer, the admin, or one of the issuer's
+        // configured signers may read a request.
+        let is_authorized = caller == request.issuer
+            || caller == request.proposer
+            || admin.is_some_and(|a| a == caller)
+            || env
+                .storage()
+                .instance()
+                .get::<_, MultisigConfig>(&DataKey::MultisigConfig(request.issuer.clone()))
+                .is_some_and(|c| c.signers.contains(&caller));
+
+        if !is_authorized {
+            panic!("Not authorized to view this request");
+        }
+
+        request
     }
 
     /// Check if a request has expired

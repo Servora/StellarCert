@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { WebhookSubscription } from './entities/webhook-subscription.entity';
 import { WebhookLog } from './entities/webhook-log.entity';
 import { LoggingService } from '../../common/logging/logging.service';
+import { validateWebhookUrl } from '../../common/utils/ssrf.utils';
 
 @Processor('webhooks')
 export class WebhooksProcessor {
@@ -44,6 +45,23 @@ export class WebhooksProcessor {
       .update(`${timestamp}.${JSON.stringify(payload)}`)
       .digest('hex');
 
+    // SSRF protection: validate the URL before dispatch
+    const validation = await validateWebhookUrl(subscription.url);
+    if (!validation.valid) {
+      this.logger.warn(
+        `Webhook blocked by SSRF protection: ${validation.error}`,
+      );
+      await this.logRepository.save({
+        subscriptionId,
+        event,
+        payload,
+        statusCode: 0,
+        response: validation.error,
+        isSuccess: false,
+      });
+      return;
+    }
+
     try {
       const res = await axios.post(subscription.url, payload, {
         headers: {
@@ -53,23 +71,30 @@ export class WebhooksProcessor {
           'User-Agent': 'StellarCert-Webhook/1.0',
         },
         timeout: 10000,
+        maxRedirects: 0,
       });
+
+      const responseBody = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+      const truncatedResponse = responseBody && responseBody.length > 2048 ? responseBody.substring(0, 2048) : responseBody;
 
       await this.logRepository.save({
         subscriptionId,
         event,
         payload,
         statusCode: res.status,
-        response: JSON.stringify(res.data),
+        response: truncatedResponse,
         isSuccess: true,
       });
     } catch (err) {
+      const errResponse = err?.response?.data ? (typeof err.response.data === 'string' ? err.response.data : JSON.stringify(err.response.data)) : err.message;
+      const truncatedErrResponse = errResponse && errResponse.length > 2048 ? errResponse.substring(0, 2048) : errResponse;
+
       await this.logRepository.save({
         subscriptionId,
         event,
         payload,
         statusCode: err?.response?.status || 500,
-        response: err.message,
+        response: truncatedErrResponse,
         isSuccess: false,
       });
 

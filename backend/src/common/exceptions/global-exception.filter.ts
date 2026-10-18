@@ -39,7 +39,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     private sentryService: SentryService,
     private loggingService: LoggingService,
   ) {
-    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    this.isProduction =
+      this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   catch(exception: unknown, host: ArgumentsHost) {

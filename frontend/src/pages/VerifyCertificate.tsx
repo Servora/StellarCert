@@ -1,26 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { JSX } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { CheckCircle, AlertTriangle } from 'lucide-react';
-import { certificateApi, VerificationResult } from '../api';
-
-// Debounce hook for search inputs
-const useDebounce = (value: string, delay: number) => {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-};
+import { VerificationResult } from '../api';
+import { useVerifyCertificateQuery } from '../api/queries';
+import { useDebounce } from '../hooks/useDebounce';
 
 type VerificationState = {
   loading: boolean;
@@ -35,60 +20,49 @@ type ToastState = {
 
 export default function VerifyCertificate(): JSX.Element {
   const [searchParams] = useSearchParams();
-  const [serial, setSerial] = useState('');
+  // Seed from the URL so a shared link is verified without a keystroke.
+  const [serial, setSerial] = useState(
+    () => searchParams.get('serial')?.trim() ?? '',
+  );
   const debouncedSerial = useDebounce(serial, 300);
   const [showQrScanner, setShowQrScanner] = useState(false);
   const qrScannerRef = useRef<Html5QrcodeScanner | null>(null);
-  const [state, setState] = useState<VerificationState>({
-    loading: false,
-    result: null,
-    error: null,
-  });
   const [toast, setToast] = useState<ToastState | null>(null);
-  const isVerifyingRef = useRef(false);
 
-  const handleVerify = useCallback(async (serialToVerify: string) => {
-    const serialNumber = serialToVerify.trim();
+  // Verification is keyed by serial, so re-checking the same certificate is
+  // answered from cache, and concurrent lookups of one serial collapse into a
+  // single request (no hand-rolled in-flight guard needed).
+  const verificationQuery = useVerifyCertificateQuery(debouncedSerial);
 
-    // Validation
-    if (!serialNumber) {
-      setState({
-        loading: false,
-        result: null,
-        error: 'Please enter a certificate serial number.',
-      });
-      return;
-    }
-
-    // Prevent duplicate calls
-    if (isVerifyingRef.current) {
-      return;
-    }
-
-    isVerifyingRef.current = true;
-    setState({
-      loading: true,
-      result: null,
-      error: null,
-    });
-
-    try {
-      const response = await certificateApi.verify(serialNumber);
-      setState({
-        loading: false,
-        result: response,
-        error: response.isValid ? null : response.message || 'Verification failed',
-      });
-    } catch (error) {
-      setState({
+  const state: VerificationState = useMemo(() => {
+    if (verificationQuery.isError) {
+      return {
         loading: false,
         result: null,
         error: 'An unexpected error occurred. Please try again.',
-      });
-    } finally {
-      isVerifyingRef.current = false;
+      };
     }
-  }, []);
+
+    const result = verificationQuery.data ?? null;
+
+    if (result && !result.isValid) {
+      return {
+        loading: false,
+        result,
+        error: result.message || 'Verification failed',
+      };
+    }
+
+    return {
+      loading: verificationQuery.isFetching,
+      result,
+      error: null,
+    };
+  }, [
+    verificationQuery.isError,
+    verificationQuery.data,
+    verificationQuery.isFetching,
+  ]);
 
   // Copy text to the clipboard and drive the toast on success/failure.
   // The async Clipboard API is unavailable over plain HTTP and can be
@@ -122,21 +96,13 @@ export default function VerifyCertificate(): JSX.Element {
     }
   }, []);
 
-  // Auto-verify when serial is provided in URL query parameter
+  // Keep the input in step with the URL when the query string changes.
   useEffect(() => {
-    const serialParam = searchParams.get('serial');
-    if (serialParam && serialParam.trim()) {
-      setSerial(serialParam.trim());
-      handleVerify(serialParam.trim());
+    const serialParam = searchParams.get('serial')?.trim();
+    if (serialParam) {
+      setSerial(serialParam);
     }
-  }, [searchParams, handleVerify]);
-
-  // Auto-verify when debounced serial changes (for manual input)
-  useEffect(() => {
-    if (debouncedSerial.trim() && debouncedSerial.length > 2) {
-      handleVerify(debouncedSerial.trim());
-    }
-  }, [debouncedSerial, handleVerify]);
+  }, [searchParams]);
 
   // Auto-dismiss toast after 3 seconds
   useEffect(() => {
@@ -184,7 +150,8 @@ export default function VerifyCertificate(): JSX.Element {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (serial.trim()) {
-      handleVerify(serial.trim());
+      // Explicit submit forces a re-check rather than reading the cache.
+      void verificationQuery.refetch();
     }
   };
 

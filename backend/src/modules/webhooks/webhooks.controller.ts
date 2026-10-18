@@ -5,9 +5,11 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -47,14 +49,24 @@ export class WebhooksController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Remove a webhook subscription' })
-  async remove(@CurrentUser('id') issuerId: string, @Param('id') id: string) {
+  async remove(
+    @CurrentUser('id') issuerId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     await this.webhooksService.remove(id, issuerId);
   }
 
   @Get(':id/logs')
   @ApiOperation({ summary: 'Get delivery logs for a webhook subscription' })
-  async getLogs(@CurrentUser('id') issuerId: string, @Param('id') id: string) {
-    return this.webhooksService.getLogs(id, issuerId);
+  async getLogs(
+    @CurrentUser('id') issuerId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    const pageNum = page ? Math.max(1, Number(page)) : 1;
+    const limitNum = limit ? Math.min(100, Math.max(1, Number(limit))) : 50;
+    return this.webhooksService.getLogs(id, issuerId, pageNum, limitNum);
   }
 
   @Post('test')
@@ -63,7 +75,7 @@ export class WebhooksController {
     @CurrentUser('id') issuerId: string,
     @Body('subscriptionId') subscriptionId: string,
   ) {
-    const subscription = await this.webhooksService.findOne(
+    const subscription = await this.webhooksService.findOneWithSecret(
       subscriptionId,
       issuerId,
     );

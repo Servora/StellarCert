@@ -1,0 +1,71 @@
+# Dependencies-only compose file for the fast local development loop.
+#
+# `npm run dev` runs the backend (`nest start --watch`) and the Vite dev server
+# on the host, but the backend still needs Postgres on 5432 and Redis on 6379.
+# This file starts only those two dependencies, so it never builds the backend
+# or frontend images that the full `docker-compose.yml` stack requires.
+#
+# Usage (from the repo root):
+#
+#   npm run dev:deps        # start Postgres + Redis, wait until both are healthy
+#   npm run dev:deps:logs   # follow their logs
+#   npm run dev:deps:down   # stop them (named volumes, and therefore data, are kept)
+#
+# The service definitions below are intentionally identical to the `postgres`
+# and `redis` services in `docker-compose.yml`: same container names, images,
+# credentials, ports, volumes, network and healthchecks. Because both files
+# live in the same directory they resolve to the same compose project, so the
+# two files operate on the same containers and the same named volumes.
+# Switching between `npm run dev:deps` and `docker-compose up` never creates a
+# second Postgres, a second Redis or a second copy of the data.
+#
+# The healthchecks are what make `npm run dev:deps` deterministic: with
+# `--wait`, the command only returns once Postgres answers `pg_isready` and
+# Redis answers `PING`, so the backend started straight afterwards always finds
+# live dependencies.
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: stellarcert_db
+    environment:
+      POSTGRES_DB: stellarwave
+      POSTGRES_USER: stellarwave_user
+      POSTGRES_PASSWORD: stellarwave_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - stellarcert_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stellarwave_user -d stellarwave"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Redis (used by BullMQ job queues)
+  redis:
+    image: redis:7-alpine
+    container_name: stellarcert_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - stellarcert_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+networks:
+  stellarcert_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

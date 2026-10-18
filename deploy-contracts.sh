@@ -53,6 +53,20 @@ CERT_CONTRACT_ID=$(soroban contract deploy \
 echo "Certificate contract instance created with ID: $CERT_CONTRACT_ID"
 
 # Initialize certificate contract
+#
+# SECURITY (#1022): deploy and initialize are two separate transactions, so
+# there is a window between them in which anyone can call `initialize` and
+# claim admin. `initialize` now requires the admin address's authorization,
+# which stops a third party initializing on the real admin's behalf — but an
+# attacker can still authorize their OWN address and win the race.
+#
+# Closing the window entirely requires deploying with a constructor
+# (`soroban contract deploy ... -- --admin <ADDR>` against a contract that
+# defines `__constructor`). That is a breaking change to every contract
+# registration in the test suite, so it is deliberately left as a follow-up.
+#
+# Until then: verify the admin after deploying, and treat a mismatch as a
+# compromised deployment.
 echo "Initializing certificate contract..."
 ADMIN_ADDRESS=$(soroban keys address "$ADMIN_SECRET")
 
@@ -64,6 +78,22 @@ soroban contract invoke \
     -- \
     initialize \
     --admin "$ADMIN_ADDRESS"
+
+# Confirm the admin we intended is the admin that was stored. If someone won
+# the race above, this is where the deployment is caught.
+STORED_ADMIN=$(soroban contract invoke \
+    --id "$CERT_CONTRACT_ID" \
+    --source "$ADMIN_SECRET" \
+    --rpc-url "$RPC_URL" \
+    --network-passphrase "$(soroban config network pass $NETWORK)" \
+    -- \
+    get_admin 2>/dev/null | tr -d '"' | tail -1)
+
+if [ -n "$STORED_ADMIN" ] && [ "$STORED_ADMIN" != "$ADMIN_ADDRESS" ]; then
+    echo "FATAL: contract admin is $STORED_ADMIN, expected $ADMIN_ADDRESS." >&2
+    echo "The initialize call was front-run. Do not use this deployment." >&2
+    exit 1
+fi
 
 echo "Certificate contract initialized successfully!"
 
@@ -102,6 +132,33 @@ CRL_CONTRACT_ID=$(soroban contract deploy \
     | tail -1)
 
 echo "CRL contract deployed with ID: $CRL_CONTRACT_ID"
+
+# Initialize the CRL and link it to the certificate contract so that
+# CertificateContract.revoke_certificate mirrors the revocation into the CRL in
+# the same transaction. The CRL issuer must be the same address that issues
+# certificates, otherwise the mirrored revocation is rejected.
+echo "Initializing CRL contract..."
+soroban contract invoke \
+    --id "$CRL_CONTRACT_ID" \
+    --source "$ADMIN_SECRET" \
+    --rpc-url "$RPC_URL" \
+    --network-passphrase "$(soroban config network pass $NETWORK)" \
+    -- \
+    initialize \
+    --issuer "$ADMIN_ADDRESS" \
+    --certificate_contract "$CERT_CONTRACT_ID"
+
+echo "Linking certificate contract to CRL..."
+soroban contract invoke \
+    --id "$CERT_CONTRACT_ID" \
+    --source "$ADMIN_SECRET" \
+    --rpc-url "$RPC_URL" \
+    --network-passphrase "$(soroban config network pass $NETWORK)" \
+    -- \
+    set_crl_contract \
+    --crl_contract "$CRL_CONTRACT_ID"
+
+echo "Certificate contract linked to CRL successfully!"
 
 # Output configuration
 echo ""

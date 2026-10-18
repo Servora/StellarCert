@@ -22,7 +22,16 @@ import { CertificateStatsService } from '../../certificate/services/stats.servic
 
 @Injectable()
 export class AdminAnalyticsService {
-  private readonly CACHE_TTL = 120; // 2 minutes in seconds
+  /**
+   * Analytics cache lifetime, in MILLISECONDS.
+   *
+   * The installed cache-manager is v7 (`cache-manager@^7.2.9` via
+   * `@nestjs/cache-manager@^3.1.3`). Since cache-manager v5 the `ttl` argument
+   * of `set()` is expressed in milliseconds, so this constant must stay in
+   * milliseconds - multiplying a seconds value by 1000 at the call site is how
+   * the unit silently drifted before. Two minutes = 120_000 ms.
+   */
+  private readonly CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes in milliseconds
 
   constructor(
     @InjectRepository(User)
@@ -88,7 +97,7 @@ export class AdminAnalyticsService {
     };
 
     // Cache the result
-    await this.cacheManager.set(cacheKey, result, this.CACHE_TTL * 1000);
+    await this.cacheManager.set(cacheKey, result, this.CACHE_TTL_MS);
 
     return result;
   }

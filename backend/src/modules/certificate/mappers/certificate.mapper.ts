@@ -5,7 +5,7 @@ import { VerifiedCertificateData } from '../interfaces/verification-result.inter
 export interface CertificateResponseDto {
   id: string;
   certificateId: string;
-  serialNumber: string;       // alias for certificateId — used by frontend
+  serialNumber: string; // alias for certificateId — used by frontend
   issuerId: string;
   issuerName?: string;
   issuerStellarAddress?: string;
@@ -20,22 +20,22 @@ export interface CertificateResponseDto {
   revocationReason?: string;
   revokedAt?: Date;
   stellarTransactionHash?: string;
-  txHash?: string;            // alias for stellarTransactionHash — used by frontend
+  txHash?: string; // alias for stellarTransactionHash — used by frontend
   stellarMemo?: string;
   verificationCode?: string;
   verificationCount: number;
   qrCodeData?: string;
   pdfUrl?: string;
   issuedAt: Date;
-  issueDate: string;          // alias for issuedAt as ISO string — used by frontend
+  issueDate: string; // alias for issuedAt as ISO string — used by frontend
   expiresAt?: Date;
-  expiryDate?: string;        // alias for expiresAt as ISO string — used by frontend
+  expiryDate?: string; // alias for expiresAt as ISO string — used by frontend
   updatedAt: Date;
 }
 
 export interface VerificationResultDto {
   isValid: boolean;
-  status: 'valid' | 'revoked' | 'expired' | 'not_found';
+  status: 'valid' | 'revoked' | 'expired' | 'frozen' | 'not_found';
   certificate?: CertificateResponseDto;
   verifiedAt: string;
   verificationDate: string;
@@ -58,12 +58,17 @@ export interface CertificateSummaryDto {
 @Injectable()
 export class CertificateMapper {
   toResponse(certificate: Certificate): CertificateResponseDto {
-    const issuerName = certificate.issuerName ??
+    const issuerName =
+      certificate.issuerName ??
       (certificate.issuer
         ? `${certificate.issuer.firstName ?? ''} ${certificate.issuer.lastName ?? ''}`.trim()
         : undefined);
-    const issuedAtIso = certificate.issuedAt ? new Date(certificate.issuedAt).toISOString() : new Date().toISOString();
-    const expiresAtIso = certificate.expiresAt ? new Date(certificate.expiresAt).toISOString() : undefined;
+    const issuedAtIso = certificate.issuedAt
+      ? new Date(certificate.issuedAt).toISOString()
+      : new Date().toISOString();
+    const expiresAtIso = certificate.expiresAt
+      ? new Date(certificate.expiresAt).toISOString()
+      : undefined;
     return {
       id: certificate.id,
       certificateId: certificate.certificateId,
@@ -98,7 +103,10 @@ export class CertificateMapper {
     };
   }
 
-  toVerificationResult(certificate: Certificate | null, code: string): VerificationResultDto {
+  toVerificationResult(
+    certificate: Certificate | null,
+    code: string,
+  ): VerificationResultDto {
     const now = new Date().toISOString();
     if (!certificate) {
       return {
@@ -111,20 +119,35 @@ export class CertificateMapper {
       };
     }
     const mapped = this.toResponse(certificate);
-    const isExpired = certificate.expiresAt ? new Date() > new Date(certificate.expiresAt) : false;
+    const isExpired = certificate.expiresAt
+      ? new Date() > new Date(certificate.expiresAt)
+      : false;
     const isRevoked = certificate.status === 'revoked';
-    const status = isRevoked ? 'revoked' : isExpired ? 'expired' : 'valid';
+    // Frozen is a temporary hold, distinct from revoked: the holder should be
+    // told the certificate is suspended rather than that it was withdrawn (or,
+    // as before this was handled, that it does not exist at all).
+    const isFrozen = certificate.status === 'frozen';
+    const status = isRevoked
+      ? 'revoked'
+      : isFrozen
+        ? 'frozen'
+        : isExpired
+          ? 'expired'
+          : 'valid';
     return {
       isValid: status === 'valid',
       status,
       certificate: mapped,
       verifiedAt: now,
       verificationDate: now,
-      message: status === 'valid'
-        ? 'Certificate is valid and active'
-        : status === 'revoked'
-          ? 'Certificate has been revoked'
-          : 'Certificate has expired',
+      message:
+        status === 'valid'
+          ? 'Certificate is valid and active'
+          : status === 'revoked'
+            ? 'Certificate has been revoked'
+            : status === 'frozen'
+              ? 'Certificate is temporarily frozen'
+              : 'Certificate has expired',
       verificationId: `ver_${Date.now()}`,
     };
   }
@@ -151,7 +174,11 @@ export class CertificateMapper {
       recipientEmail: certificate.recipientEmail,
       title: certificate.title,
       issuerName:
-        certificate.issuerName ?? (certificate.issuer ? `${certificate.issuer.firstName ?? ''} ${certificate.issuer.lastName ?? ''}`.trim() : undefined) ?? 'Unknown',
+        certificate.issuerName ??
+        (certificate.issuer
+          ? `${certificate.issuer.firstName ?? ''} ${certificate.issuer.lastName ?? ''}`.trim()
+          : undefined) ??
+        'Unknown',
       issuedAt: certificate.issuedAt,
       expiresAt: certificate.expiresAt ?? null,
       status: certificate.status,

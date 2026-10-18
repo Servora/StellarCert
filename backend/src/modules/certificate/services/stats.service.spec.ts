@@ -103,7 +103,10 @@ describe('CertificateStatsService', () => {
       // Certificate.issuer is a ManyToOne relation to the User entity, which
       // has real `firstName`/`lastName` columns (User has no `name` column).
       // The query must join it and select/group by those real columns.
-      expect(topIssuersQB.leftJoin).toHaveBeenCalledWith('cert.issuer', 'issuer');
+      expect(topIssuersQB.leftJoin).toHaveBeenCalledWith(
+        'cert.issuer',
+        'issuer',
+      );
       expect(topIssuersQB.addSelect).toHaveBeenCalledWith(
         'issuer.firstName',
         'firstName',

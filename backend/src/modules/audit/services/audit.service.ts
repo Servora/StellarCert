@@ -335,7 +335,7 @@ export class AuditService {
       .addSelect('COUNT(*)', 'eventCount')
       .groupBy('audit.userId')
       .addGroupBy('audit.userEmail')
-      .orderBy('eventCount', 'DESC')
+      .orderBy('"eventCount"', 'DESC')
       .limit(10)
       .getRawMany();
 
@@ -352,7 +352,7 @@ export class AuditService {
       .addSelect('COUNT(*)', 'eventCount')
       .groupBy('audit.resourceId')
       .addGroupBy('audit.resourceType')
-      .orderBy('eventCount', 'DESC')
+      .orderBy('"eventCount"', 'DESC')
       .limit(10)
       .getRawMany();
 

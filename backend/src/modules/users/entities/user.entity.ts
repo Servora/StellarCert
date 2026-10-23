@@ -8,8 +8,6 @@ import {
 } from 'typeorm';
 import { UserRole } from '../../../common/constants/roles';
 
-export { UserRole };
-
 export enum UserStatus {
   ACTIVE = 'active',
   INACTIVE = 'inactive',

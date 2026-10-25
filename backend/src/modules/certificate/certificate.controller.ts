@@ -1,3 +1,8 @@
+import { UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { BulkCertificateService } from './services/bulk-certificate.service';
+import { BulkIssuePreviewDto, BulkIssueDryRunResponseDto } from './dto/bulk-issue-certificate.dto';
 import {
   Controller,
   Get,
@@ -77,6 +82,7 @@ export class CertificateController {
     private readonly pdfService: CertificatePdfService,
     private readonly templateService: CertificateTemplateService,
     private readonly mapper: CertificateMapper,
+    private readonly bulkCertificateService: BulkCertificateService,
   ) {}
 
   // ─── List / Search ──────────────────────────────────────────────────────────
@@ -160,6 +166,60 @@ export class CertificateController {
       user.role,
     );
     return this.mapper.toResponse(cert);
+  }
+
+  @Post('bulk')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ISSUER, UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Validate and dry-run bulk certificate issuance from CSV, queuing issuance if valid',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'CSV file containing certificate rows to issue',
+        },
+        metadataSchemaId: {
+          type: 'string',
+          format: 'uuid',
+          description: 'Optional metadata schema ID to validate certificate metadata against',
+        },
+        templateId: {
+          type: 'string',
+          format: 'uuid',
+          description: 'Optional template UUID',
+        },
+        overrideReason: {
+          type: 'string',
+          description: 'Optional override reason for duplicate warnings',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Dry-run preview report and Bull queue job status',
+  })
+  async bulkIssue(
+    @UploadedFile() file: any,
+    @Body() dto: BulkIssuePreviewDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<BulkIssueDryRunResponseDto> {
+    if (!file) {
+      throw new BadRequestException('A CSV file must be provided via the file field');
+    }
+    return this.bulkCertificateService.processCsvBulk(
+      file.buffer,
+      dto,
+      user.id,
+    );
   }
 
   // ─── Statistics ──────────────────────────────────────────────────────────────

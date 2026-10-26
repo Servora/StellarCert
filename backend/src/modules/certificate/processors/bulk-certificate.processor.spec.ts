@@ -8,7 +8,9 @@ describe('BulkCertificateProcessor', () => {
 
   beforeEach(() => {
     mockCertificateService = {
-      issue: jest.fn().mockResolvedValue({ id: 'cert-1', certificateId: 'CERT-2026-001' }),
+      issue: jest
+        .fn()
+        .mockResolvedValue({ id: 'cert-1', certificateId: 'CERT-2026-001' }),
     };
     mockServer = {
       to: jest.fn().mockReturnThis(),
@@ -31,10 +33,18 @@ describe('BulkCertificateProcessor', () => {
         issuerId: 'issuer-1',
         rows: [
           {
-            dto: { recipientEmail: 'a@example.com', recipientName: 'Alice', title: 'Course 1' },
+            dto: {
+              recipientEmail: 'a@example.com',
+              recipientName: 'Alice',
+              title: 'Course 1',
+            },
           },
           {
-            dto: { recipientEmail: 'b@example.com', recipientName: 'Bob', title: 'Course 2' },
+            dto: {
+              recipientEmail: 'b@example.com',
+              recipientName: 'Bob',
+              title: 'Course 2',
+            },
           },
         ],
       },
@@ -73,10 +83,18 @@ describe('BulkCertificateProcessor', () => {
         issuerId: 'issuer-2',
         rows: [
           {
-            dto: { recipientEmail: 'fail@example.com', recipientName: 'Fails', title: 'Fail Cert' },
+            dto: {
+              recipientEmail: 'fail@example.com',
+              recipientName: 'Fails',
+              title: 'Fail Cert',
+            },
           },
           {
-            dto: { recipientEmail: 'ok@example.com', recipientName: 'Ok', title: 'Ok Cert' },
+            dto: {
+              recipientEmail: 'ok@example.com',
+              recipientName: 'Ok',
+              title: 'Ok Cert',
+            },
           },
         ],
       },

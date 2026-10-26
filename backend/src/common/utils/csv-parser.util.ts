@@ -112,7 +112,10 @@ export function parseCsv(
       if (!header) continue;
       let val = row[c] ?? '';
       // Strip formula trigger leading apostrophe if added by exporter
-      if (val.startsWith("'") && ['=', '+', '-', '@', '\t', '\r'].includes(val[1])) {
+      if (
+        val.startsWith("'") &&
+        ['=', '+', '-', '@', '\t', '\r'].includes(val[1])
+      ) {
         val = val.slice(1);
       }
       record[header] = val;

@@ -33,9 +33,9 @@ describe('BulkCertificateService', () => {
   });
 
   it('throws BadRequestException if CSV is empty', async () => {
-    await expect(
-      service.processCsvBulk('', {}, 'issuer-1'),
-    ).rejects.toThrow(BadRequestException);
+    await expect(service.processCsvBulk('', {}, 'issuer-1')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('validates rows, returns dry-run report, and queues a Bull job when valid', async () => {
@@ -106,7 +106,9 @@ describe('BulkCertificateService', () => {
     expect(result.validRows).toBe(0);
     expect(result.invalidRows).toBe(1);
     expect(result.rows[0].isValid).toBe(false);
-    expect(result.rows[0].validationErrors[0]).toContain('Metadata field "grade"');
+    expect(result.rows[0].validationErrors[0]).toContain(
+      'Metadata field "grade"',
+    );
     expect(result.canQueue).toBe(false);
     expect(mockQueue.add).not.toHaveBeenCalled();
   });
@@ -166,7 +168,11 @@ describe('BulkCertificateService', () => {
     });
 
     // Without overrideReason -> invalid
-    const resultWithoutOverride = await service.processCsvBulk(csv, {}, 'issuer-1');
+    const resultWithoutOverride = await service.processCsvBulk(
+      csv,
+      {},
+      'issuer-1',
+    );
     expect(resultWithoutOverride.validRows).toBe(0);
     expect(resultWithoutOverride.warningRows).toBe(1);
 

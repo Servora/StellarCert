@@ -1,8 +1,14 @@
-import { UploadedFile } from '@nestjs/common';
+import { BadRequestException, UploadedFile } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiBody } from '@nestjs/swagger';
-import { BulkCertificateService } from './services/bulk-certificate.service';
-import { BulkIssuePreviewDto, BulkIssueDryRunResponseDto } from './dto/bulk-issue-certificate.dto';
+import {
+  BulkCertificateService,
+  BULK_ISSUE_MAX_FILE_BYTES,
+} from './services/bulk-certificate.service';
+import {
+  BulkIssuePreviewDto,
+  BulkIssueDryRunResponseDto,
+} from './dto/bulk-issue-certificate.dto';
 import {
   Controller,
   Get,
@@ -171,10 +177,17 @@ export class CertificateController {
   @Post('bulk')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ISSUER, UserRole.ADMIN)
-  @UseInterceptors(FileInterceptor('file'))
+  // Multer buffers uploads in memory, so cap the size before the body is
+  // read: one CSV, at most 2 MB (well over the row limit in the service).
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { files: 1, fileSize: BULK_ISSUE_MAX_FILE_BYTES },
+    }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Validate and dry-run bulk certificate issuance from CSV, queuing issuance if valid',
+    summary:
+      'Validate and dry-run bulk certificate issuance from CSV, queuing issuance if valid',
   })
   @ApiBody({
     schema: {
@@ -188,7 +201,8 @@ export class CertificateController {
         metadataSchemaId: {
           type: 'string',
           format: 'uuid',
-          description: 'Optional metadata schema ID to validate certificate metadata against',
+          description:
+            'Optional metadata schema ID to validate certificate metadata against',
         },
         templateId: {
           type: 'string',
@@ -213,7 +227,9 @@ export class CertificateController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<BulkIssueDryRunResponseDto> {
     if (!file) {
-      throw new BadRequestException('A CSV file must be provided via the file field');
+      throw new BadRequestException(
+        'A CSV file must be provided via the file field',
+      );
     }
     return this.bulkCertificateService.processCsvBulk(
       file.buffer,

@@ -48,7 +48,9 @@ export class BulkCertificateProcessor {
     let successful = 0;
     let failed = 0;
 
-    this.logger.log(`Starting bulk issuance job ${job.id} for issuer ${issuerId} with ${total} certificates`);
+    this.logger.log(
+      `Starting bulk issuance job ${job.id} for issuer ${issuerId} with ${total} certificates`,
+    );
 
     // Emit initial progress
     this.emitProgress(issuerId, {
@@ -64,13 +66,14 @@ export class BulkCertificateProcessor {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
+        // issue() takes the duplicate-override reason from the DTO; passing
+        // it as an extra argument was silently dropped, so rows the issuer
+        // had approved despite a duplicate warning were blocked again here.
         const cert = await this.certificateService.issue(
-          row.dto,
+          { ...row.dto, overrideReason: row.overrideReason } as typeof row.dto,
           issuerId,
-          '127.0.0.1',
+          'bulk-issuance',
           'Bulk Issuance Job',
-          undefined,
-          row.overrideReason,
         );
         successful++;
 
@@ -88,7 +91,10 @@ export class BulkCertificateProcessor {
         });
       } catch (err) {
         failed++;
-        this.logger.error(`Failed to issue row ${i + 1} in job ${job.id}: ${err.message}`, err.stack);
+        this.logger.error(
+          `Failed to issue row ${i + 1} in job ${job.id}: ${err.message}`,
+          err.stack,
+        );
 
         await job.progress(Math.round(((i + 1) / total) * 100));
 
@@ -105,16 +111,23 @@ export class BulkCertificateProcessor {
       }
     }
 
-    this.logger.log(`Completed bulk issuance job ${job.id}: ${successful} succeeded, ${failed} failed`);
+    this.logger.log(
+      `Completed bulk issuance job ${job.id}: ${successful} succeeded, ${failed} failed`,
+    );
   }
 
-  private emitProgress(issuerId: string, payload: BulkIssuanceProgressPayload): void {
+  private emitProgress(
+    issuerId: string,
+    payload: BulkIssuanceProgressPayload,
+  ): void {
     try {
       this.notificationsGateway.server
         ?.to(`user_${issuerId}`)
         ?.emit('bulkIssuanceProgress', payload);
     } catch (e) {
-      this.logger.warn(`Failed to emit socket progress for issuer ${issuerId}: ${e.message}`);
+      this.logger.warn(
+        `Failed to emit socket progress for issuer ${issuerId}: ${e.message}`,
+      );
     }
   }
 }

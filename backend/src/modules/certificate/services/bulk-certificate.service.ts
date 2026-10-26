@@ -1,4 +1,9 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import { parseCsv } from '../../../common/utils/csv-parser.util';
@@ -16,6 +21,12 @@ import {
   BulkJobType,
   BulkIssuanceJobData,
 } from '../processors/bulk-certificate.processor';
+
+/** Most rows one bulk upload may contain. */
+export const BULK_ISSUE_MAX_ROWS = 1000;
+
+/** Largest CSV accepted by POST /certificates/bulk, in bytes. */
+export const BULK_ISSUE_MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 @Injectable()
 export class BulkCertificateService {
@@ -39,19 +50,33 @@ export class BulkCertificateService {
 
     const rawRows = parseCsv(csvContent);
     if (!rawRows || rawRows.length === 0) {
-      throw new BadRequestException('The uploaded CSV file is empty or contains no data rows');
+      throw new BadRequestException(
+        'The uploaded CSV file is empty or contains no data rows',
+      );
+    }
+    // Every row costs a duplicate-detection query now and an issuance later;
+    // bound one request so a single upload cannot tie up the queue.
+    if (rawRows.length > BULK_ISSUE_MAX_ROWS) {
+      throw new BadRequestException(
+        `A bulk upload may contain at most ${BULK_ISSUE_MAX_ROWS} rows (got ${rawRows.length}); split the file`,
+      );
     }
 
     let schema: any = null;
     if (dto.metadataSchemaId) {
       schema = await this.metadataSchemaService.findOne(dto.metadataSchemaId);
       if (!schema) {
-        throw new NotFoundException(`Metadata schema with ID ${dto.metadataSchemaId} not found`);
+        throw new NotFoundException(
+          `Metadata schema with ID ${dto.metadataSchemaId} not found`,
+        );
       }
     }
 
     const rowPreviews: BulkIssueRowPreview[] = [];
-    const validIssuanceRows: Array<{ dto: IssueCertificateDto; overrideReason?: string }> = [];
+    const validIssuanceRows: Array<{
+      dto: IssueCertificateDto;
+      overrideReason?: string;
+    }> = [];
 
     let duplicateHits = 0;
     let blockedRows = 0;
@@ -62,13 +87,42 @@ export class BulkCertificateService {
       const errors: string[] = [];
 
       // Extract core fields (case-insensitive key mapping if needed)
-      const recipientEmail = (raw.recipientEmail || raw.email || raw['Recipient Email'] || '').trim();
-      const recipientName = (raw.recipientName || raw.name || raw['Recipient Name'] || '').trim();
-      const title = (raw.title || raw['Certificate Title'] || raw['Title'] || '').trim();
+      const recipientEmail = (
+        raw.recipientEmail ||
+        raw.email ||
+        raw['Recipient Email'] ||
+        ''
+      ).trim();
+      const recipientName = (
+        raw.recipientName ||
+        raw.name ||
+        raw['Recipient Name'] ||
+        ''
+      ).trim();
+      const title = (
+        raw.title ||
+        raw['Certificate Title'] ||
+        raw['Title'] ||
+        ''
+      ).trim();
       const description = (raw.description || raw['Description'] || '').trim();
-      const courseName = (raw.courseName || raw['Course Name'] || raw['Course'] || '').trim();
-      const expiresAt = (raw.expiresAt || raw['Expires At'] || raw['Expiry Date'] || '').trim();
-      const recipientStellarAddress = (raw.recipientStellarAddress || raw['Recipient Stellar Address'] || '').trim();
+      const courseName = (
+        raw.courseName ||
+        raw['Course Name'] ||
+        raw['Course'] ||
+        ''
+      ).trim();
+      const expiresAt = (
+        raw.expiresAt ||
+        raw['Expires At'] ||
+        raw['Expiry Date'] ||
+        ''
+      ).trim();
+      const recipientStellarAddress = (
+        raw.recipientStellarAddress ||
+        raw['Recipient Stellar Address'] ||
+        ''
+      ).trim();
 
       if (!recipientEmail) {
         errors.push('recipientEmail is required');
@@ -94,7 +148,7 @@ export class BulkCertificateService {
       }
 
       // Collect schema metadata
-      let metadata: Record<string, any> = {};
+      const metadata: Record<string, any> = {};
       if (schema) {
         for (const field of schema.fields || []) {
           const val = raw[field.name];
@@ -102,7 +156,8 @@ export class BulkCertificateService {
             if (field.type === 'number') {
               metadata[field.name] = Number(val);
             } else if (field.type === 'boolean') {
-              metadata[field.name] = val.toLowerCase() === 'true' || val === '1';
+              metadata[field.name] =
+                val.toLowerCase() === 'true' || val === '1';
             } else {
               metadata[field.name] = val;
             }
@@ -110,7 +165,8 @@ export class BulkCertificateService {
         }
 
         // Validate metadata against schema
-        const schemaValidation = this.metadataSchemaService.validateAgainstSchema(schema, metadata);
+        const schemaValidation =
+          this.metadataSchemaService.validateAgainstSchema(schema, metadata);
         if (schemaValidation && schemaValidation.length > 0) {
           for (const err of schemaValidation) {
             errors.push(`Metadata field "${err.field}": ${err.message}`);
@@ -137,20 +193,25 @@ export class BulkCertificateService {
       let duplicateResult: any = undefined;
       let isBlockedByDuplicate = false;
       try {
-        const dupCheck = await this.duplicateDetectionService.checkForDuplicates(
-          issueDto as any,
-          defaultDuplicateDetectionConfig,
-        );
+        const dupCheck =
+          await this.duplicateDetectionService.checkForDuplicates(
+            issueDto as any,
+            defaultDuplicateDetectionConfig,
+          );
         if (dupCheck.isDuplicate) {
           duplicateHits++;
           if (dupCheck.action === 'block') {
             blockedRows++;
             isBlockedByDuplicate = true;
-            errors.push('Certificate duplicate detection rule blocked this row');
+            errors.push(
+              'Certificate duplicate detection rule blocked this row',
+            );
           } else if (dupCheck.action === 'warn') {
             warningRows++;
             if (!dto.overrideReason) {
-              errors.push('Certificate duplicate warning: override reason required');
+              errors.push(
+                'Certificate duplicate warning: override reason required',
+              );
             }
           }
         }
@@ -169,7 +230,9 @@ export class BulkCertificateService {
           message: dupCheck.message,
         };
       } catch (dupErr) {
-        this.logger.warn(`Duplicate check error on row ${index + 1}: ${dupErr.message}`);
+        this.logger.warn(
+          `Duplicate check error on row ${index + 1}: ${dupErr.message}`,
+        );
       }
 
       const isValid = errors.length === 0;
@@ -206,14 +269,20 @@ export class BulkCertificateService {
         rows: validIssuanceRows,
       };
 
-      const job = await this.bulkQueue.add(BulkJobType.PROCESS_BULK_ISSUANCE, jobData, {
-        attempts: 1,
-        removeOnComplete: true,
-        removeOnFail: false,
-      });
+      const job = await this.bulkQueue.add(
+        BulkJobType.PROCESS_BULK_ISSUANCE,
+        jobData,
+        {
+          attempts: 1,
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      );
 
       queuedJobId = String(job.id);
-      this.logger.log(`Queued bulk issuance job ${job.id} for ${validRows} certificates`);
+      this.logger.log(
+        `Queued bulk issuance job ${job.id} for ${validRows} certificates`,
+      );
     }
 
     return {

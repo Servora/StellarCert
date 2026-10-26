@@ -16,6 +16,8 @@ import { UsersModule } from '../users/users.module';
   ],
   controllers: [NotificationsController],
   providers: [NotificationsService, NotificationsGateway],
-  exports: [NotificationsService],
+  // The gateway is exported so other modules (bulk issuance progress) can
+  // push socket events through the single gateway instance.
+  exports: [NotificationsService, NotificationsGateway],
 })
 export class NotificationsModule {}

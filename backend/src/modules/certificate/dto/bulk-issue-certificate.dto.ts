@@ -11,7 +11,8 @@ export class BulkIssuePreviewDto {
   metadataSchemaId?: string;
 
   @ApiPropertyOptional({
-    description: 'Template UUID to assign to all certificates in this bulk issuance',
+    description:
+      'Template UUID to assign to all certificates in this bulk issuance',
     format: 'uuid',
   })
   @IsOptional()
@@ -19,7 +20,8 @@ export class BulkIssuePreviewDto {
   templateId?: string;
 
   @ApiPropertyOptional({
-    description: 'Optional override reason if duplicates are detected and need to be bypassed',
+    description:
+      'Optional override reason if duplicates are detected and need to be bypassed',
   })
   @IsOptional()
   @IsString()

@@ -655,7 +655,11 @@ describe('CertificateController', () => {
   describe('bulkIssue', () => {
     it('throws BadRequestException when no file is uploaded', async () => {
       await expect(
-        controller.bulkIssue(null as any, {}, { id: 'issuer-1', email: 'issuer@test.com', role: UserRole.ISSUER }),
+        controller.bulkIssue(
+          null as any,
+          {},
+          { id: 'issuer-1', email: 'issuer@test.com', role: UserRole.ISSUER },
+        ),
       ).rejects.toThrow();
     });
 
@@ -673,9 +677,17 @@ describe('CertificateController', () => {
       };
       bulkCertificateService.processCsvBulk.mockResolvedValue(mockResult);
 
-      const file = { buffer: Buffer.from('recipientEmail,recipientName,title\na@b.com,Alice,Cert') };
+      const file = {
+        buffer: Buffer.from(
+          'recipientEmail,recipientName,title\na@b.com,Alice,Cert',
+        ),
+      };
       const dto = { metadataSchemaId: 'schema-1' };
-      const user = { id: 'issuer-123', email: 'issuer@test.com', role: UserRole.ISSUER };
+      const user = {
+        id: 'issuer-123',
+        email: 'issuer@test.com',
+        role: UserRole.ISSUER,
+      };
 
       const result = await controller.bulkIssue(file, dto, user);
 

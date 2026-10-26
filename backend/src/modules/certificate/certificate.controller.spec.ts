@@ -1,3 +1,4 @@
+import { BulkCertificateService } from './services/bulk-certificate.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -42,6 +43,9 @@ describe('CertificateController', () => {
   const pdfService = {
     generate: jest.fn(),
   };
+  const bulkCertificateService = {
+    processCsvBulk: jest.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -62,6 +66,10 @@ describe('CertificateController', () => {
         {
           provide: CertificateTemplateService,
           useValue: templateService,
+        },
+        {
+          provide: BulkCertificateService,
+          useValue: bulkCertificateService,
         },
         {
           provide: CertificateMapper,
@@ -641,6 +649,42 @@ describe('CertificateController', () => {
         undefined,
       );
       expect(pdfService.generate).toHaveBeenCalledWith(expect.anything(), null);
+    });
+  });
+
+  describe('bulkIssue', () => {
+    it('throws BadRequestException when no file is uploaded', async () => {
+      await expect(
+        controller.bulkIssue(null as any, {}, { id: 'issuer-1', email: 'issuer@test.com', role: UserRole.ISSUER }),
+      ).rejects.toThrow();
+    });
+
+    it('delegates to bulkCertificateService.processCsvBulk with file buffer, dto and user id', async () => {
+      const mockResult = {
+        totalRows: 1,
+        validRows: 1,
+        invalidRows: 0,
+        duplicateHits: 0,
+        blockedRows: 0,
+        warningRows: 0,
+        rows: [],
+        canQueue: true,
+        jobId: 'job-123',
+      };
+      bulkCertificateService.processCsvBulk.mockResolvedValue(mockResult);
+
+      const file = { buffer: Buffer.from('recipientEmail,recipientName,title\na@b.com,Alice,Cert') };
+      const dto = { metadataSchemaId: 'schema-1' };
+      const user = { id: 'issuer-123', email: 'issuer@test.com', role: UserRole.ISSUER };
+
+      const result = await controller.bulkIssue(file, dto, user);
+
+      expect(bulkCertificateService.processCsvBulk).toHaveBeenCalledWith(
+        file.buffer,
+        dto,
+        'issuer-123',
+      );
+      expect(result).toBe(mockResult);
     });
   });
 });

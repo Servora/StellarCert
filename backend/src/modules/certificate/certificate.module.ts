@@ -2,6 +2,9 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CacheModule } from '@nestjs/cache-manager';
 import { ConfigModule } from '@nestjs/config';
+import { BullModule } from '@nestjs/bull';
+import { BullBoardModule } from '@bull-board/nestjs';
+import { BullAdapter } from '@bull-board/api/bullAdapter';
 
 import { Certificate } from './entities/certificate.entity';
 import { Verification } from './entities/verification.entity';
@@ -17,6 +20,11 @@ import { DuplicateDetectionService } from './services/duplicate-detection.servic
 import { CertificatePdfService } from './services/pdf.service';
 import { CertificateTemplateService } from './services/template.service';
 import { CertificateTransferService } from './services/certificate-transfer.service';
+import { BulkCertificateService } from './services/bulk-certificate.service';
+import {
+  BulkCertificateProcessor,
+  BULK_CERTIFICATE_QUEUE_NAME,
+} from './processors/bulk-certificate.processor';
 
 import { CertificateController } from './certificate.controller';
 import { PublicCertificatesController } from './controllers/public-certificates.controller';
@@ -45,6 +53,17 @@ import { CertificateExpirationJob } from './jobs/certificate-expiration.job';
       CertificateTemplate,
       ContractEventCursor,
     ]),
+    BullModule.registerQueue({
+      name: BULK_CERTIFICATE_QUEUE_NAME,
+      defaultJobOptions: {
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
+    }),
+    BullBoardModule.forFeature({
+      name: BULK_CERTIFICATE_QUEUE_NAME,
+      adapter: BullAdapter,
+    }),
     CacheModule.register({
       ttl: 300,
       max: 100,
@@ -73,6 +92,8 @@ import { CertificateExpirationJob } from './jobs/certificate-expiration.job';
     CertificatePdfService,
     CertificateTemplateService,
     CertificateTransferService,
+    BulkCertificateService,
+    BulkCertificateProcessor,
     CertificateMapper,
     CertificateExpirationJob,
     ContractEventIndexerService,
@@ -81,6 +102,7 @@ import { CertificateExpirationJob } from './jobs/certificate-expiration.job';
     CertificateService,
     CertificateStatsService,
     CertificateTransferService,
+    BulkCertificateService,
   ],
 })
 export class CertificateModule {}

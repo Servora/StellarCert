@@ -43,8 +43,8 @@ pub use types::{
     VerificationReport, VerificationResult,
 };
 
-// mod metadata;
-// pub use metadata::*;
+mod metadata;
+pub use metadata::*;
 
 mod multisig;
 // MultisigCertificateContract is the only public item in multisig.rs
@@ -79,12 +79,8 @@ mod events_test;
 mod issuer_management_test;
 #[cfg(test)]
 mod issuer_test;
-// metadata_test is deliberately NOT wired in: it exercises `mod metadata`,
-// which is itself commented out above and does not currently compile (32
-// errors). Wiring the test would mean first repairing that module, which is
-// a separate piece of work. See #1023.
-// #[cfg(test)]
-// mod metadata_test;
+#[cfg(test)]
+mod metadata_test;
 #[cfg(test)]
 mod multisig_test;
 #[cfg(test)]
@@ -191,6 +187,40 @@ impl CertificateContract {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Register a metadata schema. The schema creator must authorize the call.
+    pub fn register_metadata_schema(
+        env: Env,
+        schema: MetadataSchemaRecord,
+    ) -> Result<(), MetadataError> {
+        schema.created_by.require_auth();
+        register_schema(&env, schema)
+    }
+
+    /// Upgrade an active metadata schema to a newer version.
+    pub fn upgrade_metadata_schema(
+        env: Env,
+        old_schema_id: String,
+        new_schema: MetadataSchemaRecord,
+    ) -> Result<(), MetadataError> {
+        new_schema.created_by.require_auth();
+        upgrade_schema(&env, &old_schema_id, new_schema)
+    }
+
+    pub fn get_metadata_schema(
+        env: Env,
+        schema_id: String,
+    ) -> Result<MetadataSchemaRecord, MetadataError> {
+        get_schema(&env, &schema_id)
+    }
+
+    pub fn get_metadata_schema_count(env: Env) -> u64 {
+        get_schema_count(&env)
+    }
+
+    pub fn get_metadata_schema_history(env: Env, name: String) -> Vec<String> {
+        get_schema_history(&env, &name)
+    }
+
     /// Remove an authorized issuer (only admin can call)
     pub fn remove_issuer(env: Env, issuer: Address) {
         let admin: Address = env
@@ -295,6 +325,48 @@ impl CertificateContract {
             owner,
         }
         .publish(&env);
+    }
+
+    /// Issue a certificate after validating and storing its structured metadata.
+    #[allow(clippy::too_many_arguments)]
+    pub fn issue_certificate_with_metadata(
+        env: Env,
+        id: String,
+        issuer: Address,
+        owner: Address,
+        metadata_uri: String,
+        expires_at: Option<u64>,
+        schema_id: String,
+        entries: Vec<MetadataEntry>,
+    ) -> Result<(), MetadataError> {
+        let validation = validate_metadata(&env, &schema_id, &entries, &id);
+        if !validation.valid {
+            return Err(MetadataError::ValidationFailed);
+        }
+
+        Self::issue_certificate(
+            env.clone(),
+            id.clone(),
+            issuer,
+            owner,
+            metadata_uri,
+            expires_at,
+        );
+        write_certificate_metadata(
+            &env,
+            &id,
+            &CertificateMetadata {
+                schema_id,
+                schema_version: validation.schema_version,
+                entries,
+            },
+        );
+        Ok(())
+    }
+
+    /// Return the structured metadata validated for a certificate, if present.
+    pub fn get_certificate_metadata(env: Env, id: String) -> Option<CertificateMetadata> {
+        read_certificate_metadata(&env, &id)
     }
 
     /// Revoke an existing certificate (only the original issuer can revoke).
@@ -596,7 +668,34 @@ impl CertificateContract {
         cert.version.minor += 1;
         cert.metadata_uri = new_metadata_uri;
 
+        remove_certificate_metadata(&env, &id);
         Self::set_persistent(&env, &DataKey::Certificate(id), &cert);
+    }
+
+    /// Update a certificate only after validating and storing its structured metadata.
+    pub fn update_metadata_with_schema(
+        env: Env,
+        id: String,
+        new_metadata_uri: String,
+        schema_id: String,
+        entries: Vec<MetadataEntry>,
+    ) -> Result<(), MetadataError> {
+        let validation = validate_metadata(&env, &schema_id, &entries, &id);
+        if !validation.valid {
+            return Err(MetadataError::ValidationFailed);
+        }
+
+        Self::update_certificate_metadata(env.clone(), id.clone(), new_metadata_uri);
+        write_certificate_metadata(
+            &env,
+            &id,
+            &CertificateMetadata {
+                schema_id,
+                schema_version: validation.schema_version,
+                entries,
+            },
+        );
+        Ok(())
     }
 
     /// Update a certificate's metadata URI. The existing update path checks
@@ -685,6 +784,45 @@ impl CertificateContract {
             owner: new_cert.owner,
         }
         .publish(&env);
+    }
+
+    /// Reissue a certificate only after validating its structured metadata.
+    #[allow(clippy::too_many_arguments)]
+    pub fn reissue_with_metadata(
+        env: Env,
+        old_id: String,
+        new_id: String,
+        issuer: Address,
+        new_owner: Option<Address>,
+        new_metadata_uri: String,
+        new_expires_at: Option<u64>,
+        schema_id: String,
+        entries: Vec<MetadataEntry>,
+    ) -> Result<(), MetadataError> {
+        let validation = validate_metadata(&env, &schema_id, &entries, &new_id);
+        if !validation.valid {
+            return Err(MetadataError::ValidationFailed);
+        }
+
+        Self::reissue_certificate(
+            env.clone(),
+            old_id,
+            new_id.clone(),
+            issuer,
+            new_owner,
+            new_metadata_uri,
+            new_expires_at,
+        );
+        write_certificate_metadata(
+            &env,
+            &new_id,
+            &CertificateMetadata {
+                schema_id,
+                schema_version: validation.schema_version,
+                entries,
+            },
+        );
+        Ok(())
     }
 
     // --- Certificate Transfer Functions ---

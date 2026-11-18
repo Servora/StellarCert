@@ -44,7 +44,18 @@ import { RateLimitStoreModule } from './common/rate-limiting/rate-limit-store.mo
       useFactory: (configService: ConfigService) => {
         const redisUrl = configService.get<string>('REDIS_URL');
         if (redisUrl) {
-          return { redis: { url: redisUrl } };
+          // ioredis's RedisOptions has no `url` key: passing `{ url }` as an
+          // options object is silently ignored, leaving the client to connect
+          // to its default 127.0.0.1:6379 with no password instead of the
+          // configured host. Parse the URL into host/port/password explicitly.
+          const parsed = new URL(redisUrl);
+          return {
+            redis: {
+              host: parsed.hostname,
+              port: Number(parsed.port) || 6379,
+              password: parsed.password || undefined,
+            },
+          };
         }
         return {
           redis: {

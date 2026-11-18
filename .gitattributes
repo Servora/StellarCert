@@ -1,0 +1,7 @@
+# Force LF line endings for files that get baked into a Linux Docker image or
+# run through a POSIX shell, regardless of a contributor's local core.autocrlf.
+# A CRLF shebang (`#!/bin/sh\r`) is not a valid interpreter path on Linux and
+# breaks the backend image's docker-entrypoint.sh outright (see ISSUES.md).
+*.sh text eol=lf
+docker-entrypoint.sh text eol=lf
+.husky/* text eol=lf

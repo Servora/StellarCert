@@ -56,3 +56,6 @@ typed-doc/
 # One-off merge helpers / patch artifacts
 *.bundle
 *.patch
+
+# Load-test run artifacts (baseline.json stays tracked)
+load-test/results/

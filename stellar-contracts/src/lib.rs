@@ -63,8 +63,8 @@ mod admin_multisig;
 // Explicit re-exports replace `pub use admin_multisig::*`
 pub use admin_multisig::{
     AdminAction, AdminMultisigConfig, AdminMultisigContract, AdminMultisigContractClient,
-    AdminMultisigDataKey, AdminProposal, AdminProposalStatus, ProposalApprovedEvent,
-    ProposalCanceledEvent, ProposalCreatedEvent, ProposalExecutedEvent,
+    AdminMultisigDataKey, AdminProposal, AdminProposalStatus, PaginatedAdminProposals,
+    ProposalApprovedEvent, ProposalCanceledEvent, ProposalCreatedEvent, ProposalExecutedEvent,
 };
 
 #[cfg(test)]
@@ -433,7 +433,12 @@ impl CertificateContract {
 
     /// Get certificate details
     pub fn get_certificate(env: Env, id: String) -> Option<Certificate> {
-        env.storage().persistent().get(&DataKey::Certificate(id))
+        let key = DataKey::Certificate(id);
+        let certificate = env.storage().persistent().get(&key);
+        if certificate.is_some() {
+            persistent::bump_ttl_on_get(&env, &key);
+        }
+        certificate
     }
 
     /// Suspend a certificate (temporarily disable with reason)
@@ -560,11 +565,13 @@ impl CertificateContract {
 
     /// Verify if a certificate is valid (active and not expired)
     pub fn is_valid(env: Env, id: String) -> bool {
+        let key = DataKey::Certificate(id);
         if let Some(cert) = env
             .storage()
             .persistent()
-            .get::<_, Certificate>(&DataKey::Certificate(id))
+            .get::<_, Certificate>(&key)
         {
+            persistent::bump_ttl_on_get(&env, &key);
             if cert.status != CertificateStatus::Active {
                 return false;
             }
@@ -1561,19 +1568,19 @@ impl CertificateContract {
         let mut failed: u32 = 0;
 
         for id in ids.iter() {
+            let key = DataKey::Certificate(id.clone());
             if let Some(cert) = env
                 .storage()
                 .persistent()
-                .get::<_, Certificate>(&DataKey::Certificate(id.clone()))
+                .get::<_, Certificate>(&key)
             {
+                persistent::bump_ttl_on_get(&env, &key);
                 let is_expired_by_time = cert
                     .expires_at
                     .is_some_and(|exp| env.ledger().timestamp() >= exp);
 
-                let is_revoked = cert.status == CertificateStatus::Revoked
-                    || cert.status == CertificateStatus::Suspended
-                    || cert.status == CertificateStatus::Expired
-                    || is_expired_by_time;
+                let is_revoked =
+                    cert.status != CertificateStatus::Active || is_expired_by_time;
 
                 if !is_revoked {
                     successful += 1;
@@ -1620,11 +1627,19 @@ impl CertificateContract {
             panic!("Only admin can set certificate expiry");
         }
 
+        if expiry_time <= env.ledger().timestamp() {
+            panic!("Expiry time must be in the future");
+        }
+
         let mut cert: Certificate = env
             .storage()
             .persistent()
             .get(&DataKey::Certificate(id.clone()))
             .expect("Certificate not found");
+
+        if cert.status != CertificateStatus::Active {
+            panic!("Can only set expiry for active certificates");
+        }
 
         cert.expires_at = Some(expiry_time);
         Self::set_persistent(&env, &DataKey::Certificate(id), &cert);

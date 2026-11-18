@@ -285,15 +285,21 @@ impl CRLContract {
     }
 
     pub fn is_revoked(env: Env, certificate_id: String) -> bool {
-        env.storage()
-            .persistent()
-            .has(&DataKey::Revocation(certificate_id))
+        let key = DataKey::Revocation(certificate_id);
+        let is_revoked = env.storage().persistent().has(&key);
+        if is_revoked {
+            crate::persistent::bump_ttl_on_get(&env, &key);
+        }
+        is_revoked
     }
 
     pub fn get_revocation_info(env: Env, certificate_id: String) -> Option<RevocationInfo> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Revocation(certificate_id))
+        let key = DataKey::Revocation(certificate_id);
+        let revocation_info = env.storage().persistent().get(&key);
+        if revocation_info.is_some() {
+            crate::persistent::bump_ttl_on_get(&env, &key);
+        }
+        revocation_info
     }
 
     pub fn get_revoked_count(env: Env) -> u32 {

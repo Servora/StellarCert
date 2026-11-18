@@ -1,0 +1,87 @@
+{
+  "startedAt": "2026-11-18T19:49:29.035Z",
+  "endedAt": "2026-11-18T19:50:29.362Z",
+  "durationSec": 60.33,
+  "baseUrl": "http://localhost:3000",
+  "concurrency": 25,
+  "verifyCode": "LOADTEST",
+  "totals": {
+    "requests": 40194,
+    "errors": 279,
+    "rateLimited": 0,
+    "errorRate": 0.0069,
+    "rateLimitedRate": 0,
+    "throughputRps": 666.3,
+    "p50": 14.9,
+    "p95": 284.7,
+    "p99": 367,
+    "max": 3374.4
+  },
+  "scenarios": {
+    "verify_code": {
+      "requests": 32070,
+      "ok": 32070,
+      "rateLimited": 0,
+      "notFound": 0,
+      "errors": 0,
+      "errorRate": 0,
+      "rateLimitedRate": 0,
+      "statuses": {
+        "200": 32070
+      },
+      "p50": 15.7,
+      "p95": 26.4,
+      "p99": 35.6,
+      "max": 159.7
+    },
+    "health_live": {
+      "requests": 4852,
+      "ok": 4852,
+      "rateLimited": 0,
+      "notFound": 0,
+      "errors": 0,
+      "errorRate": 0,
+      "rateLimitedRate": 0,
+      "statuses": {
+        "200": 4852
+      },
+      "p50": 4.3,
+      "p95": 8.3,
+      "p99": 11.8,
+      "max": 45.8
+    },
+    "health_full": {
+      "requests": 2493,
+      "ok": 2214,
+      "rateLimited": 0,
+      "notFound": 0,
+      "errors": 279,
+      "errorRate": 0.1119,
+      "rateLimitedRate": 0,
+      "statuses": {
+        "200": 2214,
+        "503": 279
+      },
+      "p50": 339.4,
+      "p95": 621.1,
+      "p99": 1501.6,
+      "max": 3374.4
+    },
+    "verify_stellar": {
+      "requests": 779,
+      "ok": 779,
+      "rateLimited": 0,
+      "notFound": 0,
+      "errors": 0,
+      "errorRate": 0,
+      "rateLimitedRate": 0,
+      "statuses": {
+        "200": 779
+      },
+      "p50": 7.5,
+      "p95": 13.2,
+      "p99": 22.6,
+      "max": 34.8
+    }
+  }
+}

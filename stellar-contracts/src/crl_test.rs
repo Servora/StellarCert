@@ -4,8 +4,9 @@ extern crate std;
 
 use super::crl::*;
 use soroban_sdk::{
-    contract, contractimpl, testutils::Address as _, testutils::Events as _, Address, Bytes,
-    BytesN, Env, IntoVal, String, Symbol, Val,
+    contract, contractimpl, testutils::storage::Persistent, testutils::Address as _,
+    testutils::Events as _, testutils::Ledger, Address, Bytes, BytesN, Env, IntoVal, String,
+    Symbol, Val,
 };
 use std::string::ToString;
 
@@ -147,6 +148,32 @@ fn test_non_revoked_certificate_returns_false() {
     let cert_id = String::from_str(&env, "CERT-999");
     assert!(!client.is_revoked(&cert_id));
     assert!(client.get_revocation_info(&cert_id).is_none());
+}
+
+#[test]
+fn test_crl_read_path_renews_revocation_ttl_near_expiration() {
+    let (env, issuer, cert_contract) = setup();
+    let (contract_id, client) = make_client(&env);
+    client.initialize(&issuer, &cert_contract);
+
+    let cert_id = String::from_str(&env, "CERT-TTL");
+    client.revoke_certificate(&issuer, &cert_id, &RevocationReason::KeyCompromise, &None);
+
+    env.ledger().with_mut(|ledger| {
+        ledger.sequence_number +=
+            crate::persistent::DEFAULT_TTL - crate::persistent::TTL_RENEWAL_THRESHOLD + 1;
+    });
+
+    assert!(client.is_revoked(&cert_id));
+    let ttl = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Revocation(cert_id.clone()))
+    });
+    let expected_ttl = env.as_contract(&contract_id, || {
+        crate::persistent::DEFAULT_TTL.min(env.storage().max_ttl())
+    });
+    assert_eq!(ttl, expected_ttl);
 }
 
 #[test]

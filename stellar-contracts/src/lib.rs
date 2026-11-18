@@ -1627,10 +1627,6 @@ impl CertificateContract {
             panic!("Only admin can set certificate expiry");
         }
 
-        if expiry_time <= env.ledger().timestamp() {
-            panic!("Expiry time must be in the future");
-        }
-
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -1639,6 +1635,10 @@ impl CertificateContract {
 
         if cert.status != CertificateStatus::Active {
             panic!("Can only set expiry for active certificates");
+        }
+
+        if expiry_time <= env.ledger().timestamp() {
+            panic!("Expiry time must be in the future");
         }
 
         cert.expires_at = Some(expiry_time);

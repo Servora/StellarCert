@@ -495,13 +495,13 @@ impl AdminMultisigContract {
         let mut proposal_ids = Self::get_proposal_ids(env, key.clone());
         if !proposal_ids.contains(&proposal_id) {
             proposal_ids.push_back(proposal_id);
-            Self::set_persistent(env, &key, &proposal_ids);
+            Self::set_instance(env, &key, &proposal_ids);
         }
     }
 
     fn get_proposal_ids(env: &Env, key: AdminMultisigDataKey) -> Vec<String> {
         env.storage()
-            .persistent()
+            .instance()
             .get(&key)
             .unwrap_or(Vec::<String>::new(env))
     }
@@ -528,7 +528,10 @@ impl AdminMultisigContract {
             };
         }
 
-        let start = pagination.page.saturating_sub(1).saturating_mul(pagination.limit);
+        let start = pagination
+            .page
+            .saturating_sub(1)
+            .saturating_mul(pagination.limit);
         let end = total.min(start.saturating_add(pagination.limit));
         let mut index = start;
         while index < end {
@@ -564,9 +567,9 @@ impl AdminMultisigContract {
 pub enum AdminMultisigDataKey {
     AdminConfig,
     AdminProposal(String),
-    SignerProposalIds(Address),
     CertificateContractId,
     RemovedIssuer(Address),
+    SignerProposalIds(Address),
 }
 
 #[cfg(test)]

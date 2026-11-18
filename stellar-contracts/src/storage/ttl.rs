@@ -22,9 +22,11 @@ pub fn bump_ttl_on_get<K>(env: &Env, key: &K)
 where
     K: IntoVal<Env, Val>,
 {
+    let ttl_duration = DEFAULT_TTL.min(env.storage().max_ttl());
+    let renewal_threshold = TTL_RENEWAL_THRESHOLD.min(ttl_duration);
     env.storage()
         .persistent()
-        .extend_ttl(key, TTL_RENEWAL_THRESHOLD, DEFAULT_TTL);
+        .extend_ttl(key, renewal_threshold, ttl_duration);
 }
 
 /// Extend TTL for the current contract instance and code.

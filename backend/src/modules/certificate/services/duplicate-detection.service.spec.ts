@@ -294,6 +294,22 @@ describe('DuplicateDetectionService', () => {
       expect(request.status).toBe('pending');
       expect(request.id).toContain('override_');
     });
+
+    it('uses a UUID for the id and never repeats it, even within one millisecond', () => {
+      jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+      const ids = new Set<string>();
+      for (let i = 0; i < 500; i++) {
+        ids.add(service.createOverrideRequest('cert-1', 'reason', 'user-1').id);
+      }
+      jest.restoreAllMocks();
+
+      expect(ids.size).toBe(500);
+      for (const id of ids) {
+        expect(id).toMatch(
+          /^override_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        );
+      }
+    });
   });
 
   describe('approveOverrideRequest', () => {

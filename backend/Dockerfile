@@ -1,5 +1,5 @@
 # Dependencies stage for building
-FROM node:22-alpine AS deps
+FROM node:26-alpine AS deps
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ COPY package*.json ./
 RUN npm ci --legacy-peer-deps
 
 # Build stage
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ COPY . .
 RUN npm run build
 
 # Production dependencies stage
-FROM node:22-alpine AS prod-deps
+FROM node:26-alpine AS prod-deps
 
 WORKDIR /app
 
@@ -31,7 +31,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev --legacy-peer-deps
 
 # Production runtime stage (no build tools / compilers)
-FROM node:22-alpine AS production
+FROM node:26-alpine AS production
 
 WORKDIR /app
 

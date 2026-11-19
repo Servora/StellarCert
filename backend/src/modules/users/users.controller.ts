@@ -15,6 +15,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -64,11 +65,17 @@ import { ProfilePictureUploadResponseDto } from './dto/upload-profile-picture.dt
 import { StorageService } from '../files/services/storage.service';
 import { maxFileSize, allowedImageMimeTypes } from 'src/common/constants';
 import { Public } from 'src/common/decorators/public.decorator';
-import { profilePictureKey, storageKeyFor } from './profile-picture.util';
+import {
+  PROFILE_PICTURE_PREFIX,
+  profilePictureKey,
+  storageKeyFor,
+} from './profile-picture.util';
 
 @ApiTags('Users')
 @Controller('users')
 export class UsersController {
+  private readonly logger = new Logger(UsersController.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly storageService: StorageService,
@@ -227,6 +234,9 @@ export class UsersController {
       );
     }
 
+    // Remember the picture being replaced so its object can be removed afterwards.
+    const previousKey = await this.currentPictureKey(userId);
+
     // The extension is derived from the validated MIME type, not the client's file name.
     const key = profilePictureKey(userId, file.mimetype);
 
@@ -242,10 +252,49 @@ export class UsersController {
       profilePicture: key,
     });
 
+    await this.removeReplacedPicture(previousKey, key);
+
     return {
       profilePicture: url,
       message: 'Profile picture uploaded successfully',
     };
+  }
+
+  /** The storage key of the user's current picture, or null when there is none. */
+  private async currentPictureKey(userId: string): Promise<string | null> {
+    try {
+      const user = await this.usersService.getProfile(userId);
+      return storageKeyFor(user?.profilePicture);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Delete the object a new upload replaced. Best effort: the new picture is
+   * already saved, so a storage failure here must not fail the request; it is
+   * logged with the key so the orphan can be cleaned up by hand.
+   */
+  private async removeReplacedPicture(
+    previousKey: string | null,
+    newKey: string,
+  ): Promise<void> {
+    if (
+      !previousKey ||
+      previousKey === newKey ||
+      !previousKey.startsWith(PROFILE_PICTURE_PREFIX)
+    ) {
+      return;
+    }
+    try {
+      await this.storageService.deleteFile(previousKey);
+    } catch (error) {
+      this.logger.warn(
+        `Could not delete replaced profile picture ${previousKey}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   /** Replace a stored picture key with a freshly signed URL for the response. */

@@ -690,7 +690,11 @@ impl CertificateContract {
         // Store new certificate
         Self::set_persistent(&env, &DataKey::Certificate(new_id.clone()), &new_cert);
         Self::append_cert_id(&env, DataKey::IssuerCertIds(issuer.clone()), new_id.clone());
-        Self::append_cert_id(&env, DataKey::OwnerCertIds(new_cert.owner.clone()), new_id.clone());
+        Self::append_cert_id(
+            &env,
+            DataKey::OwnerCertIds(new_cert.owner.clone()),
+            new_id.clone(),
+        );
 
         let revocation_reason = String::from_str(&env, "superseded");
         original_cert.status = CertificateStatus::Revoked;

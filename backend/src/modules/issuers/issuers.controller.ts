@@ -17,6 +17,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/constants/roles';
+import { IssuerTier } from '../../common/rate-limiting/rate-limit.types';
 import { CacheInterceptor } from '../../common/interceptors/cache.interceptor';
 
 @ApiTags('Issuers')
@@ -63,8 +64,8 @@ export class IssuersController {
   @ApiQuery({
     name: 'tier',
     required: false,
-    enum: ['FREE', 'BASIC', 'PRO', 'ENTERPRISE'],
-    example: 'FREE',
+    enum: IssuerTier,
+    example: IssuerTier.FREE,
   })
   async list(@Query() query: IssuerPaginationQueryDto) {
     return this.issuersService.listIssuers(query);

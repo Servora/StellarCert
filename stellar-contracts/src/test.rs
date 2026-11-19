@@ -614,6 +614,7 @@ fn test_batch_verify_with_mixed_statuses() {
     let active_id = String::from_str(&env, "cert-active");
     let revoked_id = String::from_str(&env, "cert-revoked");
     let suspended_id = String::from_str(&env, "cert-suspended");
+    let frozen_id = String::from_str(&env, "cert-frozen");
     let metadata_uri = String::from_str(&env, "ipfs://QmTest");
 
     env.mock_all_auths();
@@ -627,22 +628,25 @@ fn test_batch_verify_with_mixed_statuses() {
     client.issue_certificate(&active_id, &issuer, &owner, &metadata_uri, &None);
     client.issue_certificate(&revoked_id, &issuer, &owner, &metadata_uri, &None);
     client.issue_certificate(&suspended_id, &issuer, &owner, &metadata_uri, &None);
+    client.issue_certificate(&frozen_id, &issuer, &owner, &metadata_uri, &None);
 
     // Set different statuses
     client.revoke_certificate(&revoked_id, &String::from_str(&env, "revoked"));
     client.suspend_certificate(&suspended_id, &String::from_str(&env, "suspended"));
+    client.freeze_certificate(&frozen_id, &String::from_str(&env, "frozen"));
 
     // Batch verify
     let mut ids = Vec::<String>::new(&env);
     ids.push_back(active_id.clone());
     ids.push_back(revoked_id.clone());
     ids.push_back(suspended_id.clone());
+    ids.push_back(frozen_id.clone());
 
     let result = client.batch_verify_certificates(&ids);
 
-    assert_eq!(result.total, 3);
+    assert_eq!(result.total, 4);
     assert_eq!(result.successful, 1); // Only active passes
-    assert_eq!(result.failed, 2); // Revoked and suspended fail
+    assert_eq!(result.failed, 3); // Revoked, suspended, and frozen fail
 
     // Check individual results
     let r0 = result.results.get(0).unwrap();
@@ -653,6 +657,48 @@ fn test_batch_verify_with_mixed_statuses() {
 
     let r2 = result.results.get(2).unwrap();
     assert!(r2.revoked);
+
+    let r3 = result.results.get(3).unwrap();
+    assert!(r3.revoked);
+}
+
+#[test]
+#[should_panic(expected = "Expiry time must be in the future")]
+fn test_set_certificate_expiry_rejects_past_timestamp() {
+    let env = Env::default();
+    let contract_id = env.register(CertificateContract, ());
+    let client = CertificateContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-expiry-past");
+    let metadata_uri = String::from_str(&env, "ipfs://expiry");
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
+    client.set_certificate_expiry(&id, &0, &admin);
+}
+
+#[test]
+#[should_panic(expected = "Can only set expiry for active certificates")]
+fn test_set_certificate_expiry_rejects_frozen_certificate() {
+    let env = Env::default();
+    let contract_id = env.register(CertificateContract, ());
+    let client = CertificateContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-expiry-frozen");
+    let metadata_uri = String::from_str(&env, "ipfs://expiry");
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+    client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
+    client.freeze_certificate(&id, &String::from_str(&env, "frozen"));
+    client.set_certificate_expiry(&id, &1, &admin);
 }
 
 #[test]

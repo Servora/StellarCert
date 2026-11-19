@@ -67,6 +67,44 @@ fn initializes_certificate_contract_with_multisig_as_admin() {
 }
 
 #[test]
+fn test_get_pending_proposals_for_signer_is_paginated_and_filters_terminal_proposals() {
+    let env = Env::default();
+    let contract_id = env.register(AdminMultisigContract, ());
+    let client = AdminMultisigContractClient::new(&env, &contract_id);
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone()]);
+
+    env.mock_all_auths();
+    client.init_admin_multisig(&2, &signers, &10);
+
+    let action = AdminAction::Other(String::from_str(&env, "pending"));
+    for id in ["proposal-1", "proposal-2", "proposal-3"] {
+        client.propose_action(&String::from_str(&env, id), &signer1, &action);
+    }
+    client.cancel_proposal(&String::from_str(&env, "proposal-2"), &signer1);
+
+    let first_page =
+        client.get_pending_proposals_for_signer(&signer2, &Pagination { page: 1, limit: 1 });
+    assert_eq!(first_page.total, 2);
+    assert_eq!(first_page.data.len(), 1);
+    assert!(first_page.has_next);
+    assert_eq!(
+        first_page.data.get(0).unwrap().id,
+        String::from_str(&env, "proposal-1")
+    );
+
+    let second_page =
+        client.get_pending_proposals_for_signer(&signer2, &Pagination { page: 2, limit: 1 });
+    assert_eq!(second_page.data.len(), 1);
+    assert!(!second_page.has_next);
+    assert_eq!(
+        second_page.data.get(0).unwrap().id,
+        String::from_str(&env, "proposal-3")
+    );
+}
+
+#[test]
 #[should_panic(expected = "Unsupported action type")]
 fn test_other_action_panics_on_execution() {
     let env = Env::default();
@@ -165,6 +203,52 @@ fn test_remove_issuer_action_executes_after_threshold() {
         &None,
     );
     assert!(issue_result.is_err());
+}
+
+#[test]
+fn test_readd_issuer_action_clears_removed_flag() {
+    let env = Env::default();
+    let admin_multisig_contract_id = env.register(AdminMultisigContract, ());
+    let client = AdminMultisigContractClient::new(&env, &admin_multisig_contract_id);
+    let certificate_contract_id = env.register(CertificateContract, ());
+    let certificate_client = CertificateContractClient::new(&env, &certificate_contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let signers = Vec::from_array(&env, [admin1.clone(), admin2.clone(), admin3.clone()]);
+
+    env.mock_all_auths();
+    certificate_client.initialize(&admin_multisig_contract_id);
+    certificate_client.add_issuer(&issuer);
+    // 2-of-3: the proposer never counts as one of their own approvals, so a
+    // threshold equal to the full signer count would make execution
+    // impossible. Use 3 signers so two distinct non-proposer approvals exist.
+    client.init_admin_multisig(&2, &signers, &5);
+    client.set_admin_certificate_contract(&admin1, &certificate_contract_id);
+
+    let remove_id = String::from_str(&env, "remove-issuer");
+    client.propose_action(
+        &remove_id,
+        &admin1,
+        &AdminAction::RemoveIssuer(issuer.clone()),
+    );
+    client.approve_action(&remove_id, &admin2);
+    client.approve_action(&remove_id, &admin3);
+    assert!(client.is_issuer_removed(&issuer));
+
+    let readd_id = String::from_str(&env, "readd-issuer");
+    client.propose_action(
+        &readd_id,
+        &admin1,
+        &AdminAction::ReAddIssuer(issuer.clone()),
+    );
+    client.approve_action(&readd_id, &admin2);
+    client.approve_action(&readd_id, &admin3);
+
+    assert!(!client.is_issuer_removed(&issuer));
+    assert!(certificate_client.is_issuer(&issuer));
 }
 
 #[test]

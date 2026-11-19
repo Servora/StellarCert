@@ -92,7 +92,7 @@ pub struct CRLRevocationAddedEvent {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum DataKey {
+pub(crate) enum DataKey {
     Issuer,
     Admin,
     Info,

@@ -14,6 +14,7 @@ import {
 import { Certificate } from '../entities/certificate.entity';
 import { User } from '../../users/entities/user.entity';
 import { EmailService } from '../../email/email.service';
+import { EmailQueueService } from '../../email/email-queue.service';
 import { InitiateTransferDto } from '../dto/transfer-certificate.dto';
 import { AuditService } from '../../audit/services/audit.service';
 import { AuditAction, AuditResourceType } from '../../audit/constants';
@@ -91,7 +92,43 @@ export class CertificateTransferService {
     private readonly userRepository?: Repository<User>,
     @Optional()
     private readonly emailService?: EmailService,
+    @Optional()
+    private readonly emailQueueService?: EmailQueueService,
   ) {}
+
+  /**
+   * Deliver a transactional email. It goes through the Bull email queue when
+   * available, so a transient SMTP error is retried with backoff instead of
+   * being lost. If the queue itself cannot take the job (Redis down) or is not
+   * configured, fall back to one direct send. Never throws: the transfer has
+   * already been recorded and email is a side effect.
+   */
+  private async deliverEmail(
+    description: string,
+    recipient: string,
+    viaQueue: ((queue: EmailQueueService) => Promise<void>) | null,
+    direct: ((email: EmailService) => Promise<void>) | null,
+  ): Promise<void> {
+    if (this.emailQueueService && viaQueue) {
+      try {
+        await viaQueue(this.emailQueueService);
+        return;
+      } catch (queueErr) {
+        this.logger.warn(
+          `Could not queue ${description} to ${recipient}: ${queueErr.message}; sending directly`,
+        );
+      }
+    }
+    if (this.emailService && direct) {
+      try {
+        await direct(this.emailService);
+      } catch (emailErr) {
+        this.logger.warn(
+          `Failed to send ${description} to ${recipient}: ${emailErr.message}`,
+        );
+      }
+    }
+  }
 
   private toTransferResponseDTO(
     transfer: CertificateTransfer,
@@ -229,21 +266,19 @@ export class CertificateTransferService {
     }
 
     // Send confirmation email containing the secret code to the new owner (toEmail)
-    if (this.emailService) {
-      try {
-        await this.emailService.sendTransferConfirmationCode({
-          to: dto.newOwnerEmail,
-          recipientName: dto.newOwnerName || recipientUser?.firstName || 'User',
-          certificateTitle: certificate.title,
-          certificateId: certificate.id,
-          confirmationCode,
-        });
-      } catch (emailErr) {
-        this.logger.warn(
-          `Failed to send transfer confirmation email to ${dto.newOwnerEmail}: ${emailErr.message}`,
-        );
-      }
-    }
+    const confirmation = {
+      to: dto.newOwnerEmail,
+      recipientName: dto.newOwnerName || recipientUser?.firstName || 'User',
+      certificateTitle: certificate.title,
+      certificateId: certificate.id,
+      confirmationCode,
+    };
+    await this.deliverEmail(
+      'transfer confirmation email',
+      dto.newOwnerEmail,
+      (queue) => queue.queueTransferConfirmationCode(confirmation),
+      (email) => email.sendTransferConfirmationCode(confirmation),
+    );
 
     this.logger.log(
       `Transfer initiated for certificate ${dto.certificateId} from ${certificate.recipientEmail} to ${dto.newOwnerEmail}`,
@@ -429,20 +464,18 @@ export class CertificateTransferService {
     }
 
     // Send completion email to new owner (toEmail)
-    if (this.emailService) {
-      try {
-        await this.emailService.sendTransferCompletedNotice({
-          to: transfer.toEmail,
-          recipientName: transfer.toName || recipientUser?.firstName || 'User',
-          certificateTitle: certificate.title,
-          certificateId: certificate.id,
-        });
-      } catch (emailErr) {
-        this.logger.warn(
-          `Failed to send transfer completed email to ${transfer.toEmail}: ${emailErr.message}`,
-        );
-      }
-    }
+    const completed = {
+      to: transfer.toEmail,
+      recipientName: transfer.toName || recipientUser?.firstName || 'User',
+      certificateTitle: certificate.title,
+      certificateId: certificate.id,
+    };
+    await this.deliverEmail(
+      'transfer completed email',
+      transfer.toEmail,
+      (queue) => queue.queueTransferCompletedNotice(completed),
+      (email) => email.sendTransferCompletedNotice(completed),
+    );
 
     this.logger.log(
       `Transfer ${transferId} approved for certificate ${transfer.certificateId}`,

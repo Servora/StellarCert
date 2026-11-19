@@ -1209,11 +1209,7 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::MultisigConfig(issuer), &config);
     }
 
-    pub fn update_issuer_admin(
-        env: Env,
-        issuer: Address,
-        new_admin: Address,
-    ) {
+    pub fn update_issuer_admin(env: Env, issuer: Address, new_admin: Address) {
         let current_admin: Address = env
             .storage()
             .persistent()

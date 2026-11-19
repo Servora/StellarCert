@@ -19,10 +19,12 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
-    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
+    "migration:run": "typeorm-ts-node-commonjs migration:run -t each -d src/database/data-source.ts",
+    "migration:revert": "typeorm-ts-node-commonjs migration:revert -t each -d src/database/data-source.ts",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/data-source.ts",
-    "migration:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts"
+    "migration:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
+    "migration:run:prod": "typeorm migration:run -t each -d dist/database/data-source.js",
+    "migration:show:prod": "typeorm migration:show -d dist/database/data-source.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1169.0",
@@ -39,7 +41,7 @@
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.2.1",
-    "@nestjs/platform-socket.io": "^12.5.0",
+    "@nestjs/platform-socket.io": "^11.2.1",
     "@nestjs/schedule": "^6.1.3",
     "@nestjs/swagger": "^11.4.7",
     "@nestjs/terminus": "^11.0.0",

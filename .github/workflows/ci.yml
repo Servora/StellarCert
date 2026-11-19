@@ -93,6 +93,8 @@ jobs:
            "
        - name: Typecheck backend
          run: npm run typecheck
+       - name: Run backend tests with coverage
+         run: npm run test:cov
        - name: Build backend
          run: npm run build
 

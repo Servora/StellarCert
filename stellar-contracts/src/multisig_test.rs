@@ -306,6 +306,26 @@ fn test_update_multisig_config() {
 }
 
 #[test]
+fn test_update_issuer_admin_requires_current_and_new_admin() {
+    let env = Env::default();
+    let contract_id = env.register(MultisigCertificateContract, ());
+    let client = MultisigCertificateContractClient::new(&env, &contract_id);
+
+    let current_admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let signer = Address::generate(&env);
+    let signers = vec![&env, signer];
+
+    env.mock_all_auths();
+    client.init_multisig_config(&issuer, &1, &signers, &5, &current_admin);
+    client.update_issuer_admin(&issuer, &new_admin);
+
+    let new_signers = vec![&env, Address::generate(&env)];
+    client.update_multisig_config(&issuer, &None, &Some(new_signers), &None);
+}
+
+#[test]
 fn test_invalid_approve_by_non_signer() {
     let env = Env::default();
     let contract_id = env.register(MultisigCertificateContract, ());
@@ -483,6 +503,23 @@ fn test_get_pending_requests_for_signer_returns_only_pending_requests() {
         .data
         .iter()
         .all(|request| request.status == RequestStatus::Pending));
+}
+
+#[test]
+#[should_panic(expected = "Pagination limit exceeds maximum allowed")]
+fn test_get_pending_requests_rejects_oversized_limit() {
+    let env = Env::default();
+    let contract_id = env.register(MultisigCertificateContract, ());
+    let client = MultisigCertificateContractClient::new(&env, &contract_id);
+    let issuer = Address::generate(&env);
+
+    client.get_pending_requests_for_issuer(
+        &issuer,
+        &Pagination {
+            page: 1,
+            limit: 101,
+        },
+    );
 }
 
 #[test]

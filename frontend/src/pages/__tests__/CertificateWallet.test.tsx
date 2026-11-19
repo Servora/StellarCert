@@ -9,6 +9,8 @@ vi.mock("../../api/endpoints", () => ({
     getQR: vi.fn().mockResolvedValue("data:image/png;base64,MOCK"),
     transfer: {
       getPending: vi.fn().mockResolvedValue([]),
+      approve: vi.fn().mockResolvedValue({}),
+      reject: vi.fn().mockResolvedValue({}),
     },
   },
   getMyCertificates: vi.fn(),
@@ -250,5 +252,125 @@ describe("CertificateWallet", () => {
     expect(writeTextMock).toHaveBeenCalledWith(
       expect.stringContaining("/verify?serial=CERT-2026-001"),
     );
+  });
+
+  // ── Incoming transfers (recipient side) ──────────────────────────────────
+  const INCOMING_TRANSFER = {
+    id: "transfer-in",
+    certificateId: "cert-x",
+    status: "pending",
+    fromEmail: "carol@example.com",
+    fromName: "Carol",
+    toEmail: "Alice@Example.com",
+  };
+
+  it("does not list outgoing transfers as incoming", async () => {
+    mockedGetPendingTransfers.mockResolvedValueOnce([
+      {
+        id: "transfer-out",
+        certificateId: "cert1",
+        status: "pending",
+        fromEmail: "alice@example.com",
+        toEmail: "bob@example.com",
+      },
+    ]);
+
+    renderWithProviders(<CertificateWallet />, {
+      queryClient: createTestQueryClient(),
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("transfer-status-cert1")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("incoming-transfers")).not.toBeInTheDocument();
+  });
+
+  it("approves an incoming transfer with the confirmation code", async () => {
+    mockedGetPendingTransfers
+      .mockResolvedValueOnce([INCOMING_TRANSFER])
+      .mockResolvedValue([]);
+
+    renderWithProviders(<CertificateWallet />, {
+      queryClient: createTestQueryClient(),
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("incoming-transfer-transfer-in"),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/Carol \(carol@example.com\)/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Approve$/ }));
+    const submit = screen.getByRole("button", { name: "Approve Transfer" });
+    expect(submit).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/Confirmation code/i), {
+      target: { value: " AB12CD34EF56 " },
+    });
+    fireEvent.click(submit);
+
+    await waitFor(() =>
+      expect(certificateApi.transfer.approve).toHaveBeenCalledWith({
+        transferId: "transfer-in",
+        confirmationCode: "AB12CD34EF56",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/Transfer approved/i)).toBeInTheDocument(),
+    );
+    // Success invalidates the pending list, which is now empty.
+    await waitFor(() =>
+      expect(screen.queryByTestId("incoming-transfers")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("shows the backend error when approval fails", async () => {
+    mockedGetPendingTransfers.mockResolvedValue([INCOMING_TRANSFER]);
+    (certificateApi.transfer.approve as Mock).mockRejectedValueOnce(
+      new Error("Invalid confirmation code"),
+    );
+
+    renderWithProviders(<CertificateWallet />, {
+      queryClient: createTestQueryClient(),
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("incoming-transfers")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Approve$/ }));
+    fireEvent.change(screen.getByLabelText(/Confirmation code/i), {
+      target: { value: "WRONG123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Approve Transfer" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Invalid confirmation code",
+    );
+  });
+
+  it("rejects an incoming transfer with an optional reason", async () => {
+    mockedGetPendingTransfers.mockResolvedValue([INCOMING_TRANSFER]);
+
+    renderWithProviders(<CertificateWallet />, {
+      queryClient: createTestQueryClient(),
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("incoming-transfers")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Reject$/ }));
+    fireEvent.change(screen.getByLabelText(/Reason/i), {
+      target: { value: "Not mine" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reject Transfer" }));
+
+    await waitFor(() =>
+      expect(certificateApi.transfer.reject).toHaveBeenCalledWith({
+        transferId: "transfer-in",
+        reason: "Not mine",
+      }),
+    );
+    expect(await screen.findByText(/Transfer rejected/i)).toBeInTheDocument();
   });
 });

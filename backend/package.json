@@ -130,6 +130,14 @@
     ],
     "moduleNameMapper": {
       "^src/(.*)$": "<rootDir>/$1"
+    },
+    "coverageThreshold": {
+      "global": {
+        "branches": 50,
+        "functions": 60,
+        "lines": 60,
+        "statements": 60
+      }
     }
   },
   "overrides": {

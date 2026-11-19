@@ -676,7 +676,7 @@ impl CertificateContract {
         let new_cert = Certificate {
             id: new_id.clone(),
             issuer: issuer.clone(),
-            owner: new_owner.unwrap_or(original_cert.owner),
+            owner: new_owner.unwrap_or_else(|| original_cert.owner.clone()),
             status: CertificateStatus::Active,
             metadata_uri: new_metadata_uri,
             issued_at: env.ledger().timestamp(),

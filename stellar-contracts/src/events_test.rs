@@ -1,5 +1,5 @@
-//! Regression tests for the `#[contractevent]` migration of the 14 call sites that
-//! previously used the deprecated `env.events().publish` API (issue #961).
+//! Regression tests for certificate, admin-multisig, and CRL contract events.
+//! The issuer allow-list events additionally cover the new event types from #1350.
 //!
 //! The migration had to be behaviour-preserving, so these tests pin the *on-chain*
 //! result of every migrated call site: the topic list, the data payload, and how
@@ -149,6 +149,13 @@ fn id_and_reason_event(env: &Env, topic: Symbol, id: &String, reason: &String) -
     )
 }
 
+fn issuer_event(env: &Env, topic: Symbol, issuer: &Address) -> ExpectedEvent {
+    (
+        std::vec![topic.into_val(env), issuer.clone().into_val(env)],
+        legacy_payload(env, &[("issuer", issuer.clone().into_val(env))]),
+    )
+}
+
 /// A `proposal`/`<action>` event carrying `{proposal_id, ...}`.
 fn proposal_event(env: &Env, action: Symbol, fields: &[(&str, Val)]) -> ExpectedEvent {
     (
@@ -198,6 +205,40 @@ fn issue_certificate_emits_issued_event() {
     client.issue_certificate(&id, &issuer, &owner, &metadata_uri, &None);
 
     assert_events(&env, &contract_id, &[issued(&env, &id, &issuer, &owner)]);
+}
+
+#[test]
+fn update_certificate_metadata_emits_metadata_updated_event() {
+    let env = Env::default();
+    let (contract_id, issuer) = setup_certificate_contract(&env);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-metadata-update");
+    let original_uri = String::from_str(&env, "ipfs://original");
+    let updated_uri = String::from_str(&env, "ipfs://updated");
+    client.issue_certificate(&id, &issuer, &owner, &original_uri, &None);
+
+    client.update_certificate_metadata(&id, &updated_uri);
+
+    assert_events(
+        &env,
+        &contract_id,
+        &[(
+            std::vec![
+                Symbol::new(&env, "metadata_updated").into_val(&env),
+                id.clone().into_val(&env),
+            ],
+            legacy_payload(
+                &env,
+                &[
+                    ("id", id.clone().into_val(&env)),
+                    ("metadata_uri", updated_uri.into_val(&env)),
+                    ("updated_by", issuer.into_val(&env)),
+                ],
+            ),
+        )],
+    );
 }
 
 #[test]
@@ -312,26 +353,82 @@ fn reissue_certificate_emits_reissued_event_with_parent_link() {
         &None,
     );
 
-    // A reissue only emits `reissued`; it does not revoke the parent certificate.
     assert_events(
         &env,
         &contract_id,
-        &[(
-            std::vec![
-                symbol_short!("reissued").into_val(&env),
-                new_id.clone().into_val(&env),
-            ],
-            legacy_payload(
-                &env,
-                &[
-                    ("id", new_id.clone().into_val(&env)),
-                    ("old_id", old_id.clone().into_val(&env)),
-                    ("issuer", issuer.clone().into_val(&env)),
-                    ("owner", new_owner.clone().into_val(&env)),
+        &[
+            (
+                std::vec![
+                    symbol_short!("reissued").into_val(&env),
+                    new_id.clone().into_val(&env),
                 ],
+                legacy_payload(
+                    &env,
+                    &[
+                        ("id", new_id.clone().into_val(&env)),
+                        ("old_id", old_id.clone().into_val(&env)),
+                        ("issuer", issuer.clone().into_val(&env)),
+                        ("owner", new_owner.clone().into_val(&env)),
+                    ],
+                ),
             ),
+            id_and_reason_event(
+                &env,
+                Symbol::new(&env, "revoked"),
+                &old_id,
+                &String::from_str(&env, "superseded"),
+            ),
+        ],
+    );
+
+    let original = client.get_certificate(&old_id).unwrap();
+    assert_eq!(original.status, CertificateStatus::Revoked);
+    assert_eq!(
+        original.revocation_reason,
+        Some(String::from_str(&env, "superseded"))
+    );
+    assert!(!client.is_valid(&old_id));
+    assert!(client.is_valid(&new_id));
+
+    let page = Pagination { page: 1, limit: 10 };
+    assert_eq!(client.get_certificates_by_issuer(&issuer, &page).total, 2);
+    assert_eq!(client.get_certificates_by_owner(&new_owner, &page).total, 1);
+}
+
+#[test]
+fn issuer_changes_emit_events_only_when_the_allow_list_changes() {
+    let env = Env::default();
+    let (contract_id, _) = setup_certificate_contract(&env);
+    let client = CertificateContractClient::new(&env, &contract_id);
+    let added_issuer = Address::generate(&env);
+
+    client.add_issuer(&added_issuer);
+    assert_events(
+        &env,
+        &contract_id,
+        &[issuer_event(
+            &env,
+            Symbol::new(&env, "issuer_added"),
+            &added_issuer,
         )],
     );
+
+    client.add_issuer(&added_issuer);
+    assert_events(&env, &contract_id, &[]);
+
+    client.remove_issuer(&added_issuer);
+    assert_events(
+        &env,
+        &contract_id,
+        &[issuer_event(
+            &env,
+            Symbol::new(&env, "issuer_removed"),
+            &added_issuer,
+        )],
+    );
+
+    client.remove_issuer(&added_issuer);
+    assert_events(&env, &contract_id, &[]);
 }
 
 #[test]
@@ -671,6 +768,13 @@ fn migrated_events_are_described_in_the_contract_spec() {
             ["id", "issuer", "owner"]
         ),
         event_spec!(
+            CertificateMetadataUpdatedEvent,
+            ["metadata_updated"],
+            Map,
+            ["topic_id"],
+            ["id", "metadata_uri", "updated_by"]
+        ),
+        event_spec!(
             CertificateReissuedEvent,
             ["reissued"],
             Map,
@@ -683,6 +787,20 @@ fn migrated_events_are_described_in_the_contract_spec() {
             Map,
             ["topic_id"],
             ["id", "reason"]
+        ),
+        event_spec!(
+            IssuerAddedEvent,
+            ["issuer_added"],
+            Map,
+            ["topic_issuer"],
+            ["issuer"]
+        ),
+        event_spec!(
+            IssuerRemovedEvent,
+            ["issuer_removed"],
+            Map,
+            ["topic_issuer"],
+            ["issuer"]
         ),
         event_spec!(
             CertificateSuspendedEvent,
@@ -774,7 +892,7 @@ fn migrated_events_are_described_in_the_contract_spec() {
         ),
     ];
 
-    assert_eq!(cases.len(), 14, "expected a spec entry per event type");
+    assert_eq!(cases.len(), 17, "expected a spec entry per event type");
 
     for case in cases {
         let name = case.name;

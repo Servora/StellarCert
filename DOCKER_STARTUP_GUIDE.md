@@ -28,7 +28,7 @@ Once all services are running, you can access:
 - **Frontend**: http://localhost:5173
 - **Backend API**: http://localhost:3000
 - **Health Check**: http://localhost:3000/api/v1/health
-- **Metrics**: http://localhost:3000/metrics (if enabled)
+- **Metrics**: http://localhost:3000/api/v1/metrics (if enabled)
 
 ## Optional Services
 

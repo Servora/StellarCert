@@ -130,8 +130,8 @@ jobs:
         run: npm run typecheck
       - name: Build backend
         run: npm run build
-      - name: Test backend
-        run: npm test -- --ci
+      - name: Test backend with coverage
+        run: npm run test:cov -- --ci
 
   # The unit suite above never imports AppModule end to end, so the
   # test/*.e2e-spec.ts suites (auth, users, certificate manager, versioning)

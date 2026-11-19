@@ -14,6 +14,8 @@ pub struct MultisigCertificateContract;
     soroban_sdk::contractimpl
 )]
 impl MultisigCertificateContract {
+    const MAX_PAGE_SIZE: u32 = 100;
+
     fn set_instance<K, V>(env: &Env, key: &K, value: &V)
     where
         K: IntoVal<Env, Val>,
@@ -123,6 +125,18 @@ impl MultisigCertificateContract {
         }
 
         Self::set_instance(&env, &DataKey::MultisigConfig(issuer), &config);
+    }
+
+    pub fn update_issuer_admin(env: Env, issuer: Address, new_admin: Address) {
+        let current_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::IssuerAdmin(issuer.clone()))
+            .expect("Issuer admin not found");
+        current_admin.require_auth();
+        new_admin.require_auth();
+
+        Self::set_instance(&env, &DataKey::IssuerAdmin(issuer), &new_admin);
     }
 
     /// Get multisig configuration for an issuer
@@ -516,6 +530,10 @@ impl MultisigCertificateContract {
         request_ids: Vec<String>,
         pagination: Pagination,
     ) -> PaginatedResult {
+        if pagination.limit > Self::MAX_PAGE_SIZE {
+            panic!("Pagination limit exceeds maximum allowed");
+        }
+
         let mut pending_requests = Vec::<PendingRequest>::new(env);
 
         for request_id in request_ids.iter() {

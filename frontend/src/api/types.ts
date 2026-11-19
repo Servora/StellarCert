@@ -70,9 +70,17 @@ export interface Certificate {
 export interface CertificateTransfer {
   id: string;
   certificateId: string;
-  fromUserId: string;
+  fromUserId?: string;
+  /** Present on responses from the transfer endpoints (TransferHistoryItemDTO). */
+  fromEmail?: string;
+  fromName?: string;
   toEmail: string;
+  toName?: string;
   toUserId?: string;
+  reason?: string | null;
+  initiatedAt?: string;
+  expiresAt?: string | null;
+  completedAt?: string | null;
   status:
     | 'pending'
     | 'approved'
@@ -81,10 +89,10 @@ export interface CertificateTransfer {
     | 'expired'
     | 'locked';
   initiationReason?: string;
-  rejectionReason?: string;
+  rejectionReason?: string | null;
   confirmationCode?: string;
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
   certificate?: Certificate;
 }
 

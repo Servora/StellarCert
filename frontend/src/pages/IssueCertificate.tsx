@@ -49,7 +49,10 @@ const IssueCertificate = () => {
 
   useEffect(() => {
     if (user) {
+      // One-time prefill of an editable field; the issuer can still change
+      // it afterwards, so it isn't state purely derived from `user`.
       const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFormData(prev => ({ ...prev, issuerName: fullName }));
     }
   }, [user]);

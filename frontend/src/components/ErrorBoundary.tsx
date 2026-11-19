@@ -1,4 +1,4 @@
-import { Component, ErrorInfo, ReactNode, useState, useEffect } from "react";
+import { Component, ErrorInfo, ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 
 interface Props {
@@ -60,15 +60,11 @@ class ErrorBoundaryImpl extends Component<Props, State> {
 
 export function ErrorBoundary({ children, fallback, onReset }: Props) {
   const location = useLocation();
-  const [key, setKey] = useState(0);
 
-  // Reset error boundary when route changes
-  useEffect(() => {
-    setKey((k) => k + 1);
-  }, [location.pathname]);
-
+  // Using the route itself as the key remounts (and so resets) the boundary
+  // on navigation, without an effect + derived state round-trip.
   return (
-    <ErrorBoundaryImpl key={key} fallback={fallback} onReset={onReset}>
+    <ErrorBoundaryImpl key={location.pathname} fallback={fallback} onReset={onReset}>
       {children}
     </ErrorBoundaryImpl>
   );

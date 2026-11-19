@@ -17,7 +17,7 @@
   "dependencies": {
     "@tanstack/react-query": "^5.107.1",
     "html5-qrcode": "^2.3.8",
-    "lucide-react": "^0.563.0",
+    "lucide-react": "^1.73.0",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -36,7 +36,7 @@
     "autoprefixer": "^10.6.2",
     "eslint": "^9.20.0",
     "eslint-plugin-react": "^7.37.2",
-    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.8",
     "globals": "^16.5.0",
     "jsdom": "^22.1.0",

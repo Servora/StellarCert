@@ -122,10 +122,15 @@ const CertificateWallet = () => {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(9);
 
-  // A newly signed-in user has a different wallet; never page into a stale index.
-  useEffect(() => {
+  // A newly signed-in user has a different wallet; never page into a stale
+  // index. Adjusted directly during render (React's documented alternative
+  // to an effect for "reset state when a prop changes") rather than in a
+  // useEffect, since it happens inside this component's own render pass.
+  const [lastUserId, setLastUserId] = useState(user?.id);
+  if (user?.id !== lastUserId) {
+    setLastUserId(user?.id);
     setPage(1);
-  }, [user?.id]);
+  }
 
   // QR CODE LOGIC
   const fetchQRCode = async (certificateId: string) => {

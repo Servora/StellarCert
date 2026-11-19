@@ -324,6 +324,16 @@ pub struct CertPaginatedResult {
     pub has_next: bool,
 }
 
+#[contractevent(topics = ["metadata_updated"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CertificateMetadataUpdatedEvent {
+    #[topic]
+    pub topic_id: String,
+    pub id: String,
+    pub metadata_uri: String,
+    pub updated_by: Address,
+}
+
 #[contractevent(topics = ["issuer_added"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IssuerAddedEvent {

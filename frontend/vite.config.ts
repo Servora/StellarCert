@@ -12,5 +12,19 @@ export default defineConfig({
   server: {
     port: 5173,
     host: '0.0.0.0',
-  }
+  },
+  test: {
+    environment: 'jsdom',
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+      include: ['src/**/*.{ts,tsx}'],
+      thresholds: {
+        branches: 50,
+        functions: 60,
+        lines: 60,
+        statements: 60,
+      },
+    },
+  },
 });

@@ -10,6 +10,7 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -85,7 +86,7 @@ export class WebhooksController {
       issuerId,
     );
 
-    await this.webhooksService.triggerEventForSubscription(
+    const queued = await this.webhooksService.triggerEventForSubscription(
       subscription,
       WebhookEvent.WEBHOOK_TEST,
       {
@@ -94,6 +95,32 @@ export class WebhooksController {
       },
     );
 
+    if (!queued) {
+      // Deliveries elsewhere are best-effort, but a test the caller asked for
+      // must not claim success when nothing was queued.
+      throw new ServiceUnavailableException(
+        'Could not queue the test event; the webhook queue is unavailable',
+      );
+    }
+
     return { message: 'Test event queued successfully' };
+  }
+
+  @Post('test/sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Send a test webhook now and return the endpoint outcome (status code, duration, response)',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Delivery outcome. `success: false` means the endpoint rejected or did not answer the test, not that this request failed.',
+  })
+  async testSync(
+    @CurrentUser('id') issuerId: string,
+    @Body('subscriptionId') subscriptionId: string,
+  ) {
+    return this.webhooksService.testDeliverySync(subscriptionId, issuerId);
   }
 }

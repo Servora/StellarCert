@@ -19,6 +19,7 @@ import { certificateApi } from '../api';
 import type { Certificate, CertificateExportFilters, ActivityItem } from '../api';
 import Modal from './Modal';
 import { useDebounce } from '../hooks/useDebounce';
+import { assertValidCsvExport, InvalidExportError } from '../utils/exportBlob';
 import {
     useBulkRevokeCertificatesMutation,
     useCertificateHistoryQuery,
@@ -207,6 +208,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                 Array.from(selectedIds),
                 filters,
             );
+            await assertValidCsvExport(blob);
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -218,8 +220,11 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             onSuccess?.('Certificates exported successfully');
         } catch (err) {
             console.error('Export failed:', err);
-            setActionError('Failed to export certificates');
-            onError?.('Failed to export certificates');
+            // A response that was not a usable file says why; anything else is generic.
+            const message =
+                err instanceof InvalidExportError ? err.message : 'Failed to export certificates';
+            setActionError(message);
+            onError?.(message);
         } finally {
             setPendingAction(null);
         }
@@ -238,6 +243,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                 endDate: endDate || undefined,
             };
             const blob = await certificateApi.bulkExportAll(filters);
+            await assertValidCsvExport(blob);
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -249,8 +255,11 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             onSuccess?.(`Successfully exported ${filteredCount} certificates`);
         } catch (err) {
             console.error('Export failed:', err);
-            setActionError('Failed to export certificates');
-            onError?.('Failed to export certificates');
+            // A response that was not a usable file says why; anything else is generic.
+            const message =
+                err instanceof InvalidExportError ? err.message : 'Failed to export certificates';
+            setActionError(message);
+            onError?.(message);
         } finally {
             setExportingFiltered(false);
             setPendingAction(null);

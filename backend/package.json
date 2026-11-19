@@ -41,7 +41,7 @@
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.2.1",
-    "@nestjs/platform-socket.io": "^12.5.0",
+    "@nestjs/platform-socket.io": "^11.2.1",
     "@nestjs/schedule": "^6.1.3",
     "@nestjs/swagger": "^11.4.7",
     "@nestjs/terminus": "^11.0.0",

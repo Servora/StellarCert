@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as crypto from 'crypto';
+import axios from 'axios';
 
 import {
   WebhookSubscription,
@@ -17,6 +18,10 @@ import { WebhookLog } from './entities/webhook-log.entity';
 import { CreateWebhookSubscriptionDto } from './dto/create-webhook-subscription.dto';
 import { LoggingService } from '../../common/logging/logging.service';
 import { validateWebhookUrl } from '../../common/utils/ssrf.utils';
+import {
+  truncateWebhookResponse,
+  webhookSignatureHeader,
+} from './webhook-signature.util';
 
 type SanitizedWebhookSubscription = Omit<
   WebhookSubscription,
@@ -24,6 +29,23 @@ type SanitizedWebhookSubscription = Omit<
 > & { hasSecret: boolean };
 
 type CreatedWebhookSubscription = WebhookSubscription & { hasSecret: boolean };
+
+/** Outcome of a synchronous test delivery. */
+export interface WebhookTestResult {
+  /** True when the endpoint answered with a 2xx status. */
+  success: boolean;
+  /** HTTP status returned by the endpoint; 0 when it was never contacted. */
+  statusCode: number;
+  durationMs: number;
+  /** Response body (truncated to 2 KiB) or the error message. */
+  response?: string;
+  /** Why the endpoint was not contacted or did not answer, when applicable. */
+  error?: string;
+  /** The `WebhookLog` row recording this attempt. */
+  logId?: string;
+}
+
+const TEST_DELIVERY_TIMEOUT_MS = 5000;
 
 @Injectable()
 export class WebhooksService {
@@ -155,40 +177,174 @@ export class WebhooksService {
       .andWhere(':event = ANY(sub.events)', { event })
       .getMany();
 
+    let queued = 0;
     for (const sub of subs) {
-      await this.triggerEventForSubscription(sub, event, payload);
+      if (await this.triggerEventForSubscription(sub, event, payload)) {
+        queued++;
+      }
     }
 
-    this.logger.log(`Queued ${subs.length} webhooks for ${event}`);
+    this.logger.log(
+      `Queued ${queued}/${subs.length} webhooks for ${event}`,
+    );
   }
 
-  // SINGLE SUB
+  /**
+   * Queue one delivery. Webhooks are a best-effort side effect of the primary
+   * operation (issuing a certificate, a transfer, ...), so a queue outage (e.g.
+   * Redis briefly unavailable) is logged and swallowed instead of propagating to
+   * the caller and failing the request that triggered the event.
+   *
+   * @returns true when the delivery was queued, false when it was dropped.
+   */
   async triggerEventForSubscription(
     subscription: WebhookSubscription,
     event: WebhookEvent,
     payload: any,
-  ) {
+  ): Promise<boolean> {
     const formattedPayload = {
       event,
       timestamp: new Date().toISOString(),
       data: payload,
     };
 
-    await this.webhookQueue.add(
-      'deliver',
-      {
-        subscriptionId: subscription.id,
-        event,
-        payload: formattedPayload,
-      },
-      {
-        attempts: 5,
-        backoff: {
-          type: 'webhookRetry',
+    try {
+      await this.webhookQueue.add(
+        'deliver',
+        {
+          subscriptionId: subscription.id,
+          event,
+          payload: formattedPayload,
         },
-        removeOnComplete: true,
-      },
-    );
+        {
+          attempts: 5,
+          backoff: {
+            type: 'webhookRetry',
+          },
+          removeOnComplete: true,
+        },
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Failed to queue ${event} webhook for subscription ${subscription.id}; delivery dropped: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Deliver a test event right now and report what the endpoint did, so an
+   * issuer can validate a new webhook URL at setup time (status code, and
+   * whether their side accepted the signature) instead of discovering problems
+   * when real events start firing. Unlike queued deliveries it is a single
+   * attempt with a short timeout and never retries; the attempt is recorded in
+   * the delivery log like any other.
+   */
+  async testDeliverySync(
+    subscriptionId: string,
+    issuerId: string,
+  ): Promise<WebhookTestResult> {
+    const subscription = await this.findOneWithSecret(subscriptionId, issuerId);
+    const event = WebhookEvent.WEBHOOK_TEST;
+    const payload = {
+      event,
+      timestamp: new Date().toISOString(),
+      data: { message: 'Test webhook from StellarCert', test: true },
+    };
+    const started = Date.now();
+
+    const record = async (
+      statusCode: number,
+      response: string | undefined,
+      isSuccess: boolean,
+    ): Promise<string | undefined> => {
+      try {
+        const row = await this.logRepository.save({
+          subscriptionId,
+          event,
+          payload,
+          statusCode,
+          response,
+          duration: Date.now() - started,
+          isSuccess,
+        });
+        return row?.id;
+      } catch (error) {
+        this.logger.warn(
+          `Could not record test delivery for ${subscriptionId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return undefined;
+      }
+    };
+
+    // The URL was validated when the subscription was created, but DNS can
+    // change since: re-check before every outbound request.
+    const validation = await validateWebhookUrl(subscription.url);
+    if (!validation.valid) {
+      const error = `Webhook URL is not safe: ${validation.error}`;
+      return {
+        success: false,
+        statusCode: 0,
+        durationMs: Date.now() - started,
+        error,
+        response: error,
+        logId: await record(0, error, false),
+      };
+    }
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    try {
+      const res = await axios.post(subscription.url, payload, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-StellarCert-Event': event,
+          'X-StellarCert-Signature': webhookSignatureHeader(
+            subscription.secret,
+            payload,
+            timestamp,
+          ),
+          'User-Agent': 'StellarCert-Webhook/1.0',
+        },
+        timeout: TEST_DELIVERY_TIMEOUT_MS,
+        maxRedirects: 0,
+      });
+      const body =
+        typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+      const response = truncateWebhookResponse(body);
+      return {
+        success: true,
+        statusCode: res.status,
+        durationMs: Date.now() - started,
+        response,
+        logId: await record(res.status, response, true),
+      };
+    } catch (err: any) {
+      const statusCode: number = err?.response?.status ?? 0;
+      const rawBody = err?.response?.data;
+      const response = truncateWebhookResponse(
+        rawBody === undefined
+          ? err?.message
+          : typeof rawBody === 'string'
+            ? rawBody
+            : JSON.stringify(rawBody),
+      );
+      return {
+        success: false,
+        statusCode,
+        durationMs: Date.now() - started,
+        response,
+        error: statusCode
+          ? `Endpoint responded with HTTP ${statusCode}`
+          : (err?.message ?? 'Request failed'),
+        logId: await record(statusCode, response, false),
+      };
+    }
   }
 
   // LOGS

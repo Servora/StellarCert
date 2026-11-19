@@ -11,11 +11,29 @@ import { randomUUID as uuidv4 } from 'crypto';
 import { extname } from 'path';
 import { LoggingService } from '../../../common/logging/logging.service';
 
+export const DEFAULT_STORAGE_REGION = 'us-east-1';
+
+/**
+ * The region for the S3 client. The AWS default is only meaningful when talking
+ * to AWS itself: with a custom endpoint (MinIO, R2, Spaces, ...) the region has
+ * to be configured explicitly, because several providers reject requests signed
+ * for a region that does not match the endpoint.
+ */
+export function resolveStorageRegion(
+  region: string | undefined,
+  endpoint: string | undefined,
+): string | null {
+  const configured = region?.trim();
+  if (configured) return configured;
+  return endpoint?.trim() ? null : DEFAULT_STORAGE_REGION;
+}
+
 @Injectable()
 export class StorageService implements OnModuleInit {
   private readonly s3Client: S3Client | null = null;
   private readonly bucket: string;
   private readonly isStorageRequired: boolean;
+  private readonly regionMissingForEndpoint: boolean = false;
 
   constructor(
     private readonly configService: ConfigService,
@@ -36,10 +54,13 @@ export class StorageService implements OnModuleInit {
     const secretAccessKey =
       this.configService.get<string>('STORAGE_SECRET_KEY');
 
-    if (accessKeyId && secretAccessKey && this.bucket) {
+    const resolvedRegion = resolveStorageRegion(region, endpoint);
+    this.regionMissingForEndpoint = resolvedRegion === null;
+
+    if (accessKeyId && secretAccessKey && this.bucket && resolvedRegion) {
       this.s3Client = new S3Client({
-        region: region || 'us-east-1', // Default region if not provided
-        endpoint,
+        region: resolvedRegion,
+        endpoint: endpoint?.trim() || undefined,
         credentials: {
           accessKeyId,
           secretAccessKey,
@@ -61,6 +82,9 @@ export class StorageService implements OnModuleInit {
       }
       if (!this.bucket) {
         missingConfig.push('STORAGE_BUCKET');
+      }
+      if (this.regionMissingForEndpoint) {
+        missingConfig.push('STORAGE_REGION (required when STORAGE_ENDPOINT is set)');
       }
 
       if (this.isStorageRequired) {

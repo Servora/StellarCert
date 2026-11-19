@@ -486,4 +486,131 @@ describe('CertificateTransferService', () => {
       });
     });
   });
+
+  describe('email delivery through the Bull queue (transient SMTP errors)', () => {
+    let emailQueueService: any;
+    let queuedService: CertificateTransferService;
+
+    const initiate = () => {
+      certRepo.findOne.mockResolvedValue({
+        id: 'cert-1',
+        title: 'Blockchain Certified Developer',
+        issuerId: 'issuer-1',
+        recipientEmail: 'old@example.com',
+        recipientName: 'Old Owner',
+        status: 'active',
+      });
+      return queuedService.initiateTransfer(
+        {
+          certificateId: 'cert-1',
+          newOwnerEmail: 'newowner@example.com',
+          newOwnerName: 'New Owner',
+          reason: 'Change of legal name/address',
+        },
+        { id: 'issuer-1', role: UserRole.ISSUER },
+        '127.0.0.1',
+      );
+    };
+
+    const approve = () => {
+      const certificate = {
+        id: 'cert-1',
+        title: 'Blockchain Certified Developer',
+        issuerId: 'issuer-1',
+        recipientEmail: 'old@example.com',
+        recipientName: 'Old Owner',
+        status: 'active',
+        metadata: {},
+      };
+      transferRepo.findOne.mockResolvedValue({
+        id: 'transfer-1',
+        certificateId: 'cert-1',
+        fromEmail: 'old@example.com',
+        fromName: 'Old Owner',
+        toEmail: 'newowner@example.com',
+        toName: 'New Owner',
+        confirmationCode: '123456',
+        status: TransferStatus.PENDING,
+        failedAttempts: 0,
+        certificate,
+      });
+      certRepo.findOne.mockResolvedValue(certificate);
+      return queuedService.approveTransfer(
+        'transfer-1',
+        '123456',
+        { id: 'user-owner', role: UserRole.USER, email: 'newowner@example.com' },
+        '127.0.0.1',
+      );
+    };
+
+    beforeEach(() => {
+      emailQueueService = {
+        queueTransferConfirmationCode: jest.fn().mockResolvedValue(undefined),
+        queueTransferCompletedNotice: jest.fn().mockResolvedValue(undefined),
+      };
+      queuedService = new CertificateTransferService(
+        transferRepo,
+        certRepo,
+        auditService,
+        notificationsService,
+        logger,
+        userRepo,
+        emailService,
+        emailQueueService,
+      );
+    });
+
+    it('queues the confirmation-code email instead of sending it once', async () => {
+      await initiate();
+
+      expect(emailQueueService.queueTransferConfirmationCode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'newowner@example.com',
+          certificateId: 'cert-1',
+          confirmationCode: expect.any(String),
+        }),
+      );
+      expect(emailService.sendTransferConfirmationCode).not.toHaveBeenCalled();
+    });
+
+    it('queues the completion email too', async () => {
+      await approve();
+
+      expect(emailQueueService.queueTransferCompletedNotice).toHaveBeenCalledWith({
+        to: 'newowner@example.com',
+        recipientName: 'New Owner',
+        certificateTitle: 'Blockchain Certified Developer',
+        certificateId: 'cert-1',
+      });
+      expect(emailService.sendTransferCompletedNotice).not.toHaveBeenCalled();
+    });
+
+    it('falls back to a direct send when the queue cannot take the job', async () => {
+      emailQueueService.queueTransferConfirmationCode.mockRejectedValue(
+        new Error('redis down'),
+      );
+
+      await expect(initiate()).resolves.toBeDefined();
+
+      expect(emailService.sendTransferConfirmationCode).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Could not queue transfer confirmation email'),
+      );
+    });
+
+    it('does not fail the transfer when both the queue and the direct send fail', async () => {
+      emailQueueService.queueTransferConfirmationCode.mockRejectedValue(
+        new Error('redis down'),
+      );
+      emailService.sendTransferConfirmationCode.mockRejectedValue(
+        new Error('smtp down'),
+      );
+
+      await expect(initiate()).resolves.toBeDefined();
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to send transfer confirmation email'),
+      );
+    });
+  });
 });

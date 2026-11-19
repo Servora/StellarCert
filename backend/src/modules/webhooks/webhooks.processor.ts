@@ -1,7 +1,6 @@
 import { Process, Processor } from '@nestjs/bull';
 import type { Job } from 'bull';
 import axios from 'axios';
-import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -9,6 +8,7 @@ import { WebhookSubscription } from './entities/webhook-subscription.entity';
 import { WebhookLog } from './entities/webhook-log.entity';
 import { LoggingService } from '../../common/logging/logging.service';
 import { validateWebhookUrl } from '../../common/utils/ssrf.utils';
+import { webhookSignatureHeader } from './webhook-signature.util';
 
 @Processor('webhooks')
 export class WebhooksProcessor {
@@ -37,13 +37,14 @@ export class WebhooksProcessor {
     // Generate timestamp for signature
     const timestamp = Math.floor(Date.now() / 1000);
 
-    // Create HMAC-SHA256 signature using subscription-specific secret
+    // HMAC-SHA256 signature using the subscription-specific secret
     // Format: t=<timestamp>,v1=<signature>
     // Signature is computed over: <timestamp>.<json_payload>
-    const signature = crypto
-      .createHmac('sha256', subscription.secret)
-      .update(`${timestamp}.${JSON.stringify(payload)}`)
-      .digest('hex');
+    const signatureHeader = webhookSignatureHeader(
+      subscription.secret,
+      payload,
+      timestamp,
+    );
 
     // SSRF protection: validate the URL before dispatch
     const validation = await validateWebhookUrl(subscription.url);
@@ -67,7 +68,7 @@ export class WebhooksProcessor {
         headers: {
           'Content-Type': 'application/json',
           'X-StellarCert-Event': event,
-          'X-StellarCert-Signature': `t=${timestamp},v1=${signature}`,
+          'X-StellarCert-Signature': signatureHeader,
           'User-Agent': 'StellarCert-Webhook/1.0',
         },
         timeout: 10000,

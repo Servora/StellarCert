@@ -27,6 +27,18 @@ export class AuditCleanupJob {
       return;
     }
 
+    // Keep the (short-lived) lock while the cleanup runs, however long it takes.
+    const stopHeartbeat = this.distributedLock.startHeartbeat(
+      AUDIT_CLEANUP_LOCK,
+      lockToken,
+      {
+        onLost: () =>
+          this.logger.warn(
+            'Lost the audit cleanup lock while the job was still running',
+          ),
+      },
+    );
+
     try {
       // Retrieves AUDIT_RETENTION_DAYS from environment config
       // Defaults to 90 days if not configured
@@ -100,6 +112,7 @@ export class AuditCleanupJob {
         }
       }
     } finally {
+      stopHeartbeat();
       await this.distributedLock.release(AUDIT_CLEANUP_LOCK, lockToken);
     }
   }

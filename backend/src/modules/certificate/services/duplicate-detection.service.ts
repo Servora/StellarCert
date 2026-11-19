@@ -1,4 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -351,7 +352,7 @@ export class DuplicateDetectionService {
     requestedBy: string,
   ): OverrideRequest {
     const request: OverrideRequest = {
-      id: `override_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `override_${randomUUID()}`,
       certificateId,
       reason,
       requestedBy,

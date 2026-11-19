@@ -26,6 +26,18 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/constants/roles';
 import { CurrentUser } from '../users/decorators/current-user.decorator';
+import { RateLimit } from '../security/decorators/rate-limit.decorator';
+
+/**
+ * Test deliveries send a real HTTP request to the subscription's URL, so they
+ * are limited per issuer (falling back to the client IP when no user is
+ * resolved yet) to stop the endpoint being used as a traffic generator.
+ */
+export const WEBHOOK_TEST_RATE_LIMIT = {
+  limit: 5,
+  windowMs: 60_000,
+  keyBy: 'user',
+} as const;
 
 @ApiTags('Webhooks')
 @Controller('webhooks')
@@ -76,6 +88,7 @@ export class WebhooksController {
   }
 
   @Post('test')
+  @RateLimit(WEBHOOK_TEST_RATE_LIMIT)
   @ApiOperation({ summary: 'Send a test webhook event' })
   async test(
     @CurrentUser('id') issuerId: string,
@@ -107,6 +120,7 @@ export class WebhooksController {
   }
 
   @Post('test/sync')
+  @RateLimit(WEBHOOK_TEST_RATE_LIMIT)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:

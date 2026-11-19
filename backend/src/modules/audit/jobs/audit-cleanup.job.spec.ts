@@ -37,6 +37,7 @@ describe('AuditCleanupJob', () => {
           provide: DistributedLockService,
           useValue: {
             acquire: jest.fn().mockResolvedValue('lock-token'),
+            startHeartbeat: jest.fn().mockReturnValue(jest.fn()),
             release: jest.fn().mockResolvedValue(undefined),
           },
         },

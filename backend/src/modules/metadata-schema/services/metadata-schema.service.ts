@@ -21,13 +21,20 @@ import {
 } from '../dto/metadata-schema.dto';
 import { LoggingService } from '../../../common/logging/logging.service';
 import { UserRole } from '../../../common/constants/roles';
+import {
+  findUnsafePatternReason,
+  MAX_PATTERN_INPUT_LENGTH,
+  PatternTimeoutError,
+  testPatternWithTimeout,
+} from './safe-pattern.util';
 
 const MAX_PATTERN_LENGTH = 200;
 
 /**
  * Rejects patterns that do not compile or that look prone to catastrophic backtracking
  * (a quantified group that itself contains a quantifier, such as `(a+)+$`). This is a
- * conservative heuristic, not a proof; a linear-time engine such as `re2` would be stronger.
+ * conservative heuristic, not a proof (see `findUnsafePatternReason`); execution is additionally
+ * time-boxed by `testPatternWithTimeout` when values are validated.
  */
 export function assertSafePattern(fieldName: string, pattern: string): RegExp {
   if (pattern.length > MAX_PATTERN_LENGTH) {
@@ -35,9 +42,10 @@ export function assertSafePattern(fieldName: string, pattern: string): RegExp {
       `Pattern for field "${fieldName}" is longer than ${MAX_PATTERN_LENGTH} characters`,
     );
   }
-  if (/\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)[+*{]/.test(pattern)) {
+  const unsafeReason = findUnsafePatternReason(pattern);
+  if (unsafeReason) {
     throw new BadRequestException(
-      `Pattern for field "${fieldName}" contains nested quantifiers and is not allowed`,
+      `Pattern for field "${fieldName}" ${unsafeReason} and is not allowed`,
     );
   }
   try {
@@ -332,7 +340,30 @@ export class MetadataSchemaService {
         if (field.pattern) {
           // Patterns are validated on create/update; recompile defensively for legacy rows.
           const regex = assertSafePattern(field.name, field.pattern);
-          if (!regex.test(value)) {
+          let matched = false;
+          let unchecked: string | null = null;
+          if (value.length > MAX_PATTERN_INPUT_LENGTH) {
+            unchecked = `"${field.name}" is too long to check against its pattern`;
+          } else {
+            try {
+              // Time-boxed so a pattern the static check missed cannot hang the worker.
+              matched = testPatternWithTimeout(regex, value);
+            } catch (error) {
+              if (!(error instanceof PatternTimeoutError)) throw error;
+              this.logger.warn(
+                `Pattern for field "${field.name}" timed out while validating a value`,
+              );
+              unchecked = `"${field.name}" could not be checked against its pattern in time`;
+            }
+          }
+          if (unchecked) {
+            errors.push({
+              field: field.name,
+              message: unchecked,
+              value,
+              constraint: 'pattern',
+            });
+          } else if (!matched) {
             errors.push({
               field: field.name,
               message: `"${field.name}" does not match required pattern`,

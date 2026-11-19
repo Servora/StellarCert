@@ -29,3 +29,26 @@ describe('WebhooksController access', () => {
     ]);
   });
 });
+
+describe('WebhooksController test endpoint', () => {
+  const subscription = { id: 's1' };
+  const build = (queued: boolean) => {
+    const service = {
+      findOneWithSecret: jest.fn().mockResolvedValue(subscription),
+      triggerEventForSubscription: jest.fn().mockResolvedValue(queued),
+    };
+    return new WebhooksController(service as never);
+  };
+
+  it('reports success when the test event was queued', async () => {
+    await expect(build(true).test('issuer-1', 's1')).resolves.toEqual({
+      message: 'Test event queued successfully',
+    });
+  });
+
+  it('does not claim success when nothing was queued', async () => {
+    await expect(build(false).test('issuer-1', 's1')).rejects.toThrow(
+      'Could not queue the test event',
+    );
+  });
+});

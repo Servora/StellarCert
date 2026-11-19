@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import {
   listSessions,
   revokeAllSessions,
@@ -19,6 +21,8 @@ export default function AccountSecurity({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const { clearAuth } = useAuth();
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -58,9 +62,11 @@ export default function AccountSecurity({
     setBusyId('all');
     try {
       await revokeAllSessions();
-      await reload();
-      // Force a full re-login on this device as well.
-      window.location.href = '/login';
+      // This device's session was revoked too, so tear down auth state the
+      // same way logout does (drops the in-memory token and the query cache)
+      // and route to login inside the SPA rather than with a hard reload (#1325).
+      clearAuth();
+      navigate('/login', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign out everywhere');
       setBusyId(null);

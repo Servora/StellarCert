@@ -115,6 +115,9 @@ export default function VerifyCertificate(): JSX.Element {
   useEffect(() => {
     const serialParam = searchParams.get("serial")?.trim() || code?.trim();
     if (serialParam) {
+      // Syncs an editable input from the URL; the user can still change it
+      // afterwards, so this isn't state purely derived from searchParams.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSerial(serialParam);
       setVerifiedSerial(serialParam);
     }

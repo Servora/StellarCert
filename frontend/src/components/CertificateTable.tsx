@@ -423,8 +423,9 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
         }
     };
 
-    // Sort icon component
-    const SortIcon = ({ field }: { field: SortField }) => {
+    // Sort icon: a plain render helper (not a component) so it isn't redeclared
+    // on every render of CertificateTable.
+    const renderSortIcon = (field: SortField) => {
         if (sortBy !== field) return null;
         return sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />;
     };
@@ -443,42 +444,6 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     // True while one of the dialogs that can display `actionError` is open, so
     // the message is rendered next to the action that failed, not twice.
     const anyModalOpen = showFreezeModal || showRevokeModal || showTransferModal || showHistoryModal;
-
-    // Export selected button
-    const ExportButton = () => (
-        <button
-            onClick={handleBulkExport}
-            disabled={selectedIds.size === 0 || pendingAction !== null}
-            className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-800 dark:text-gray-200 dark:border-slate-600 dark:hover:bg-slate-700"
-        >
-            <Download className="w-4 h-4 mr-2" />
-            Export ({selectedIds.size})
-        </button>
-    );
-
-    // Export all filtered button
-    const ExportAllButton = () => (
-        <button
-            onClick={handleBulkExportAll}
-            disabled={exportingFiltered || filteredCount === 0 || pendingAction !== null}
-            className="inline-flex items-center px-3 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-300 rounded-md hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-600 dark:hover:bg-blue-900/30"
-        >
-            <Download className="w-4 h-4 mr-2" />
-            {exportingFiltered ? 'Exporting...' : `Export All (${filteredCount})`}
-        </button>
-    );
-
-    // Revoke button
-    const RevokeButton = () => (
-        <button
-            onClick={handleBulkRevoke}
-            disabled={selectedIds.size === 0 || pendingAction !== null}
-            className="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-            <XCircle className="w-4 h-4 mr-2" />
-            Revoke ({selectedIds.size})
-        </button>
-    );
 
     return (
         <div className="space-y-4">
@@ -542,9 +507,30 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
 
                 {/* Bulk Actions */}
                 <div className="flex gap-2 mt-4">
-                    <ExportButton />
-                    <ExportAllButton />
-                    <RevokeButton />
+                    <button
+                        onClick={handleBulkExport}
+                        disabled={selectedIds.size === 0 || pendingAction !== null}
+                        className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-800 dark:text-gray-200 dark:border-slate-600 dark:hover:bg-slate-700"
+                    >
+                        <Download className="w-4 h-4 mr-2" />
+                        Export ({selectedIds.size})
+                    </button>
+                    <button
+                        onClick={handleBulkExportAll}
+                        disabled={exportingFiltered || filteredCount === 0 || pendingAction !== null}
+                        className="inline-flex items-center px-3 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-300 rounded-md hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-600 dark:hover:bg-blue-900/30"
+                    >
+                        <Download className="w-4 h-4 mr-2" />
+                        {exportingFiltered ? 'Exporting...' : `Export All (${filteredCount})`}
+                    </button>
+                    <button
+                        onClick={handleBulkRevoke}
+                        disabled={selectedIds.size === 0 || pendingAction !== null}
+                        className="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <XCircle className="w-4 h-4 mr-2" />
+                        Revoke ({selectedIds.size})
+                    </button>
                 </div>
             </div>
 
@@ -572,7 +558,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                 >
                                     <div className="flex items-center">
                                         Certificate ID
-                                        <SortIcon field="serialNumber" />
+                                        {renderSortIcon('serialNumber')}
                                     </div>
                                 </th>
                                 <th
@@ -581,7 +567,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                 >
                                     <div className="flex items-center">
                                         Recipient
-                                        <SortIcon field="recipientName" />
+                                        {renderSortIcon('recipientName')}
                                     </div>
                                 </th>
                                 <th
@@ -590,7 +576,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                 >
                                     <div className="flex items-center">
                                         Title
-                                        <SortIcon field="title" />
+                                        {renderSortIcon('title')}
                                     </div>
                                 </th>
                                 <th
@@ -599,7 +585,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                 >
                                     <div className="flex items-center">
                                         Issuer
-                                        <SortIcon field="issuerName" />
+                                        {renderSortIcon('issuerName')}
                                     </div>
                                 </th>
                                 <th
@@ -608,7 +594,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                 >
                                     <div className="flex items-center">
                                         Issue Date
-                                        <SortIcon field="issueDate" />
+                                        {renderSortIcon('issueDate')}
                                     </div>
                                 </th>
                                 <th
@@ -617,7 +603,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                 >
                                     <div className="flex items-center">
                                         Status
-                                        <SortIcon field="status" />
+                                        {renderSortIcon('status')}
                                     </div>
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">

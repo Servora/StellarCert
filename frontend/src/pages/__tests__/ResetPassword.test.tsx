@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import ResetPassword from '../ResetPassword';
 import { authApi } from '../../api/endpoints';
@@ -67,5 +67,28 @@ describe('ResetPassword error handling (#996)', () => {
     await waitFor(() => {
       expect(screen.getByText('An unexpected error occurred')).toBeInTheDocument();
     });
+  });
+});
+
+describe('ResetPassword missing-token link (#1324)', () => {
+  it('navigates to /login client-side instead of a full page reload', () => {
+    render(
+      <MemoryRouter initialEntries={['/reset-password']}>
+        <Routes>
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/login" element={<div>Login page</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const link = screen.getByRole('link', { name: /request a new reset link/i });
+    expect(link).toHaveAttribute('href', '/login');
+
+    // A raw <a href> is not intercepted by MemoryRouter, so the route would
+    // not change; a router Link swaps the element without leaving the SPA.
+    fireEvent.click(link);
+
+    expect(screen.getByText('Login page')).toBeInTheDocument();
+    expect(screen.queryByText(/missing or invalid reset token/i)).not.toBeInTheDocument();
   });
 });

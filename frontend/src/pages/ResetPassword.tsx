@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { authApi } from "../api";
 import { getErrorMessage } from "../api/types";
 
@@ -54,12 +54,12 @@ const ResetPassword = () => {
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-md p-8 w-full max-w-md text-center">
           <h1 className="text-2xl font-bold mb-4">Reset Password</h1>
           <p className="text-red-600 mb-4">Missing or invalid reset token.</p>
-          <a
-            href="/login"
+          <Link
+            to="/login"
             className="text-blue-600 dark:text-blue-400 hover:underline"
           >
             Request a new reset link
-          </a>
+          </Link>
         </div>
       </div>
     );

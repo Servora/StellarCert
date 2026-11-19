@@ -11,6 +11,8 @@ import { isValidStellarPublicKey } from './utils/stellar';
 import {
   IssuerPaginationQueryDto,
   IPaginatedResult,
+  ISSUER_SORT_FIELDS,
+  ISSUER_MAX_PAGE_SIZE,
 } from './dto/pagination.dto';
 import { IssuerTier } from '../../common/rate-limiting/rate-limit.types';
 
@@ -39,14 +41,19 @@ export class IssuersService {
     query: IssuerPaginationQueryDto,
   ): Promise<IPaginatedResult<Issuer>> {
     const {
-      page = 1,
-      limit = 20,
       sortBy = 'createdAt',
       sortOrder = 'DESC',
       isActive,
       search,
       tier,
     } = query;
+    // The DTO validates these for HTTP callers; clamp again so a direct caller
+    // can never ask for an unbounded page.
+    const page = Math.max(1, Math.trunc(Number(query.page)) || 1);
+    const limit = Math.min(
+      ISSUER_MAX_PAGE_SIZE,
+      Math.max(1, Math.trunc(Number(query.limit)) || 20),
+    );
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.issuerRepo.createQueryBuilder('issuer');
@@ -68,15 +75,9 @@ export class IssuersService {
       });
     }
 
-    const allowedSortFields = [
-      'createdAt',
-      'updatedAt',
-      'name',
-      'stellarPublicKey',
-      'tier',
-      'certificateCount',
-    ];
-    const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    const sortField = (ISSUER_SORT_FIELDS as readonly string[]).includes(sortBy)
+      ? sortBy
+      : 'createdAt';
     queryBuilder.orderBy(`issuer.${sortField}`, sortOrder);
 
     const [data, total] = await queryBuilder

@@ -96,4 +96,22 @@ export class WebhooksController {
 
     return { message: 'Test event queued successfully' };
   }
+
+  @Post('test/sync')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Send a test webhook now and return the endpoint outcome (status code, duration, response)',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Delivery outcome. `success: false` means the endpoint rejected or did not answer the test, not that this request failed.',
+  })
+  async testSync(
+    @CurrentUser('id') issuerId: string,
+    @Body('subscriptionId') subscriptionId: string,
+  ) {
+    return this.webhooksService.testDeliverySync(subscriptionId, issuerId);
+  }
 }

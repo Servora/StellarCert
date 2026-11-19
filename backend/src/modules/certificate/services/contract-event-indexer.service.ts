@@ -23,6 +23,13 @@ import { LoggingService } from '../../../common/logging/logging.service';
 const CURSOR_NAME = 'soroban-contract-events';
 const PAGE_LIMIT = 100;
 const MAX_PAGES_PER_RUN = 20;
+/**
+ * While the indexer is working through a backlog, webhooks are dispatched at
+ * most this many per second (override with
+ * `CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND`). Steady-state polling,
+ * where a page is not full, is never throttled.
+ */
+const DEFAULT_CATCHUP_WEBHOOKS_PER_SECOND = 20;
 
 /**
  * Mirrors on-chain state into the database.
@@ -33,6 +40,10 @@ const MAX_PAGES_PER_RUN = 20;
  * Webhooks fire only when an event actually changes the stored state, so
  * replays and events for changes the backend already made are silent.
  *
+ * Webhook fan-out is paced while catching up on a backlog (see
+ * `DEFAULT_CATCHUP_WEBHOOKS_PER_SECOND`) so a newly enabled indexer cannot flood
+ * subscriber endpoints; chain state is still applied at full speed per page.
+ *
  * Disabled unless `CONTRACT_EVENT_INDEXER_ENABLED=true`. When there is no
  * cursor yet, indexing starts at `CONTRACT_EVENT_INDEXER_START_LEDGER` or, if
  * unset, at the current ledger.
@@ -40,6 +51,9 @@ const MAX_PAGES_PER_RUN = 20;
 @Injectable()
 export class ContractEventIndexerService {
   private running = false;
+  /** True while the current page was full or earlier pages were: a backlog. */
+  private catchingUp = false;
+  private lastDispatchAt = 0;
 
   constructor(
     @InjectRepository(Certificate)
@@ -110,6 +124,9 @@ export class ContractEventIndexerService {
         limit: PAGE_LIMIT,
       });
 
+      // A full page (or any page after the first) means there is a backlog.
+      this.catchingUp = page > 0 || result.events.length >= PAGE_LIMIT;
+
       for (const event of result.events) {
         await this.handleEvent(event);
         processed++;
@@ -135,7 +152,45 @@ export class ContractEventIndexerService {
 
       if (result.events.length < PAGE_LIMIT) break;
     }
+    this.catchingUp = false;
     return processed;
+  }
+
+  /** Test seam: the clock. */
+  protected now(): number {
+    return Date.now();
+  }
+
+  /** Test seam: waiting. */
+  protected sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private catchUpWebhooksPerSecond(): number {
+    const configured = Number(
+      this.configService.get('CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND'),
+    );
+    return Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_CATCHUP_WEBHOOKS_PER_SECOND;
+  }
+
+  /**
+   * Dispatch webhooks for an applied event. During backlog catch-up the
+   * dispatches are spaced out; otherwise they go out immediately.
+   */
+  private async dispatchWebhook(
+    event: WebhookEvent,
+    issuerId: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    if (this.catchingUp) {
+      const gap = 1000 / this.catchUpWebhooksPerSecond();
+      const wait = this.lastDispatchAt + gap - this.now();
+      if (wait > 0) await this.sleep(wait);
+      this.lastDispatchAt = this.now();
+    }
+    await this.webhooksService.triggerEvent(event, issuerId, payload);
   }
 
   async handleEvent(event: RawContractEvent): Promise<void> {
@@ -201,7 +256,7 @@ export class ContractEventIndexerService {
     if (!cert || cert.status !== CertificateStatus.PENDING) return;
     cert.status = CertificateStatus.ACTIVE;
     await this.certificateRepository.save(cert);
-    await this.webhooksService.triggerEvent(
+    await this.dispatchWebhook(
       WebhookEvent.CERTIFICATE_ISSUED,
       cert.issuerId,
       { id: cert.id, status: cert.status, source: 'chain' },
@@ -219,7 +274,7 @@ export class ContractEventIndexerService {
     cert.revokedAt = new Date();
     if (reason) cert.revocationReason = reason;
     await this.certificateRepository.save(cert);
-    await this.webhooksService.triggerEvent(
+    await this.dispatchWebhook(
       WebhookEvent.CERTIFICATE_REVOKED,
       cert.issuerId,
       {
@@ -244,7 +299,7 @@ export class ContractEventIndexerService {
       frozenAt,
     };
     await this.certificateRepository.save(cert);
-    await this.webhooksService.triggerEvent(
+    await this.dispatchWebhook(
       WebhookEvent.CERTIFICATE_FROZEN,
       cert.issuerId,
       {
@@ -264,7 +319,7 @@ export class ContractEventIndexerService {
     const unfrozenAt = new Date();
     cert.metadata = { ...(cert.metadata ?? {}), unfrozenAt };
     await this.certificateRepository.save(cert);
-    await this.webhooksService.triggerEvent(
+    await this.dispatchWebhook(
       WebhookEvent.CERTIFICATE_UNFROZEN,
       cert.issuerId,
       { id: cert.id, status: cert.status, unfrozenAt, source: 'chain' },

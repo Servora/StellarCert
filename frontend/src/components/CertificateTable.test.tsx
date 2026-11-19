@@ -1,7 +1,7 @@
 import React from 'react';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import CertificateTable from './CertificateTable';
 import { certificateApi, auditApi } from '../api/endpoints';
 import type { Certificate } from '../api';
@@ -420,5 +420,77 @@ describe('CertificateTable pagination on empty results (#999)', () => {
     expect(nextButton).toBeInTheDocument();
     expect(prevButton).toBeDisabled();
     expect(nextButton).toBeDisabled();
+  });
+});
+
+describe('CertificateTable export validation', () => {
+  const renderWithHandlers = async () => {
+    const onError = vi.fn();
+    const onSuccess = vi.fn();
+    listResolvesWith([certificate()]);
+    renderWithProviders(<CertificateTable onError={onError} onSuccess={onSuccess} />);
+    await screen.findByText('Ada Lovelace');
+    return { onError, onSuccess };
+  };
+
+  const createObjectURL = vi.fn(() => 'blob:export');
+  const revokeObjectURL = vi.fn();
+  let click: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(auditApi.getCertificateHistory).mockResolvedValue([]);
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  });
+
+  afterEach(() => click.mockRestore());
+
+  const exportSelection = async () => {
+    await userEvent.click(screen.getAllByRole('checkbox')[1]);
+    await userEvent.click(screen.getByRole('button', { name: /export \(1\)/i }));
+  };
+
+  it('downloads a valid CSV', async () => {
+    const { onSuccess } = await renderWithHandlers();
+    vi.mocked(certificateApi.bulkExport).mockResolvedValueOnce(
+      new Blob(['ID,Name\n1,Ada'], { type: 'text/csv' }),
+    );
+
+    await exportSelection();
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('Certificates exported successfully'));
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not download a JSON error body returned with a 200, and shows its message', async () => {
+    const { onError } = await renderWithHandlers();
+    vi.mocked(certificateApi.bulkExport).mockResolvedValueOnce(
+      new Blob(['{"message":"Export limit exceeded"}'], { type: 'application/json' }),
+    );
+
+    await exportSelection();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/export limit exceeded/i);
+    expect(onError).toHaveBeenCalledWith(
+      'The server returned an error instead of a file: Export limit exceeded',
+    );
+    expect(click).not.toHaveBeenCalled();
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('does not download an empty export-all response', async () => {
+    const { onError } = await renderWithHandlers();
+    vi.mocked(certificateApi.bulkExportAll).mockResolvedValueOnce(new Blob([], { type: 'text/csv' }));
+
+    await userEvent.click(screen.getByRole('button', { name: /export all \(1\)/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/export was empty/i);
+    expect(onError).toHaveBeenCalledWith('The export was empty. No file was downloaded.');
+    expect(click).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /export all \(1\)/i })).toBeEnabled(),
+    );
   });
 });

@@ -37,10 +37,10 @@ pub use types::{
     CertPaginatedResult, Certificate, CertificateFrozenEvent, CertificateIssuedEvent,
     CertificateReinstatedEvent, CertificateReissuedEvent, CertificateRevokedEvent,
     CertificateStatus, CertificateSuspendedEvent, CertificateTransfer, CertificateUnfrozenEvent,
-    CertificateVersion, ContractVersion, DataKey, MultisigConfig, OptionalRequestStatus,
-    PaginatedResult, Pagination, PendingRequest, RequestStatus, SignatureResult,
-    TransferAcceptedEvent, TransferCompletedEvent, TransferHistoryEntry, TransferStatus,
-    VerificationReport, VerificationResult,
+    CertificateVersion, ContractVersion, DataKey, IssuerAddedEvent, IssuerRemovedEvent,
+    MultisigConfig, OptionalRequestStatus, PaginatedResult, Pagination, PendingRequest,
+    RequestStatus, SignatureResult, TransferAcceptedEvent, TransferCompletedEvent,
+    TransferHistoryEntry, TransferStatus, VerificationReport, VerificationResult,
 };
 
 mod multisig;
@@ -139,7 +139,8 @@ impl CertificateContract {
         admin.require_auth();
 
         let key = DataKey::Issuer(issuer.clone());
-        if !env.storage().persistent().has(&key) {
+        let is_new_issuer = !env.storage().persistent().has(&key);
+        if is_new_issuer {
             let count: u32 = env
                 .storage()
                 .persistent()
@@ -156,6 +157,14 @@ impl CertificateContract {
             Self::set_persistent(&env, &DataKey::Issuers, &issuers);
         }
         Self::set_persistent(&env, &key, &true);
+
+        if is_new_issuer {
+            IssuerAddedEvent {
+                topic_issuer: issuer.clone(),
+                issuer,
+            }
+            .publish(&env);
+        }
     }
 
     /// Check if an address is an authorized issuer
@@ -218,6 +227,12 @@ impl CertificateContract {
             Self::set_persistent(&env, &DataKey::Issuers, &updated);
 
             env.storage().persistent().remove(&key);
+
+            IssuerRemovedEvent {
+                topic_issuer: issuer.clone(),
+                issuer,
+            }
+            .publish(&env);
         }
     }
 
@@ -624,7 +639,7 @@ impl CertificateContract {
         }
 
         // Get original certificate
-        let original_cert: Certificate = env
+        let mut original_cert: Certificate = env
             .storage()
             .persistent()
             .get(&DataKey::Certificate(old_id.clone()))
@@ -655,7 +670,7 @@ impl CertificateContract {
         let new_cert = Certificate {
             id: new_id.clone(),
             issuer: issuer.clone(),
-            owner: new_owner.unwrap_or(original_cert.owner),
+            owner: new_owner.unwrap_or_else(|| original_cert.owner.clone()),
             status: CertificateStatus::Active,
             metadata_uri: new_metadata_uri,
             issued_at: env.ledger().timestamp(),
@@ -668,15 +683,34 @@ impl CertificateContract {
 
         // Store new certificate
         Self::set_persistent(&env, &DataKey::Certificate(new_id.clone()), &new_cert);
+        Self::append_cert_id(&env, DataKey::IssuerCertIds(issuer.clone()), new_id.clone());
+        Self::append_cert_id(
+            &env,
+            DataKey::OwnerCertIds(new_cert.owner.clone()),
+            new_id.clone(),
+        );
+
+        let revocation_reason = String::from_str(&env, "superseded");
+        original_cert.status = CertificateStatus::Revoked;
+        original_cert.revocation_reason = Some(revocation_reason.clone());
+        Self::set_persistent(&env, &DataKey::Certificate(old_id.clone()), &original_cert);
+        Self::mirror_revocation_to_crl(&env, &issuer, &old_id, &revocation_reason);
 
         // Emit a distinct reissued event so indexers can tell a reissue apart
         // from a fresh issuance and observe the parent (old) certificate link.
         CertificateReissuedEvent {
             topic_id: new_id.clone(),
-            id: new_id,
+            id: new_id.clone(),
             old_id: old_id.clone(),
             issuer,
-            owner: new_cert.owner,
+            owner: new_cert.owner.clone(),
+        }
+        .publish(&env);
+
+        CertificateRevokedEvent {
+            topic_id: old_id.clone(),
+            id: old_id,
+            reason: revocation_reason,
         }
         .publish(&env);
     }

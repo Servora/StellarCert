@@ -48,6 +48,25 @@ fn test_admin_multisig_flow() {
 }
 
 #[test]
+fn initializes_certificate_contract_with_multisig_as_admin() {
+    let env = Env::default();
+    let admin_multisig_id = env.register(AdminMultisigContract, ());
+    let admin_multisig = AdminMultisigContractClient::new(&env, &admin_multisig_id);
+    let certificate_id = env.register(CertificateContract, ());
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signers = Vec::from_array(&env, [signer1.clone(), signer2]);
+
+    env.mock_all_auths();
+    admin_multisig.init_admin_multisig(&2, &signers, &10);
+    admin_multisig.set_admin_certificate_contract(&signer1, &certificate_id);
+    admin_multisig.initialize_certificate_contract(&signer1);
+
+    let certificate = CertificateContractClient::new(&env, &certificate_id);
+    assert_eq!(certificate.get_admin(), Some(admin_multisig_id));
+}
+
+#[test]
 fn test_get_pending_proposals_for_signer_is_paginated_and_filters_terminal_proposals() {
     let env = Env::default();
     let contract_id = env.register(AdminMultisigContract, ());
@@ -388,6 +407,19 @@ fn test_init_rejects_threshold_above_signer_count() {
 
     env.mock_all_auths();
     client.init_admin_multisig(&5, &signers, &10); // threshold=5 > 3 signers → panic
+}
+
+#[test]
+#[should_panic(expected = "Invalid admin multisig configuration")]
+fn test_init_rejects_duplicate_signers() {
+    let env = Env::default();
+    let contract_id = env.register(AdminMultisigContract, ());
+    let client = AdminMultisigContractClient::new(&env, &contract_id);
+    let signer = Address::generate(&env);
+    let signers = Vec::from_array(&env, [signer.clone(), signer]);
+
+    env.mock_all_auths();
+    client.init_admin_multisig(&2, &signers, &10);
 }
 
 #[test]

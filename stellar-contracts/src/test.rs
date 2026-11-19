@@ -276,12 +276,16 @@ fn test_reissue_certificate() {
     assert_eq!(new_cert.metadata_uri, new_metadata);
     assert_eq!(new_cert.parent_certificate_id, Some(old_id.clone()));
 
-    // Verify original certificate still exists
+    // The superseded original remains indexed but can no longer validate.
     let original_cert = client
         .get_certificate(&old_id)
         .expect("Certificate should exist");
     assert_eq!(original_cert.id, old_id);
-    assert_eq!(original_cert.status, CertificateStatus::Active); // Original remains active
+    assert_eq!(original_cert.status, CertificateStatus::Revoked);
+    assert_eq!(
+        original_cert.revocation_reason,
+        Some(String::from_str(&env, "superseded"))
+    );
 }
 
 #[test]

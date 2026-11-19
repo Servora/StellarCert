@@ -208,6 +208,40 @@ fn issue_certificate_emits_issued_event() {
 }
 
 #[test]
+fn update_certificate_metadata_emits_metadata_updated_event() {
+    let env = Env::default();
+    let (contract_id, issuer) = setup_certificate_contract(&env);
+    let client = CertificateContractClient::new(&env, &contract_id);
+
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-metadata-update");
+    let original_uri = String::from_str(&env, "ipfs://original");
+    let updated_uri = String::from_str(&env, "ipfs://updated");
+    client.issue_certificate(&id, &issuer, &owner, &original_uri, &None);
+
+    client.update_certificate_metadata(&id, &updated_uri);
+
+    assert_events(
+        &env,
+        &contract_id,
+        &[(
+            std::vec![
+                Symbol::new(&env, "metadata_updated").into_val(&env),
+                id.clone().into_val(&env),
+            ],
+            legacy_payload(
+                &env,
+                &[
+                    ("id", id.clone().into_val(&env)),
+                    ("metadata_uri", updated_uri.into_val(&env)),
+                    ("updated_by", issuer.into_val(&env)),
+                ],
+            ),
+        )],
+    );
+}
+
+#[test]
 fn revoke_certificate_emits_revoked_event() {
     let env = Env::default();
     let (contract_id, issuer) = setup_certificate_contract(&env);
@@ -734,6 +768,13 @@ fn migrated_events_are_described_in_the_contract_spec() {
             ["id", "issuer", "owner"]
         ),
         event_spec!(
+            CertificateMetadataUpdatedEvent,
+            ["metadata_updated"],
+            Map,
+            ["topic_id"],
+            ["id", "metadata_uri", "updated_by"]
+        ),
+        event_spec!(
             CertificateReissuedEvent,
             ["reissued"],
             Map,
@@ -851,7 +892,7 @@ fn migrated_events_are_described_in_the_contract_spec() {
         ),
     ];
 
-    assert_eq!(cases.len(), 16, "expected a spec entry per event type");
+    assert_eq!(cases.len(), 17, "expected a spec entry per event type");
 
     for case in cases {
         let name = case.name;

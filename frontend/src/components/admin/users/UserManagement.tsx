@@ -5,6 +5,7 @@ import type { User as ApiUser } from '../../../api/types';
 import { getErrorMessage } from '../../../api/types';
 import { useUserListQuery } from '../../../api/queries';
 import { useDebounce } from '../../../hooks/useDebounce';
+import UserActivityModal from './UserActivityModal';
 
 interface User extends ApiUser {
   name?: string;
@@ -19,6 +20,7 @@ const UserManagement: React.FC = () => {
   const [limit, setLimit] = useState(10);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [activityUser, setActivityUser] = useState<{ id: string; name: string } | null>(null);
 
   // Debounced so typing a name doesn't fire a request per keystroke. The list is
   // cached per (search, role, page, limit), so switching back to a previous
@@ -74,6 +76,9 @@ const UserManagement: React.FC = () => {
     } catch (err: unknown) { setActionError(getErrorMessage(err)); }
   };
 
+  const displayName = (user: User) =>
+    user.name || `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.email;
+
   const roleBadge = (role: string) =>
     ({ admin: 'bg-purple-100 text-purple-800', issuer: 'bg-blue-100 text-blue-800', recipient: 'bg-gray-100 text-gray-800' }[role] || 'bg-gray-100 text-gray-700');
 
@@ -111,7 +116,7 @@ const UserManagement: React.FC = () => {
                   <tr key={user.id} className={updatingId === user.id ? 'opacity-50 pointer-events-none' : ''}>
                     <td className="px-6 py-4">
                       <div className="font-medium text-gray-900 text-sm">
-                        {user.name || `${user.firstName} ${user.lastName}`.trim()}
+                        {displayName(user)}
                       </div>
                       <div className="text-gray-500 text-xs">{user.email}</div>
                     </td>
@@ -133,7 +138,12 @@ const UserManagement: React.FC = () => {
                       {user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never'}
                     </td>
                     <td className="px-6 py-4">
-                      <button onClick={() => handleDelete(user.id)} className="text-red-500 hover:text-red-700 text-sm font-medium">Delete</button>
+                      <div className="flex items-center gap-4">
+                        <button type="button" onClick={() => setActivityUser({ id: user.id, name: displayName(user) })}
+                          aria-label={`View activity for ${displayName(user)}`}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium">View Activity</button>
+                        <button onClick={() => handleDelete(user.id)} className="text-red-500 hover:text-red-700 text-sm font-medium">Delete</button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -185,6 +195,9 @@ const UserManagement: React.FC = () => {
             </div>
           </div>
         )}
+      {activityUser && (
+        <UserActivityModal user={activityUser} onClose={() => setActivityUser(null)} />
+      )}
     </div>
   );
 };

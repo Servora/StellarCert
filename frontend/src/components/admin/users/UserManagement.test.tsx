@@ -1,7 +1,7 @@
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import UserManagement from "./UserManagement";
-import { userApi } from "../../../api/endpoints";
+import { auditApi, userApi } from "../../../api/endpoints";
 import { UserRole, type User } from "../../../api/types";
 import { renderWithProviders } from "../../../test/renderWithProviders";
 
@@ -11,6 +11,9 @@ vi.mock("../../../api/endpoints", () => ({
     updateRole: vi.fn(),
     toggleStatus: vi.fn(),
     delete: vi.fn(),
+  },
+  auditApi: {
+    searchLogs: vi.fn(),
   },
 }));
 
@@ -117,5 +120,71 @@ describe("UserManagement pagination (#1323)", () => {
     await waitFor(() =>
       expect(lastParams()).toMatchObject({ page: 1, limit: 10, role: "issuer" }),
     );
+  });
+});
+
+describe("UserManagement activity history (#1322)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(userApi.getAll).mockResolvedValue(serverPage(1, 10, 2) as never);
+  });
+
+  it("opens the user's audit activity from a View Activity row action", async () => {
+    vi.mocked(auditApi.searchLogs).mockResolvedValue({
+      data: [
+        {
+          id: "a1",
+          action: "CERTIFICATE_ISSUE",
+          description: "Issued Blockchain Fundamentals",
+          timestamp: "1767225600000",
+        },
+      ],
+      total: 1,
+    });
+    renderWithProviders(<UserManagement />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "View activity for User 2" }),
+    );
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Activity History — User 2",
+    });
+    expect(auditApi.searchLogs).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "u2", take: 20 }),
+    );
+    expect(
+      await within(dialog).findByText("Certificate issue"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("Issued Blockchain Fundamentals"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Close activity history" }),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("shows an empty state when the user has no activity", async () => {
+    vi.mocked(auditApi.searchLogs).mockResolvedValue({ data: [], total: 0 });
+    renderWithProviders(<UserManagement />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "View activity for User 1" }),
+    );
+
+    expect(await screen.findByText("No activity found.")).toBeInTheDocument();
+  });
+
+  it("surfaces a failed activity request", async () => {
+    vi.mocked(auditApi.searchLogs).mockRejectedValue(new Error("Forbidden"));
+    renderWithProviders(<UserManagement />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "View activity for User 1" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Forbidden");
   });
 });

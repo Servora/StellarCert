@@ -1,12 +1,49 @@
 import Modal from '../../Modal';
-import { User } from './types';
+import { useAuditSearchQuery } from '../../../api/queries';
+import type { AuditLogItem } from '../../../api/types';
+
+/** Most recent audit entries shown for a user. */
+export const USER_ACTIVITY_LIMIT = 20;
 
 interface Props {
-  user: User;
+  user: { id: string; name: string };
   onClose: () => void;
 }
 
+// Audit timestamps arrive either as epoch milliseconds or as ISO strings.
+const formatTimestamp = (timestamp: string) => {
+  const parsed = /^\d+$/.test(timestamp)
+    ? new Date(Number(timestamp))
+    : new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? timestamp : parsed.toLocaleString();
+};
+
+const formatAction = (action: string) =>
+  action
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((word, i) => (i === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .join(' ');
+
+const describeEntry = (log: AuditLogItem) =>
+  log.description ||
+  log.errorMessage ||
+  (log.resourceType
+    ? `${log.resourceType}${log.resourceId ? ` ${log.resourceId}` : ''}`
+    : '');
+
+/**
+ * Per-user activity history for the admin user list (#1322). Reads the user's
+ * most recent entries from the audit log (GET /audit/logs?userId=…).
+ */
 export default function UserActivityModal({ user, onClose }: Props) {
+  const activityQuery = useAuditSearchQuery({
+    userId: user.id,
+    take: USER_ACTIVITY_LIMIT,
+  });
+  const activities = activityQuery.data?.data ?? [];
+
   return (
     <Modal
       isOpen
@@ -31,20 +68,32 @@ export default function UserActivityModal({ user, onClose }: Props) {
       </div>
 
       <div className="px-6 py-4 max-h-96 overflow-y-auto space-y-3">
-        {user.activities.length === 0 ? (
+        {activityQuery.isPending ? (
+          <p className="text-sm text-gray-500 text-center py-8">Loading activity…</p>
+        ) : activityQuery.isError ? (
+          <p role="alert" className="text-sm text-red-600 text-center py-8">
+            {activityQuery.error instanceof Error
+              ? activityQuery.error.message
+              : 'Failed to load activity.'}
+          </p>
+        ) : activities.length === 0 ? (
           <p className="text-sm text-gray-500 text-center py-8">No activity found.</p>
         ) : (
-          user.activities.map((activity) => (
-            <div key={activity.id} className="flex gap-3 text-sm border-b pb-3 last:border-b-0">
-              <div className="flex-1">
-                <p className="font-medium text-gray-700">{activity.action}</p>
-                <p className="text-gray-500 text-xs mt-0.5">{activity.details}</p>
-              </div>
-              <span className="text-xs text-gray-400 whitespace-nowrap">
-                {new Date(activity.timestamp).toLocaleString()}
-              </span>
-            </div>
-          ))
+          <ul className="space-y-3">
+            {activities.map((activity) => (
+              <li key={activity.id} className="flex gap-3 text-sm border-b pb-3 last:border-b-0">
+                <div className="flex-1">
+                  <p className="font-medium text-gray-700">{formatAction(activity.action)}</p>
+                  {describeEntry(activity) && (
+                    <p className="text-gray-500 text-xs mt-0.5">{describeEntry(activity)}</p>
+                  )}
+                </div>
+                <span className="text-xs text-gray-400 whitespace-nowrap">
+                  {formatTimestamp(activity.timestamp)}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 

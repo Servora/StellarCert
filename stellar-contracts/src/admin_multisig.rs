@@ -357,6 +357,26 @@ impl AdminMultisigContract {
         );
     }
 
+    /// Initialize the configured certificate contract with this contract as admin.
+    pub fn initialize_certificate_contract(env: Env, signer: Address) {
+        signer.require_auth();
+
+        let config = Self::get_config(env.clone());
+        Self::require_signer(&config.signers, &signer);
+
+        let certificate_contract: Address = env
+            .storage()
+            .instance()
+            .get(&AdminMultisigDataKey::CertificateContractId)
+            .expect("Certificate contract not configured");
+
+        let _: () = env.invoke_contract(
+            &certificate_contract,
+            &soroban_sdk::Symbol::new(&env, "initialize"),
+            soroban_sdk::vec![&env, env.current_contract_address().into_val(&env)],
+        );
+    }
+
     pub fn get_admin_certificate_contract(env: Env) -> Address {
         env.storage()
             .instance()
@@ -443,6 +463,19 @@ impl AdminMultisigContract {
         #[allow(clippy::unnecessary_cast)]
         if signers.is_empty() || threshold == 0 || threshold > signers.len() as u32 {
             panic!("Invalid admin multisig configuration");
+        }
+
+        let mut i = 0;
+        while i < signers.len() {
+            let signer = signers.get(i).unwrap();
+            let mut j = i + 1;
+            while j < signers.len() {
+                if signers.get(j).unwrap() == signer {
+                    panic!("Invalid admin multisig configuration");
+                }
+                j += 1;
+            }
+            i += 1;
         }
 
         if proposal_window == 0 {

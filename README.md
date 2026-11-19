@@ -202,6 +202,16 @@ cargo install stellar-cli@25.2.0
 
 # A single contract: stellar contract build --no-default-features --features crl
 
+For deployment, configure `SOROBAN_ADMIN_SECRET`, `SOROBAN_RPC_URL`, and
+`SOROBAN_NETWORK_PASSPHRASE` (the deploy script defaults this for testnet and
+mainnet), plus at least two
+comma-separated `SOROBAN_ADMIN_SIGNERS` addresses in the local Stellar CLI
+identity store. `SOROBAN_ADMIN_THRESHOLD` defaults to 2 and
+`SOROBAN_ADMIN_PROPOSAL_WINDOW` defaults to 100 ledgers. Run
+`./deploy-contracts.sh` from the repository root; the script deploys and
+initializes the admin multisig first, then has it initialize the certificate
+contract as its own admin.
+
 🏃‍♂️ Running the Application
 Development Mode
 Option A: Using Docker Compose (Recommended)

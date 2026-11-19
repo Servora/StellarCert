@@ -324,47 +324,18 @@ pub struct CertPaginatedResult {
     pub has_next: bool,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TransferInitiatedEvent {
-    pub transfer_id: u64,
-    pub certificate_id: u64,
-    pub from_owner: Address,
-    pub to_owner: Address,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CertificateMetadataUpdatedEvent {
-    pub certificate_id: u64,
-    pub updated_by: Address,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CertificateExpirySetEvent {
-    pub certificate_id: u64,
-    pub expiry: u64,
-}
-
-#[contracttype]
+#[contractevent(topics = ["issuer_added"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IssuerAddedEvent {
+    #[topic]
+    pub topic_issuer: Address,
     pub issuer: Address,
 }
 
-#[contracttype]
+#[contractevent(topics = ["issuer_removed"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IssuerRemovedEvent {
+    #[topic]
+    pub topic_issuer: Address,
     pub issuer: Address,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CertificateEvent {
-    TransferInitiated(TransferInitiatedEvent),
-    MetadataUpdated(CertificateMetadataUpdatedEvent),
-    ExpirySet(CertificateExpirySetEvent),
-    IssuerAdded(IssuerAddedEvent),
-    IssuerRemoved(IssuerRemovedEvent),
 }

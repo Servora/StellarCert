@@ -107,13 +107,18 @@ export class ContractEventIndexerService {
     let startLedger: number | undefined;
 
     if (!cursor) {
+      // A previous run that found no events still recorded how far it had
+      // polled; resume there instead of re-deriving the start from scratch.
+      const resumeLedger = state?.lastLedger;
       const configured = Number(
         this.configService.get('CONTRACT_EVENT_INDEXER_START_LEDGER'),
       );
       startLedger =
-        Number.isFinite(configured) && configured > 0
-          ? configured
-          : await this.sorobanService.getLatestLedgerSequence();
+        resumeLedger && resumeLedger > 0
+          ? resumeLedger
+          : Number.isFinite(configured) && configured > 0
+            ? configured
+            : await this.sorobanService.getLatestLedgerSequence();
     }
 
     let processed = 0;
@@ -146,6 +151,19 @@ export class ContractEventIndexerService {
             name: CURSOR_NAME,
             cursor,
             lastLedger,
+          }),
+        );
+      } else if (
+        Number.isFinite(result.latestLedger) &&
+        result.latestLedger > (state?.lastLedger ?? 0)
+      ) {
+        // Caught up with nothing new and no paging token yet: mark the ledger
+        // polled through so a restart resumes here (see `resumeLedger`).
+        state = await this.cursorRepository.save(
+          this.cursorRepository.create({
+            name: CURSOR_NAME,
+            cursor: null,
+            lastLedger: result.latestLedger,
           }),
         );
       }

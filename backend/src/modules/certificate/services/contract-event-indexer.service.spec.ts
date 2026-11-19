@@ -159,6 +159,80 @@ describe('ContractEventIndexerService', () => {
     );
   });
 
+  describe('polled-ledger marker when there are no events', () => {
+    beforeEach(() => {
+      configService.get.mockReturnValue(undefined);
+    });
+
+    it('persists the ledger polled through when nothing is new and there is no cursor yet', async () => {
+      cursorRepository.findOne.mockResolvedValue(null);
+      sorobanService.getContractEvents.mockResolvedValue({
+        events: [],
+        latestLedger: 520,
+      });
+
+      await expect(service.syncOnce()).resolves.toBe(0);
+
+      expect(sorobanService.getContractEvents).toHaveBeenCalledWith(
+        expect.objectContaining({ startLedger: 500 }),
+      );
+      expect(cursorRepository.save).toHaveBeenCalledTimes(1);
+      expect(cursorRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ cursor: null, lastLedger: 520 }),
+      );
+    });
+
+    it('resumes from the marker after a restart instead of re-deriving the start ledger', async () => {
+      cursorRepository.findOne.mockResolvedValue({
+        name: 'soroban-contract-events',
+        cursor: null,
+        lastLedger: 520,
+      });
+      sorobanService.getContractEvents.mockResolvedValue({
+        events: [],
+        latestLedger: 530,
+      });
+
+      await service.syncOnce();
+
+      expect(sorobanService.getLatestLedgerSequence).not.toHaveBeenCalled();
+      expect(sorobanService.getContractEvents).toHaveBeenCalledWith(
+        expect.objectContaining({ startLedger: 520 }),
+      );
+      expect(cursorRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ cursor: null, lastLedger: 530 }),
+      );
+    });
+
+    it('does not rewrite the marker when the ledger has not advanced', async () => {
+      cursorRepository.findOne.mockResolvedValue({
+        name: 'soroban-contract-events',
+        cursor: null,
+        lastLedger: 520,
+      });
+      sorobanService.getContractEvents.mockResolvedValue({
+        events: [],
+        latestLedger: 520,
+      });
+
+      await service.syncOnce();
+
+      expect(cursorRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('ignores a missing latest ledger instead of saving a bad marker', async () => {
+      cursorRepository.findOne.mockResolvedValue(null);
+      sorobanService.getContractEvents.mockResolvedValue({
+        events: [],
+        latestLedger: undefined,
+      });
+
+      await service.syncOnce();
+
+      expect(cursorRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
   it('does nothing when disabled', async () => {
     configService.get.mockReturnValue(undefined);
     await service.poll();

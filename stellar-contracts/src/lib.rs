@@ -566,11 +566,7 @@ impl CertificateContract {
     /// Verify if a certificate is valid (active and not expired)
     pub fn is_valid(env: Env, id: String) -> bool {
         let key = DataKey::Certificate(id);
-        if let Some(cert) = env
-            .storage()
-            .persistent()
-            .get::<_, Certificate>(&key)
-        {
+        if let Some(cert) = env.storage().persistent().get::<_, Certificate>(&key) {
             persistent::bump_ttl_on_get(&env, &key);
             if cert.status != CertificateStatus::Active {
                 return false;
@@ -1569,18 +1565,13 @@ impl CertificateContract {
 
         for id in ids.iter() {
             let key = DataKey::Certificate(id.clone());
-            if let Some(cert) = env
-                .storage()
-                .persistent()
-                .get::<_, Certificate>(&key)
-            {
+            if let Some(cert) = env.storage().persistent().get::<_, Certificate>(&key) {
                 persistent::bump_ttl_on_get(&env, &key);
                 let is_expired_by_time = cert
                     .expires_at
                     .is_some_and(|exp| env.ledger().timestamp() >= exp);
 
-                let is_revoked =
-                    cert.status != CertificateStatus::Active || is_expired_by_time;
+                let is_revoked = cert.status != CertificateStatus::Active || is_expired_by_time;
 
                 if !is_revoked {
                     successful += 1;

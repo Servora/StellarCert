@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useId } from 'react';
 import { Bell, CheckCircle, AlertTriangle, Info, Check } from 'lucide-react';
 import { useNotifications } from '../context/NotificationContext';
 import { Link } from 'react-router-dom';
@@ -7,6 +7,7 @@ export default function NotificationDropdown() {
     const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const panelId = useId();
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -31,22 +32,42 @@ export default function NotificationDropdown() {
         markAsRead(id);
     };
 
+    // The badge is purely visual (aria-hidden), so the unread count is carried
+    // by the button's accessible name instead (#1326).
+    const toggleLabel =
+        unreadCount > 0
+            ? `Notifications, ${unreadCount} unread`
+            : 'Notifications';
+
     return (
         <div className="relative" ref={dropdownRef}>
             <button
+                type="button"
                 onClick={() => setIsOpen(!isOpen)}
+                aria-label={toggleLabel}
+                aria-haspopup="dialog"
+                aria-expanded={isOpen}
+                aria-controls={isOpen ? panelId : undefined}
                 className="relative p-2 text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white transition-colors rounded-full hover:bg-gray-100 dark:hover:bg-slate-800"
             >
-                <Bell className="w-5 h-5" />
+                <Bell className="w-5 h-5" aria-hidden="true" />
                 {unreadCount > 0 && (
-                    <span className="absolute top-1 right-1 flex items-center justify-center w-4 h-4 text-[10px] font-bold text-white bg-red-500 rounded-full">
+                    <span
+                        aria-hidden="true"
+                        className="absolute top-1 right-1 flex items-center justify-center w-4 h-4 text-[10px] font-bold text-white bg-red-500 rounded-full"
+                    >
                         {unreadCount > 99 ? '99+' : unreadCount}
                     </span>
                 )}
             </button>
 
             {isOpen && (
-                <div className="absolute right-0 mt-2 w-80 md:w-96 bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-gray-200 dark:border-slate-700 z-50 overflow-hidden transform opacity-100 scale-100 transition-all duration-200">
+                <div
+                    id={panelId}
+                    role="dialog"
+                    aria-label="Notifications"
+                    className="absolute right-0 mt-2 w-80 md:w-96 bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-gray-200 dark:border-slate-700 z-50 overflow-hidden transform opacity-100 scale-100 transition-all duration-200"
+                >
                     <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-slate-800">
                         <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Notifications</h3>
                         {unreadCount > 0 && (

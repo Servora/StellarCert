@@ -138,6 +138,9 @@ export default function QRScannerModal({
 
   useEffect(() => {
     if (isOpen) {
+      // Standard init-on-open: `startScanner` sets status/error state
+      // synchronously before its first await.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       startScanner();
     } else {
       stopScanner();

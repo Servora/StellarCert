@@ -33,6 +33,9 @@ export default function AccountSecurity({
   }, []);
 
   useEffect(() => {
+    // Standard fetch-on-mount: `reload` sets `loading`/`error` synchronously
+    // before its first await.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void reload();
   }, [reload]);
 

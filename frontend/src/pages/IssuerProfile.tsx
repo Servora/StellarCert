@@ -30,8 +30,6 @@ const ALLOWED_PROFILE_PICTURE_TYPES = [
 const IssuerProfile = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [statsError, setStatsError] = useState<string | null>(null);
-  const [activityError, setActivityError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [profilePreview, setProfilePreview] = useState("");
   const [selectedProfileImage, setSelectedProfileImage] = useState<File | null>(
@@ -117,28 +115,28 @@ const IssuerProfile = () => {
 
   useEffect(() => {
     if (profileQuery.isError) {
+      // `error` also doubles as the slot for file-validation and save
+      // failures (set imperatively elsewhere in this component), so it can't
+      // be replaced by a value derived purely from the query below.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError("Failed to load profile");
     }
   }, [profileQuery.isError]);
 
   // The statistics and the activity log are separate queries, so a failure in
   // either is reported in its own panel instead of taking the whole page down.
+  // Both messages are purely derived from their query's error state (nothing
+  // else ever sets them), so they're computed directly during render instead
+  // of mirrored into state via an effect.
+  const statsError = statsQuery.isError ? "Failed to load issuer statistics" : null;
+  const activityError = activityQuery.isError ? "Failed to load recent activity" : null;
+
   useEffect(() => {
-    if (statsQuery.isError) {
-      setStatsError("Failed to load issuer statistics");
-      console.error("Failed to load issuer stats", statsQuery.error);
-    } else {
-      setStatsError(null);
-    }
+    if (statsQuery.isError) console.error("Failed to load issuer stats", statsQuery.error);
   }, [statsQuery.isError, statsQuery.error]);
 
   useEffect(() => {
-    if (activityQuery.isError) {
-      setActivityError("Failed to load recent activity");
-      console.error("Failed to load issuer activity", activityQuery.error);
-    } else {
-      setActivityError(null);
-    }
+    if (activityQuery.isError) console.error("Failed to load issuer activity", activityQuery.error);
   }, [activityQuery.isError, activityQuery.error]);
 
   useEffect(() => {

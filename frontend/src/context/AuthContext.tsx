@@ -201,6 +201,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   useEffect(() => {
     if (!user) {
       tokenStorage.clearTokens();
+      // Clears in-memory state when `user` is cleared via a path other than
+      // this file's own login/logout/refresh handlers (e.g. a query-cache
+      // reset elsewhere), so it can't be derived purely from `user`.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAccessTokenState(null);
     }
   }, [user]);

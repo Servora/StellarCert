@@ -155,40 +155,63 @@ export class WebhooksService {
       .andWhere(':event = ANY(sub.events)', { event })
       .getMany();
 
+    let queued = 0;
     for (const sub of subs) {
-      await this.triggerEventForSubscription(sub, event, payload);
+      if (await this.triggerEventForSubscription(sub, event, payload)) {
+        queued++;
+      }
     }
 
-    this.logger.log(`Queued ${subs.length} webhooks for ${event}`);
+    this.logger.log(
+      `Queued ${queued}/${subs.length} webhooks for ${event}`,
+    );
   }
 
-  // SINGLE SUB
+  /**
+   * Queue one delivery. Webhooks are a best-effort side effect of the primary
+   * operation (issuing a certificate, a transfer, ...), so a queue outage (e.g.
+   * Redis briefly unavailable) is logged and swallowed instead of propagating to
+   * the caller and failing the request that triggered the event.
+   *
+   * @returns true when the delivery was queued, false when it was dropped.
+   */
   async triggerEventForSubscription(
     subscription: WebhookSubscription,
     event: WebhookEvent,
     payload: any,
-  ) {
+  ): Promise<boolean> {
     const formattedPayload = {
       event,
       timestamp: new Date().toISOString(),
       data: payload,
     };
 
-    await this.webhookQueue.add(
-      'deliver',
-      {
-        subscriptionId: subscription.id,
-        event,
-        payload: formattedPayload,
-      },
-      {
-        attempts: 5,
-        backoff: {
-          type: 'webhookRetry',
+    try {
+      await this.webhookQueue.add(
+        'deliver',
+        {
+          subscriptionId: subscription.id,
+          event,
+          payload: formattedPayload,
         },
-        removeOnComplete: true,
-      },
-    );
+        {
+          attempts: 5,
+          backoff: {
+            type: 'webhookRetry',
+          },
+          removeOnComplete: true,
+        },
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Failed to queue ${event} webhook for subscription ${subscription.id}; delivery dropped: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      return false;
+    }
   }
 
   // LOGS

@@ -49,6 +49,12 @@ export const typeOrmConfig: TypeOrmModuleOptions = {
   // Same location the CLI DataSource uses (src/database/data-source.ts).
   migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
   migrationsRun: true,
+  // Run each migration in its own transaction rather than wrapping the whole
+  // run in one. The default ("all") makes TypeORM reject any migration that
+  // sets `transaction = false`, and AddFrozenCertificateWebhookEvents /
+  // AddTransferConfirmationLockout must opt out because `ALTER TYPE ... ADD
+  // VALUE` cannot run inside a transaction on PostgreSQL before 12.
+  migrationsTransactionMode: 'each',
 };
 
 /**

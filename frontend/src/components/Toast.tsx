@@ -2,6 +2,48 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useNotifications, Notification } from "../context/NotificationContext";
 import { X, CheckCircle, Info, AlertTriangle } from "lucide-react";
 
+/** Only unread notifications newer than this are surfaced as toasts. */
+export const TOAST_RECENT_WINDOW_MS = 10000;
+
+/**
+ * Upper bound on remembered dismissals. Pruning below already keeps the set to
+ * the notifications still inside the recent window; this is a backstop for a
+ * burst of notifications that all arrive within that window.
+ */
+export const MAX_DISMISSED_TOAST_IDS = 100;
+
+const isRecent = (notification: Notification, now: number) =>
+  now - new Date(notification.createdAt).getTime() < TOAST_RECENT_WINDOW_MS;
+
+/**
+ * Drops dismissal records that can no longer matter (#1328): a notification
+ * that has aged out of the recent window, or is no longer in the list, can
+ * never be re-shown as a toast, so remembering its dismissal only grows the
+ * set for the rest of the session. Mutates and returns `dismissedIds`.
+ */
+export const pruneDismissedIds = (
+  dismissedIds: Set<string>,
+  notifications: Notification[],
+  now: number = Date.now(),
+): Set<string> => {
+  if (dismissedIds.size === 0) return dismissedIds;
+
+  const stillRecent = new Set(
+    notifications.filter((n) => isRecent(n, now)).map((n) => n.id),
+  );
+  for (const id of dismissedIds) {
+    if (!stillRecent.has(id)) dismissedIds.delete(id);
+  }
+
+  // Sets iterate in insertion order, so this evicts the oldest dismissals.
+  for (const id of dismissedIds) {
+    if (dismissedIds.size <= MAX_DISMISSED_TOAST_IDS) break;
+    dismissedIds.delete(id);
+  }
+
+  return dismissedIds;
+};
+
 const ToastMessage: React.FC<{
   notification: Notification;
   onClose: () => void;
@@ -68,7 +110,9 @@ export default function ToastContainer() {
   // effect below re-adds a toast the moment it is dismissed: it re-runs on
   // activeToasts.length, sees an empty list and a still-recent unread
   // notification, and puts it straight back - so the 5s auto-dismiss never
-  // actually removed anything (#1000).
+  // actually removed anything (#1000). Entries are pruned once their
+  // notification ages out of the recent window, so the set stays bounded for
+  // a long-lived session (#1328).
   const dismissedIdsRef = useRef<Set<string>>(new Set());
 
   const removeToast = useCallback((id: string) => {
@@ -77,20 +121,19 @@ export default function ToastContainer() {
   }, []);
 
   useEffect(() => {
+    const now = Date.now();
+    pruneDismissedIds(dismissedIdsRef.current, notifications, now);
+
     // Only show unread notifications from the last 10 seconds as toasts on load/receive
     const recentUnread = notifications.filter(
       (n) =>
-        !n.isRead &&
-        !dismissedIdsRef.current.has(n.id) &&
-        new Date().getTime() - new Date(n.createdAt).getTime() < 10000,
+        !n.isRead && !dismissedIdsRef.current.has(n.id) && isRecent(n, now),
     );
 
     // Check if there are new notifications
     const prevUnread = prevNotificationsRef.current.filter(
       (n) =>
-        !n.isRead &&
-        !dismissedIdsRef.current.has(n.id) &&
-        new Date().getTime() - new Date(n.createdAt).getTime() < 10000,
+        !n.isRead && !dismissedIdsRef.current.has(n.id) && isRecent(n, now),
     );
 
     if (recentUnread.length > 0 && activeToasts.length === 0) {

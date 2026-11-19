@@ -14,6 +14,8 @@ export enum EmailJobType {
   SEND_VERIFICATION = 'send-verification',
   SEND_PASSWORD_RESET = 'send-password-reset',
   SEND_REVOCATION = 'send-revocation',
+  SEND_TRANSFER_CONFIRMATION = 'send-transfer-confirmation',
+  SEND_TRANSFER_COMPLETED = 'send-transfer-completed',
 }
 
 @Processor(EMAIL_QUEUE_NAME)
@@ -56,6 +58,20 @@ export class EmailQueueProcessor {
   async processRevocationNotice(job: Job): Promise<void> {
     await this.processJob(job, 'revocation notice', () =>
       this.emailService.sendRevocationNotice(job.data),
+    );
+  }
+
+  @Process(EmailJobType.SEND_TRANSFER_CONFIRMATION)
+  async processTransferConfirmation(job: Job): Promise<void> {
+    await this.processJob(job, 'transfer confirmation email', () =>
+      this.emailService.sendTransferConfirmationCode(job.data),
+    );
+  }
+
+  @Process(EmailJobType.SEND_TRANSFER_COMPLETED)
+  async processTransferCompleted(job: Job): Promise<void> {
+    await this.processJob(job, 'transfer completed email', () =>
+      this.emailService.sendTransferCompletedNotice(job.data),
     );
   }
 

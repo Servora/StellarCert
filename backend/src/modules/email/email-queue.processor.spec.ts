@@ -19,6 +19,8 @@ describe('EmailQueueProcessor', () => {
             sendVerificationEmail: jest.fn(),
             sendPasswordReset: jest.fn(),
             sendRevocationNotice: jest.fn(),
+            sendTransferConfirmationCode: jest.fn(),
+            sendTransferCompletedNotice: jest.fn(),
           },
         },
         {
@@ -156,6 +158,52 @@ describe('EmailQueueProcessor', () => {
       await processor.processRevocationNotice(job as any);
 
       expect(emailService.sendRevocationNotice).toHaveBeenCalledWith(jobData);
+    });
+  });
+
+  describe('transfer emails', () => {
+    const job = {
+      id: 7,
+      data: {
+        to: 'new@example.com',
+        certificateTitle: 'Cert',
+        certificateId: 'c1',
+        confirmationCode: 'abc123',
+      },
+    };
+
+    it('delivers the transfer confirmation code', async () => {
+      jest
+        .spyOn(emailService, 'sendTransferConfirmationCode')
+        .mockResolvedValue(undefined);
+
+      await processor.processTransferConfirmation(job as any);
+
+      expect(emailService.sendTransferConfirmationCode).toHaveBeenCalledWith(
+        job.data,
+      );
+    });
+
+    it('re-throws a transient SMTP error so Bull retries the job', async () => {
+      jest
+        .spyOn(emailService, 'sendTransferConfirmationCode')
+        .mockRejectedValue(new Error('smtp timeout'));
+
+      await expect(
+        processor.processTransferConfirmation(job as any),
+      ).rejects.toThrow('smtp timeout');
+    });
+
+    it('delivers the transfer completed notice', async () => {
+      jest
+        .spyOn(emailService, 'sendTransferCompletedNotice')
+        .mockResolvedValue(undefined);
+
+      await processor.processTransferCompleted(job as any);
+
+      expect(emailService.sendTransferCompletedNotice).toHaveBeenCalledWith(
+        job.data,
+      );
     });
   });
 });

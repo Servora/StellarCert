@@ -9,16 +9,19 @@ export type TokenRefreshCallback = (accessToken: string, user?: User | null) => 
 
 const _tokenRefreshSubscribers = new Set<TokenRefreshCallback>();
 
+/**
+ * Registers a token-refresh listener and returns its unsubscribe function.
+ *
+ * This is the only way to listen for refreshes. Several consumers subscribe at
+ * once (AuthContext and NotificationContext), so registration must be
+ * additive: there is deliberately no "replace all listeners" setter, because
+ * one would silently drop the others' subscriptions (#1329).
+ */
 export const subscribeTokenRefresh = (cb: TokenRefreshCallback): (() => void) => {
   _tokenRefreshSubscribers.add(cb);
   return () => {
     _tokenRefreshSubscribers.delete(cb);
   };
-};
-
-export const setTokenRefreshCallback = (cb: TokenRefreshCallback) => {
-  _tokenRefreshSubscribers.clear();
-  _tokenRefreshSubscribers.add(cb);
 };
 
 export const notifyTokenRefreshed = (accessToken: string, user?: User | null) => {

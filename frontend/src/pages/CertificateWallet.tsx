@@ -25,9 +25,11 @@ import {
 import { UserRole, User } from "../api/types";
 import {
   useMyCertificatesQuery,
+  usePendingTransfersQuery,
   useUserCertificatesQuery,
 } from "../api/queries";
 import { useAuth } from "../context/AuthContext";
+import IncomingTransfers from "../components/IncomingTransfers";
 
 /**
  * Returns true if the logged-in user is the recipient of the given certificate.
@@ -82,29 +84,28 @@ const CertificateWallet = () => {
   // Share Modal states
   const [sharingCert, setSharingCert] = useState<Certificate | null>(null);
 
-  // Transfer states
-  const [pendingTransfers, setPendingTransfers] = useState<
-    CertificateTransfer[]
-  >([]);
-
+  // Transfer states. A failed fetch is non-critical: the wallet still renders,
+  // just without transfer badges or the incoming transfers panel.
+  const pendingTransfersQuery = usePendingTransfersQuery(user?.id);
+  const pendingTransfers: CertificateTransfer[] = useMemo(
+    () => pendingTransfersQuery.data ?? [],
+    [pendingTransfersQuery.data],
+  );
+  // The backend returns transfers in both directions; only those addressed to
+  // this user need their approval.
+  const incomingTransfers = useMemo(() => {
+    const email = user?.email?.toLowerCase();
+    if (!email) return [];
+    return pendingTransfers.filter(
+      (t) => t.status === "pending" && t.toEmail?.toLowerCase() === email,
+    );
+  }, [pendingTransfers, user?.email]);
+  const [transferNotice, setTransferNotice] = useState<string | null>(null);
   useEffect(() => {
-    let isMounted = true;
-    if (user) {
-      certificateApi.transfer
-        .getPending()
-        .then((transfers) => {
-          if (isMounted && Array.isArray(transfers)) {
-            setPendingTransfers(transfers);
-          }
-        })
-        .catch(() => {
-          // Non-critical: failure to load transfer status should not break wallet
-        });
-    }
-    return () => {
-      isMounted = false;
-    };
-  }, [user]);
+    if (!transferNotice) return;
+    const timer = setTimeout(() => setTransferNotice(null), 5000);
+    return () => clearTimeout(timer);
+  }, [transferNotice]);
 
   // Only the list request feeds the banner; the QR/PDF actions keep their own
   // message so a failed download never masquerades as a failed page load. The
@@ -325,6 +326,23 @@ const CertificateWallet = () => {
           <p>{error}</p>
         </div>
       )}
+
+      {transferNotice && (
+        <div
+          role="status"
+          className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-start gap-3 text-green-700 dark:text-green-400"
+        >
+          <Check className="w-5 h-5 mt-0.5" />
+          <p>{transferNotice}</p>
+        </div>
+      )}
+
+      {/* Rendered regardless of wallet contents: a new recipient's first
+          certificate may well arrive through a transfer. */}
+      <IncomingTransfers
+        transfers={incomingTransfers}
+        onSuccess={setTransferNotice}
+      />
 
       {loading ? (
         <div className="text-center py-12">

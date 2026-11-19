@@ -48,6 +48,44 @@ fn test_admin_multisig_flow() {
 }
 
 #[test]
+fn test_get_pending_proposals_for_signer_is_paginated_and_filters_terminal_proposals() {
+    let env = Env::default();
+    let contract_id = env.register(AdminMultisigContract, ());
+    let client = AdminMultisigContractClient::new(&env, &contract_id);
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone()]);
+
+    env.mock_all_auths();
+    client.init_admin_multisig(&2, &signers, &10);
+
+    let action = AdminAction::Other(String::from_str(&env, "pending"));
+    for id in ["proposal-1", "proposal-2", "proposal-3"] {
+        client.propose_action(&String::from_str(&env, id), &signer1, &action);
+    }
+    client.cancel_proposal(&String::from_str(&env, "proposal-2"), &signer1);
+
+    let first_page =
+        client.get_pending_proposals_for_signer(&signer2, &Pagination { page: 1, limit: 1 });
+    assert_eq!(first_page.total, 2);
+    assert_eq!(first_page.data.len(), 1);
+    assert!(first_page.has_next);
+    assert_eq!(
+        first_page.data.get(0).unwrap().id,
+        String::from_str(&env, "proposal-1")
+    );
+
+    let second_page =
+        client.get_pending_proposals_for_signer(&signer2, &Pagination { page: 2, limit: 1 });
+    assert_eq!(second_page.data.len(), 1);
+    assert!(!second_page.has_next);
+    assert_eq!(
+        second_page.data.get(0).unwrap().id,
+        String::from_str(&env, "proposal-3")
+    );
+}
+
+#[test]
 #[should_panic(expected = "Unsupported action type")]
 fn test_other_action_panics_on_execution() {
     let env = Env::default();

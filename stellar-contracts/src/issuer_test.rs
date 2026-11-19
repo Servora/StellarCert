@@ -2,7 +2,7 @@
 
 use super::*;
 use soroban_sdk::{
-    testutils::{storage::Persistent, Address as _},
+    testutils::{storage::Persistent, Address as _, Ledger},
     Address, Env, String,
 };
 
@@ -78,6 +78,45 @@ fn test_issued_certificate_ttl_is_extended() {
         crate::persistent::DEFAULT_TTL.min(env.storage().max_ttl())
     });
 
+    assert_eq!(ttl, expected_ttl);
+}
+
+#[test]
+fn test_get_certificate_renews_ttl_near_expiration() {
+    let env = Env::default();
+    let contract_id = env.register(CertificateContract, ());
+    let client = CertificateContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let owner = Address::generate(&env);
+    let id = String::from_str(&env, "cert-read-ttl");
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.add_issuer(&issuer);
+    client.issue_certificate(
+        &id,
+        &issuer,
+        &owner,
+        &String::from_str(&env, "ipfs://ttl"),
+        &None,
+    );
+
+    env.ledger().with_mut(|ledger| {
+        ledger.sequence_number +=
+            crate::persistent::DEFAULT_TTL - crate::persistent::TTL_RENEWAL_THRESHOLD + 1;
+    });
+
+    assert!(client.get_certificate(&id).is_some());
+
+    let ttl = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Certificate(id.clone()))
+    });
+    let expected_ttl = env.as_contract(&contract_id, || {
+        crate::persistent::DEFAULT_TTL.min(env.storage().max_ttl())
+    });
     assert_eq!(ttl, expected_ttl);
 }
 

@@ -2,6 +2,8 @@ use soroban_sdk::{
     contract, contractevent, contracttype, Address, BytesN, Env, IntoVal, String, Val, Vec,
 };
 
+use crate::Pagination;
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AdminAction {
@@ -51,6 +53,16 @@ pub struct AdminProposal {
     pub created_ledger: u32,
     pub expires_at_ledger: u32,
     pub status: AdminProposalStatus,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaginatedAdminProposals {
+    pub data: Vec<AdminProposal>,
+    pub total: u32,
+    pub page: u32,
+    pub limit: u32,
+    pub has_next: bool,
 }
 
 // Admin multisig contract events. Declared with `#[contractevent]` so the topic
@@ -195,6 +207,13 @@ impl AdminMultisigContract {
         };
 
         Self::set_persistent(&env, &proposal_key, &proposal);
+        for signer in config.signers.iter() {
+            Self::append_proposal_id(
+                &env,
+                AdminMultisigDataKey::SignerProposalIds(signer),
+                proposal_id.clone(),
+            );
+        }
         ProposalCreatedEvent {
             proposal_id,
             proposer,
@@ -314,6 +333,39 @@ impl AdminMultisigContract {
             .persistent()
             .get(&AdminMultisigDataKey::AdminProposal(proposal_id))
             .expect("Proposal not found")
+    }
+
+    /// Get pending proposals visible to an authenticated admin signer.
+    pub fn get_pending_proposals_for_signer(
+        env: Env,
+        signer: Address,
+        pagination: Pagination,
+    ) -> PaginatedAdminProposals {
+        signer.require_auth();
+        let config = Self::get_config(env.clone());
+        Self::require_signer(&config.signers, &signer);
+
+        let proposal_ids = Self::get_proposal_ids(
+            &env,
+            AdminMultisigDataKey::SignerProposalIds(signer.clone()),
+        );
+        let mut pending = Vec::<AdminProposal>::new(&env);
+        let current_ledger = env.ledger().sequence();
+        for proposal_id in proposal_ids.iter() {
+            if let Some(proposal) = env
+                .storage()
+                .persistent()
+                .get::<_, AdminProposal>(&AdminMultisigDataKey::AdminProposal(proposal_id))
+            {
+                if proposal.status == AdminProposalStatus::Pending
+                    && current_ledger <= proposal.expires_at_ledger
+                {
+                    pending.push_back(proposal);
+                }
+            }
+        }
+
+        Self::paginate_proposals(&env, pending, pagination)
     }
 
     pub fn is_issuer_removed(env: Env, issuer: Address) -> bool {
@@ -439,6 +491,65 @@ impl AdminMultisigContract {
         }
     }
 
+    fn append_proposal_id(env: &Env, key: AdminMultisigDataKey, proposal_id: String) {
+        let mut proposal_ids = Self::get_proposal_ids(env, key.clone());
+        if !proposal_ids.contains(&proposal_id) {
+            proposal_ids.push_back(proposal_id);
+            Self::set_instance(env, &key, &proposal_ids);
+        }
+    }
+
+    fn get_proposal_ids(env: &Env, key: AdminMultisigDataKey) -> Vec<String> {
+        env.storage()
+            .instance()
+            .get(&key)
+            .unwrap_or(Vec::<String>::new(env))
+    }
+
+    fn paginate_proposals(
+        env: &Env,
+        proposals: Vec<AdminProposal>,
+        pagination: Pagination,
+    ) -> PaginatedAdminProposals {
+        const MAX_PAGE_SIZE: u32 = 100;
+        if pagination.limit > MAX_PAGE_SIZE {
+            panic!("Pagination limit exceeds maximum allowed");
+        }
+
+        let total = proposals.len();
+        let mut data = Vec::<AdminProposal>::new(env);
+        if pagination.limit == 0 {
+            return PaginatedAdminProposals {
+                data,
+                total,
+                page: pagination.page,
+                limit: pagination.limit,
+                has_next: false,
+            };
+        }
+
+        let start = pagination
+            .page
+            .saturating_sub(1)
+            .saturating_mul(pagination.limit);
+        let end = total.min(start.saturating_add(pagination.limit));
+        let mut index = start;
+        while index < end {
+            if let Some(proposal) = proposals.get(index) {
+                data.push_back(proposal);
+            }
+            index += 1;
+        }
+
+        PaginatedAdminProposals {
+            data,
+            total,
+            page: pagination.page,
+            limit: pagination.limit,
+            has_next: end < total,
+        }
+    }
+
     fn validate_config(signers: &Vec<Address>, threshold: u32, proposal_window: u32) {
         #[allow(clippy::unnecessary_cast)]
         if signers.is_empty() || threshold == 0 || threshold > signers.len() as u32 {
@@ -458,6 +569,7 @@ pub enum AdminMultisigDataKey {
     AdminProposal(String),
     CertificateContractId,
     RemovedIssuer(Address),
+    SignerProposalIds(Address),
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@
  * application.
  *
  * Usage:
- *   npm run migration:run      (typeorm-ts-node-commonjs, from src/)
+ *   npm run migration:hun      (typeorm-ts-node-commonsjs, from src/)
  *   node node_modules/.bin/typeorm migration:run -d dist/database/data-source.js   (compiled, as docker-entrypoint.sh does)
  *   npm run migration:revert
  *

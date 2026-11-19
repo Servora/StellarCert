@@ -213,6 +213,81 @@ jobs:
         # exit on failure) are unchanged; this only ends the process.
         run: npm run test:e2e -- --ci --runInBand --forceExit
 
+  # `backend-e2e` sets TYPEORM_SYNCHRONIZE=true so TypeORM derives the schema
+  # from entities, which means the migration files in src/database/migrations
+  # (the ones docker-entrypoint.sh runs in every real deployment) were never
+  # executed by CI. A broken migration could merge to main and only surface on
+  # the first `docker compose up`. Replay them against a throwaway Postgres.
+  backend-migrations:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: stellarwave_user
+          POSTGRES_PASSWORD: stellarwave_password
+          POSTGRES_DB: stellarwave
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stellarwave_user -d stellarwave"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      DB_TYPE: postgres
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USERNAME: stellarwave_user
+      DB_PASSWORD: stellarwave_password
+      DB_NAME: stellarwave
+      # Migrations, not synchronize: this is the whole point of the job.
+      TYPEORM_SYNCHRONIZE: 'false'
+      # The DataSource reads these at import time; keep them harmless.
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-jwt-secret-not-used-in-production
+      JWT_ACCESS_SECRET: ci-only-jwt-secret-not-used-in-production
+      JWT_REFRESH_SECRET: ci-only-jwt-secret-not-used-in-production
+      JWT_EXPIRES_IN: 24h
+      STELLAR_NETWORK: testnet
+      STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
+      STELLAR_ISSUER_SECRET_KEY: ''
+      STELLAR_ISSUER_PUBLIC_KEY: ''
+      ALLOWED_ORIGINS: http://localhost:5173
+      ENABLE_SENTRY: 'false'
+      STORAGE_REQUIRED: 'false'
+      STORAGE_ENDPOINT: http://localhost:9000
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY: minioadmin
+      STORAGE_SECRET_KEY: minioadmin
+      STORAGE_BUCKET: stellar-cert
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci
+      - name: Build backend
+        run: npm run build
+      - name: Run migrations against throwaway Postgres
+        # `migration:run` uses the compiled DataSource, so the build above is
+        # required. `migration:revert` runs every down() in reverse order,
+        # catching down-incompatible renames that would otherwise only fail
+        # during a rollback in production.
+        run: |
+          npx typeorm migration:run -d dist/database/data-source.js
+          npx typeorm migration:revert -d dist/database/data-source.js
+          npx typeorm migration:run -d dist/database/data-source.js
+
   # Nothing built the images or parsed nginx.conf, so a broken Dockerfile or
   # nginx directive could reach a release. Build every documented target.
   docker:

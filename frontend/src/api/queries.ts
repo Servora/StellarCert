@@ -266,17 +266,82 @@ export const useUserProfileQuery = () =>
     queryFn: () => userApi.getProfile(),
   });
 
-export const useUserListQuery = (
-  params: Record<string, string | number | boolean>,
-) =>
+export type UserListParams = {
+  page: number;
+  limit: number;
+  search?: string;
+  role?: string;
+};
+
+export type UserListPage = {
+  users: User[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+};
+
+type PageMeta = {
+  total?: number;
+  page?: number;
+  limit?: number;
+  totalPages?: number;
+};
+
+// GET /users returns `{ data, meta: { total, page, limit, totalPages } }`;
+// older/dummy shapes put the counts at the top level or return a bare array.
+type UserListResponse =
+  | User[]
+  | ({ users?: User[]; data?: User[]; meta?: PageMeta } & PageMeta);
+
+/** Normalises any supported `/users` response shape into one page of users. */
+export const toUserListPage = (
+  response: UserListResponse,
+  params: Pick<UserListParams, "page" | "limit">,
+): UserListPage => {
+  if (Array.isArray(response)) {
+    return {
+      users: response,
+      total: response.length,
+      page: params.page,
+      limit: params.limit,
+      totalPages: Math.max(1, Math.ceil(response.length / params.limit)),
+    };
+  }
+
+  const users = response.users ?? response.data ?? [];
+  const meta = response.meta ?? response;
+  const limit = meta.limit ?? params.limit;
+  const total = meta.total ?? users.length;
+  return {
+    users,
+    total,
+    page: meta.page ?? params.page,
+    limit,
+    totalPages: meta.totalPages ?? Math.max(1, Math.ceil(total / limit)),
+  };
+};
+
+/**
+ * One page of the admin user list. Paged server-side with the same page/limit
+ * contract as `useCertificatesQuery`, so an instance with thousands of users
+ * never renders (or downloads) the whole table at once.
+ */
+export const useUserListQuery = (params: UserListParams) =>
   useQuery({
     queryKey: queryKeys.users.list(params),
-    queryFn: async (): Promise<User[]> => {
-      const data = await userApi.getAll(params);
-      if (Array.isArray(data)) return data;
-      if ("users" in data && Array.isArray(data.users)) return data.users;
-      return data.data;
+    queryFn: async (): Promise<UserListPage> => {
+      const query: Record<string, string | number> = {
+        page: params.page,
+        limit: params.limit,
+      };
+      if (params.search) query.search = params.search;
+      if (params.role) query.role = params.role;
+      const data = (await userApi.getAll(query)) as UserListResponse;
+      return toUserListPage(data, params);
     },
+    // Keep the current page on screen while the next one loads.
+    placeholderData: keepPreviousData,
   });
 
 export const useIssuerStatsQuery = () =>

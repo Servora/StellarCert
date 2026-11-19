@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { userApi } from '../../../api/endpoints';
 import type { User as ApiUser } from '../../../api/types';
 import { getErrorMessage } from '../../../api/types';
@@ -14,20 +15,27 @@ interface User extends ApiUser {
 const UserManagement: React.FC = () => {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Debounced so typing a name doesn't fire a request per keystroke. The list is
-  // cached per (search, role) pair, so switching back to a previous filter is
-  // instant instead of re-fetching.
+  // cached per (search, role, page, limit), so switching back to a previous
+  // filter or page is instant instead of re-fetching.
   const debouncedSearch = useDebounce(search, 300);
 
+  // Paged server-side, same page/limit pattern as CertificateTable (#1323).
   const usersQuery = useUserListQuery({
+    page,
+    limit,
     ...(debouncedSearch ? { search: debouncedSearch } : {}),
     ...(roleFilter !== 'all' ? { role: roleFilter } : {}),
   });
 
-  const users: User[] = usersQuery.data ?? [];
+  const users: User[] = usersQuery.data?.users ?? [];
+  const total = usersQuery.data?.total ?? 0;
+  const totalPages = usersQuery.data?.totalPages ?? 0;
   const loading = usersQuery.isPending;
   const error = usersQuery.isError
     ? usersQuery.error instanceof Error
@@ -60,7 +68,9 @@ const UserManagement: React.FC = () => {
     setActionError(null);
     try {
       await userApi.delete(userId);
-      await usersQuery.refetch();
+      // Deleting the last row on a page would leave an empty page; step back.
+      if (users.length === 1 && page > 1) setPage((p) => p - 1);
+      else await usersQuery.refetch();
     } catch (err: unknown) { setActionError(getErrorMessage(err)); }
   };
 
@@ -71,13 +81,13 @@ const UserManagement: React.FC = () => {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-gray-900">User Management</h2>
-        <span className="text-sm text-gray-500">{users.length} users</span>
+        <span className="text-sm text-gray-500">{total} users</span>
       </div>
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
         <input type="text" placeholder="Search by name or email…" value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           className="border border-gray-300 rounded-lg px-4 py-2 text-sm flex-1 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}
+        <select value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
           className="border border-gray-300 rounded-lg px-4 py-2 text-sm">
           <option value="all">All Roles</option>
           <option value="admin">Admin</option>
@@ -130,6 +140,49 @@ const UserManagement: React.FC = () => {
               </tbody>
             </table>
             {users.length === 0 && <p className="text-center text-gray-500 py-8 text-sm">No users found.</p>}
+
+            {/* Pagination */}
+            <div className="px-6 py-4 flex items-center justify-between border-t border-gray-200">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-500">
+                  {total === 0 ? '0 results' : `Showing ${(page - 1) * limit + 1} to ${Math.min(page * limit, total)} of ${total} results`}
+                </span>
+                <select
+                  value={limit}
+                  onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}
+                  aria-label="Users per page"
+                  className="ml-2 px-2 py-1 text-sm border border-gray-300 rounded-md"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  aria-label="Previous page"
+                  className="p-2 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <span className="px-4 py-2 text-sm text-gray-700">
+                  Page {page} of {Math.max(1, totalPages)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(Math.max(1, totalPages), p + 1))}
+                  disabled={page >= totalPages}
+                  aria-label="Next page"
+                  className="p-2 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
           </div>
         )}
     </div>

@@ -47,8 +47,10 @@ SENDGRID_API_KEY=your-sendgrid-api-key
 # Redis Configuration (for job queue)
 REDIS_URL=redis://localhost:6379
 
-# Application URL (for email links)
-APP_URL=https://stellarcert.com
+# Public app URL (for email links; also used by QR codes and PDFs)
+FRONTEND_URL=https://stellarcert.com
+# Deprecated alias, read only when FRONTEND_URL is unset
+# APP_URL=https://stellarcert.com
 ```
 
 ### SMTP Configuration

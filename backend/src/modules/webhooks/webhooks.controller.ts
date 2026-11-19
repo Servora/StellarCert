@@ -5,9 +5,11 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -19,11 +21,16 @@ import { WebhooksService } from './webhooks.service';
 import { CreateWebhookSubscriptionDto } from './dto/create-webhook-subscription.dto';
 import { WebhookEvent } from './entities/webhook-subscription.entity';
 import { JwtAuthGuard } from 'src/common';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '../../common/constants/roles';
 import { CurrentUser } from '../users/decorators/current-user.decorator';
 
 @ApiTags('Webhooks')
 @Controller('webhooks')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+// Webhooks make the server call out to a URL the caller chooses, so they are an issuer feature.
+@Roles(UserRole.ISSUER, UserRole.ADMIN)
 @ApiBearerAuth()
 export class WebhooksController {
   constructor(private readonly webhooksService: WebhooksService) {}
@@ -47,14 +54,24 @@ export class WebhooksController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Remove a webhook subscription' })
-  async remove(@CurrentUser('id') issuerId: string, @Param('id') id: string) {
+  async remove(
+    @CurrentUser('id') issuerId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     await this.webhooksService.remove(id, issuerId);
   }
 
   @Get(':id/logs')
   @ApiOperation({ summary: 'Get delivery logs for a webhook subscription' })
-  async getLogs(@CurrentUser('id') issuerId: string, @Param('id') id: string) {
-    return this.webhooksService.getLogs(id, issuerId);
+  async getLogs(
+    @CurrentUser('id') issuerId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    const pageNum = page ? Math.max(1, Number(page)) : 1;
+    const limitNum = limit ? Math.min(100, Math.max(1, Number(limit))) : 50;
+    return this.webhooksService.getLogs(id, issuerId, pageNum, limitNum);
   }
 
   @Post('test')
@@ -63,7 +80,7 @@ export class WebhooksController {
     @CurrentUser('id') issuerId: string,
     @Body('subscriptionId') subscriptionId: string,
   ) {
-    const subscription = await this.webhooksService.findOne(
+    const subscription = await this.webhooksService.findOneWithSecret(
       subscriptionId,
       issuerId,
     );

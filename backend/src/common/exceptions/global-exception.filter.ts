@@ -39,7 +39,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     private sentryService: SentryService,
     private loggingService: LoggingService,
   ) {
-    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    this.isProduction =
+      this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   catch(exception: unknown, host: ArgumentsHost) {
@@ -48,6 +49,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<RequestWithContext>();
     const context = request.context;
 
+    const rawHeader = request.headers?.['x-correlation-id'];
+    const headerCorrelationId = Array.isArray(rawHeader)
+      ? rawHeader[0]
+      : rawHeader;
+    const correlationId =
+      context?.correlationId ||
+      headerCorrelationId ||
+      this.loggingService.generateCorrelationId();
+
+    const logContext = {
+      ...context,
+      correlationId,
+    };
+
     let statusCode = 500;
     let errorResponse: ErrorResponse = {
       errorCode: 'INTERNAL_SERVER_ERROR',
@@ -55,11 +70,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       timestamp: new Date().toISOString(),
       path: request.url,
       method: request.method,
+      correlationId,
     };
-
-    if (context?.correlationId) {
-      errorResponse.correlationId = context.correlationId;
-    }
 
     // Handle custom AppException
     if (exception instanceof AppException) {
@@ -70,13 +82,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         ...(appException as unknown as Partial<ErrorResponse>),
         path: request.url,
         method: request.method,
+        correlationId,
       };
-      if (context?.correlationId) {
-        errorResponse.correlationId = context.correlationId;
-      }
       // Remove sensitive information in production
       if (this.isProduction) {
-        delete errorResponse.details;
+        if (errorResponse.errorCode !== 'VALIDATION_ERROR') {
+          delete errorResponse.details;
+        }
         delete errorResponse.stack;
       }
     }
@@ -93,13 +105,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         timestamp: new Date().toISOString(),
         path: request.url,
         method: request.method,
+        correlationId,
       };
       // Only include details in non-production environments
       if (!this.isProduction) {
         errorResponse.details = exceptionResponse.message;
-      }
-      if (context?.correlationId) {
-        errorResponse.correlationId = context.correlationId;
       }
     }
     // Handle HttpException
@@ -111,26 +121,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         timestamp: new Date().toISOString(),
         path: request.url,
         method: request.method,
+        correlationId,
       };
-      if (context?.correlationId) {
-        errorResponse.correlationId = context.correlationId;
-      }
     }
-    // Handle all other exceptions
+    // Handle all other exceptions (non-HttpException)
     else {
       statusCode = 500;
-      const message =
-        exception instanceof Error ? exception.message : String(exception);
       errorResponse = {
         errorCode: 'INTERNAL_SERVER_ERROR',
-        message: this.isProduction ? 'Internal server error' : message,
+        message: 'Internal server error',
         timestamp: new Date().toISOString(),
         path: request.url,
         method: request.method,
+        correlationId,
       };
-      if (context?.correlationId) {
-        errorResponse.correlationId = context.correlationId;
-      }
     }
 
     // Log error
@@ -139,15 +143,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       exception instanceof Error ? exception : new Error(String(exception));
 
     if (statusCode >= 500) {
-      this.loggingService.error(logMessage, error, context);
+      this.loggingService.error(logMessage, error, logContext);
       this.sentryService.captureException(error, {
         url: request.url,
         method: request.method,
         statusCode,
-        ...context,
+        ...logContext,
       });
     } else {
-      this.loggingService.warn(logMessage, context);
+      this.loggingService.warn(logMessage, logContext);
     }
 
     response.status(statusCode).json(errorResponse);

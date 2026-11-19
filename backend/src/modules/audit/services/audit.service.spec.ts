@@ -5,6 +5,7 @@ import { AuditService } from './audit.service';
 import { RequestContextService } from './request-context.service';
 import { AuditLog } from '../entities';
 import { AuditAction, AuditResourceType } from '../constants';
+import { LoggingService } from '../../../common/logging/logging.service';
 
 describe('AuditService', () => {
   let service: AuditService;
@@ -37,6 +38,14 @@ describe('AuditService', () => {
       providers: [
         AuditService,
         RequestContextService,
+        {
+          provide: LoggingService,
+          useValue: {
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
+          },
+        },
         {
           provide: getRepositoryToken(AuditLog),
           useValue: {
@@ -270,6 +279,7 @@ describe('AuditService', () => {
       const mockQueryBuilder = {
         andWhere: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
         skip: jest.fn().mockReturnThis(),
         take: jest.fn().mockReturnThis(),
         getManyAndCount: jest.fn().mockResolvedValue([[mockAuditLog], 1]),
@@ -289,6 +299,143 @@ describe('AuditService', () => {
     });
   });
 
+  describe('getStatistics', () => {
+    function makeStatisticsQueryBuilder() {
+      // Each sub-query in getStatistics calls a fresh chain on the same
+      // queryBuilder instance. We need select/addSelect/groupBy/addGroupBy/
+      // orderBy/limit to be chainable and getRawMany + getCount to resolve.
+      const qb: any = {
+        andWhere: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
+        groupBy: jest.fn().mockReturnThis(),
+        addGroupBy: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        getCount: jest.fn().mockResolvedValue(42),
+        getRawMany: jest.fn(),
+      };
+
+      // getRawMany is called 5 times in order:
+      //   1. eventsByAction
+      //   2. eventsByResourceType
+      //   3. eventsByStatus
+      //   4. eventsPerDay
+      //   5. topUsers
+      //   6. topResources
+      qb.getRawMany
+        .mockResolvedValueOnce([
+          { action: 'USER_LOGIN', count: '10' },
+          { action: 'CERTIFICATE_ISSUED', count: '5' },
+        ])
+        .mockResolvedValueOnce([
+          { resourceType: 'USER', count: '15' },
+          { resourceType: 'CERTIFICATE', count: '8' },
+        ])
+        .mockResolvedValueOnce([
+          { status: 'success', count: '20' },
+          { status: 'failure', count: '3' },
+        ])
+        .mockResolvedValueOnce([
+          { date: '2026-10-20', count: '5' },
+          { date: '2026-10-21', count: '8' },
+        ])
+        .mockResolvedValueOnce([
+          {
+            userId: 'user-1',
+            userEmail: 'alice@example.com',
+            eventCount: '10',
+          },
+          { userId: 'user-2', userEmail: 'bob@example.com', eventCount: '5' },
+        ])
+        .mockResolvedValueOnce([
+          { resourceId: 'res-1', resourceType: 'CERTIFICATE', eventCount: '7' },
+          { resourceId: 'res-2', resourceType: 'USER', eventCount: '3' },
+        ]);
+
+      return qb;
+    }
+
+    it('should return aggregated statistics', async () => {
+      const qb = makeStatisticsQueryBuilder();
+      jest.spyOn(repository, 'createQueryBuilder').mockReturnValue(qb);
+
+      const result = await service.getStatistics({});
+
+      expect(result.totalEvents).toBe(42);
+      expect(result.eventsByAction).toEqual({
+        USER_LOGIN: 10,
+        CERTIFICATE_ISSUED: 5,
+      });
+      expect(result.eventsByResourceType).toEqual({
+        USER: 15,
+        CERTIFICATE: 8,
+      });
+      expect(result.eventsByStatus).toEqual({ success: 20, failure: 3 });
+      expect(result.eventsPerDay).toEqual({
+        '2026-10-20': 5,
+        '2026-10-21': 8,
+      });
+      expect(result.topUsers).toEqual([
+        { userId: 'user-1', userEmail: 'alice@example.com', eventCount: 10 },
+        { userId: 'user-2', userEmail: 'bob@example.com', eventCount: 5 },
+      ]);
+      expect(result.topResources).toEqual([
+        { resourceId: 'res-1', resourceType: 'CERTIFICATE', eventCount: 7 },
+        { resourceId: 'res-2', resourceType: 'USER', eventCount: 3 },
+      ]);
+    });
+
+    it('should use quoted "eventCount" alias in orderBy so Postgres preserves case', async () => {
+      const qb = makeStatisticsQueryBuilder();
+      jest.spyOn(repository, 'createQueryBuilder').mockReturnValue(qb);
+
+      await service.getStatistics({});
+
+      // orderBy must be called with the double-quoted alias (not bare 'eventCount')
+      // at least twice — once for topUsers and once for topResources.
+      const orderByCalls: string[] = qb.orderBy.mock.calls.map(
+        (call: any[]) => call[0],
+      );
+      const quotedCalls = orderByCalls.filter((arg) => arg === '"eventCount"');
+      expect(quotedCalls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should apply filters when provided', async () => {
+      const qb = makeStatisticsQueryBuilder();
+      jest.spyOn(repository, 'createQueryBuilder').mockReturnValue(qb);
+
+      await service.getStatistics({ userId: 'user-123' });
+
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        'audit.userId = :userId',
+        expect.objectContaining({ userId: 'user-123' }),
+      );
+    });
+
+    it('should return empty collections when no data exists', async () => {
+      const qb: any = {
+        andWhere: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
+        groupBy: jest.fn().mockReturnThis(),
+        addGroupBy: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        getCount: jest.fn().mockResolvedValue(0),
+        getRawMany: jest.fn().mockResolvedValue([]),
+      };
+      jest.spyOn(repository, 'createQueryBuilder').mockReturnValue(qb);
+
+      const result = await service.getStatistics({});
+
+      expect(result.totalEvents).toBe(0);
+      expect(result.eventsByAction).toEqual({});
+      expect(result.topUsers).toEqual([]);
+      expect(result.topResources).toEqual([]);
+    });
+  });
+
   describe('exportToCsv', () => {
     it('should return message when no logs found', async () => {
       jest.spyOn(service, 'search').mockResolvedValue({ data: [], total: 0 });
@@ -305,7 +452,7 @@ describe('AuditService', () => {
 
       const result = await service.exportToCsv({});
 
-      expect(result).toContain('ID,Action,Resource Type');
+      expect(result).toContain('"ID","Action","Resource Type"');
       expect(result).toContain(mockAuditLog.id);
       expect(result).toContain(AuditAction.USER_LOGIN);
     });
@@ -324,7 +471,7 @@ describe('AuditService', () => {
 
       const result = await service.exportToCsv({});
 
-      expect(result).toContain('ID,Action,Resource Type');
+      expect(result).toContain('"ID","Action","Resource Type"');
       expect(result.split('\n').length).toBeGreaterThan(5000);
     });
   });

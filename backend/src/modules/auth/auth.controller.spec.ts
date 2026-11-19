@@ -1,6 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Reflector } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { TwoFactorService } from './services/two-factor.service';
+import { SessionsService } from './services/sessions.service';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -15,6 +20,36 @@ describe('AuthController', () => {
             login: jest.fn(),
             register: jest.fn(),
           },
+        },
+        {
+          provide: TwoFactorService,
+          useValue: {},
+        },
+        {
+          provide: SessionsService,
+          useValue: {
+            createSession: jest.fn(),
+            findByRefreshToken: jest.fn(),
+            rotate: jest.fn(),
+            revokeByRefreshToken: jest.fn(),
+          },
+        },
+        {
+          provide: JwtService,
+          useValue: {
+            sign: jest.fn(),
+            verify: jest.fn(),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn(),
+          },
+        },
+        {
+          provide: Reflector,
+          useValue: new Reflector(),
         },
       ],
     }).compile();

@@ -3,7 +3,9 @@ import {
   ExecutionContext,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -11,7 +13,17 @@ import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { createHash } from 'crypto';
 import { RateLimitService } from '../../../common/rate-limiting/rate-limit.service';
+import {
+  InMemoryRateLimitStore,
+  RATE_LIMIT_STORE,
+} from '../../../common/guards/ip-rate-limit.guard';
+import type { RateLimitStore } from '../../../common/guards/ip-rate-limit.guard';
+import {
+  parseTrustedProxyIps,
+  resolveClientIp,
+} from '../../../common/utils/client-ip.util';
 import { LoggingService } from '../../../common/logging/logging.service';
+import { rateLimitsDisabledForTests } from '../../../common/rate-limiting/rate-limit-test-switch';
 import {
   RATE_LIMIT_OPTIONS_KEY,
   RateLimitOptions,
@@ -20,11 +32,6 @@ import {
 interface RequestWithContext extends Request {
   user?: { id?: string; sub?: string };
   issuer?: { id: string; tier: string };
-}
-
-interface LocalBucket {
-  windowStart: number;
-  count: number;
 }
 
 interface GuardRateResult {
@@ -37,7 +44,8 @@ interface GuardRateResult {
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
-  private readonly usage = new Map<string, LocalBucket>();
+  private readonly store: RateLimitStore;
+  private readonly trustedProxyIps: Set<string>;
   private readonly defaultWindowMs: number;
   private readonly defaultMaxRequests: number;
   private readonly bruteForceWindowMs: number;
@@ -48,7 +56,13 @@ export class RateLimitGuard implements CanActivate {
     private readonly configService: ConfigService,
     private readonly loggingService: LoggingService,
     private readonly apiKeyRateLimitService: RateLimitService,
+    @Optional() @Inject(RATE_LIMIT_STORE) store?: RateLimitStore,
   ) {
+    // Shared store when one is bound (Redis); its own bounded in-memory one otherwise.
+    this.store = store ?? new InMemoryRateLimitStore();
+    this.trustedProxyIps = parseTrustedProxyIps(
+      this.configService.get<string>('TRUSTED_PROXY_IPS', ''),
+    );
     const isProd = this.configService.get<string>('NODE_ENV') === 'production';
 
     this.defaultWindowMs =
@@ -66,13 +80,15 @@ export class RateLimitGuard implements CanActivate {
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    if (rateLimitsDisabledForTests()) return true;
+
     const http = context.switchToHttp();
     const request = http.getRequest<RequestWithContext>();
     const response = http.getResponse<Response>();
     const routeKey = this.routeKey(request);
 
     await this.enforceApiKeyRateLimit(request, response, routeKey);
-    this.enforceRequestRateLimit(context, request, response, routeKey);
+    await this.enforceRequestRateLimit(context, request, response, routeKey);
 
     return true;
   }
@@ -122,12 +138,12 @@ export class RateLimitGuard implements CanActivate {
     }
   }
 
-  private enforceRequestRateLimit(
+  private async enforceRequestRateLimit(
     context: ExecutionContext,
     request: RequestWithContext,
     response: Response,
     routeKey: string,
-  ): void {
+  ): Promise<void> {
     const options = this.reflector.getAllAndOverride<RateLimitOptions>(
       RATE_LIMIT_OPTIONS_KEY,
       [context.getHandler(), context.getClass()],
@@ -147,7 +163,12 @@ export class RateLimitGuard implements CanActivate {
       options,
       isBruteForceRoute,
     );
-    const result = this.consume(bucketKey, limit, windowMs, isBruteForceRoute);
+    const result = await this.consume(
+      bucketKey,
+      limit,
+      windowMs,
+      isBruteForceRoute,
+    );
 
     response.setHeader('X-RateLimit-Limit', result.limit.toString());
     response.setHeader('X-RateLimit-Remaining', result.remaining.toString());
@@ -166,44 +187,25 @@ export class RateLimitGuard implements CanActivate {
     }
   }
 
-  private consume(
+  private async consume(
     key: string,
     limit: number,
     windowMs: number,
     isBruteForceRoute: boolean,
-  ): GuardRateResult {
-    const now = Date.now();
-    const bucket = this.usage.get(key);
-
-    if (!bucket || now - bucket.windowStart >= windowMs) {
-      this.usage.set(key, { windowStart: now, count: 1 });
-      return {
-        allowed: true,
-        limit,
-        remaining: Math.max(limit - 1, 0),
-        resetAt: now + windowMs,
-      };
-    }
-
-    if (bucket.count >= limit) {
-      return {
-        allowed: false,
-        limit,
-        remaining: 0,
-        resetAt: bucket.windowStart + windowMs,
-        reason: isBruteForceRoute
-          ? 'brute-force-protection-triggered'
-          : 'global-rate-limit-exceeded',
-      };
-    }
-
-    bucket.count += 1;
+  ): Promise<GuardRateResult> {
+    const entry = await this.store.consume(key, windowMs, Date.now());
+    const allowed = entry.count <= limit;
 
     return {
-      allowed: true,
+      allowed,
       limit,
-      remaining: Math.max(limit - bucket.count, 0),
-      resetAt: bucket.windowStart + windowMs,
+      remaining: Math.max(limit - entry.count, 0),
+      resetAt: entry.resetTime,
+      reason: allowed
+        ? undefined
+        : isBruteForceRoute
+          ? 'brute-force-protection-triggered'
+          : 'global-rate-limit-exceeded',
     };
   }
 
@@ -238,15 +240,7 @@ export class RateLimitGuard implements CanActivate {
   }
 
   private clientIp(request: Request): string {
-    const forwardedFor = request.headers['x-forwarded-for'];
-    if (typeof forwardedFor === 'string') {
-      const firstIp = forwardedFor.split(',')[0]?.trim();
-      if (firstIp) {
-        return firstIp;
-      }
-    }
-
-    return request.ip || request.socket.remoteAddress || 'unknown';
+    return resolveClientIp(request, this.trustedProxyIps);
   }
 
   private routeKey(request: Request): string {

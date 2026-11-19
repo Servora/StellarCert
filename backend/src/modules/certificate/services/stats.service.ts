@@ -97,17 +97,24 @@ export class CertificateStatsService {
     const startDate =
       dateFilter.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = dateFilter.endDate || new Date();
+    const utcDayBucket =
+      "TO_CHAR(DATE_TRUNC('day', cert.issuedAt AT TIME ZONE 'UTC'), 'YYYY-MM-DD')";
 
-    const trendData = await this.certificateRepo
+    const trendQuery = this.certificateRepo
       .createQueryBuilder('cert')
-      .select('DATE(cert.issuedAt)', 'date')
+      .select(utcDayBucket, 'date')
       .addSelect('COUNT(*)', 'count')
       .where('cert.issuedAt >= :startDate', { startDate })
-      .andWhere('cert.issuedAt <= :endDate', { endDate })
-      .andWhere(issuerFilter.issuerId ? 'cert.issuerId = :issuerId' : '1=1', {
+      .andWhere('cert.issuedAt <= :endDate', { endDate });
+
+    if (issuerFilter.issuerId) {
+      trendQuery.andWhere('cert.issuerId = :issuerId', {
         issuerId: issuerFilter.issuerId,
-      })
-      .groupBy('DATE(cert.issuedAt)')
+      });
+    }
+
+    const trendData = await trendQuery
+      .groupBy(utcDayBucket)
       .orderBy('date', 'ASC')
       .getRawMany();
 
@@ -117,11 +124,12 @@ export class CertificateStatsService {
     }));
   }
 
-  private async getTopIssuers(dateFilter: any) {
+  public async getTopIssuersData(dateFilter: any, limit: number = 10) {
     const query = this.certificateRepo
       .createQueryBuilder('cert')
       .select('cert.issuerId', 'issuerId')
-      .addSelect('issuer.name', 'issuerName')
+      .addSelect('issuer.firstName', 'firstName')
+      .addSelect('issuer.lastName', 'lastName')
       .addSelect('COUNT(*)', 'certificateCount')
       .leftJoin('cert.issuer', 'issuer');
 
@@ -134,16 +142,25 @@ export class CertificateStatsService {
 
     const topIssuersData = await query
       .groupBy('cert.issuerId')
-      .addGroupBy('issuer.name')
-      .orderBy('certificateCount', 'DESC')
-      .limit(10)
+      .addGroupBy('issuer.firstName')
+      .addGroupBy('issuer.lastName')
+      .orderBy('"certificateCount"', 'DESC')
+      .limit(limit)
       .getRawMany();
 
-    return topIssuersData.map((item) => ({
-      issuerId: item.issuerId,
-      issuerName: item.issuerName || 'Unknown',
-      certificateCount: parseInt(item.certificateCount, 10),
-    }));
+    return topIssuersData.map((item) => {
+      const issuerName =
+        [item.firstName, item.lastName].filter(Boolean).join(' ') || 'Unknown';
+      return {
+        issuerId: item.issuerId,
+        issuerName,
+        certificateCount: parseInt(item.certificateCount, 10),
+      };
+    });
+  }
+
+  private async getTopIssuers(dateFilter: any) {
+    return this.getTopIssuersData(dateFilter, 10);
   }
 
   private async getVerificationStats(dateFilter: any, issuerFilter: any) {

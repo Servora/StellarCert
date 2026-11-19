@@ -1,29 +1,28 @@
-import {
-  Controller,
-  Post,
-  Body,
-  Get,
-  Param,
-  UseGuards
-} from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { SorobanService } from '../services/soroban.service';
 import { JwtAuthGuard } from 'src/common';
 import { RolesGuard } from '../../users/guards/roles.guard';
 import { Roles } from '../../users/decorators/roles.decorator';
 import { UserRole } from '../../users/entities/user.entity';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 @ApiTags('Soroban')
 @Controller('soroban')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class SorobanController {
-  constructor(private readonly sorobanService: SorobanService, private readonly logger: LoggingService) {}
+  constructor(
+    private readonly sorobanService: SorobanService,
+    private readonly logger: LoggingService,
+  ) {}
 
   @Post('initialize-contract')
   @ApiOperation({ summary: 'Initialize the certificate contract' })
-  @ApiResponse({ status: 200, description: 'Contract initialized successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Contract initialized successfully',
+  })
   @ApiResponse({ status: 500, description: 'Failed to initialize contract' })
   async initializeContract(@Body() body: { adminAddress: string }) {
     try {
@@ -80,13 +79,19 @@ export class SorobanController {
 
   @Post('init-multisig')
   @ApiOperation({ summary: 'Initialize multisig configuration for an issuer' })
-  @ApiResponse({ status: 200, description: 'Multisig initialized successfully' })
-  async initMultisig(@Body() body: {
-    issuerAddress: string;
-    threshold: number;
-    signers: string[];
-    maxSigners: number;
-  }) {
+  @ApiResponse({
+    status: 200,
+    description: 'Multisig initialized successfully',
+  })
+  async initMultisig(
+    @Body()
+    body: {
+      issuerAddress: string;
+      threshold: number;
+      signers: string[];
+      maxSigners: number;
+    },
+  ) {
     try {
       const success = await this.sorobanService.initMultisigConfig(
         body.issuerAddress,

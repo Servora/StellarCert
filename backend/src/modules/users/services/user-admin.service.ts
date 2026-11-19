@@ -2,7 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
-  ConflictException
+  ConflictException,
 } from '@nestjs/common';
 import { User, UserRole, UserStatus } from '../entities/user.entity';
 import { UserRepository } from '../repositories/user.repository';
@@ -13,7 +13,9 @@ import {
   DeactivateUserDto,
 } from '../dto/admin-user.dto';
 import { UserFilterDto } from '../dto/pagination.dto';
+import { UserResponseDto } from '../dto/user-response.dto';
 import { IPaginatedResult } from '../interfaces';
+import { toAdminUserResponse } from '../mappers/user.mapper';
 import { LoggingService } from '../../../common/logging/logging.service';
 import { CertificateStatsService } from '../../certificate/services/stats.service';
 import { AuditService } from '../../audit/services/audit.service';
@@ -24,36 +26,40 @@ export class UserAdminService {
     private readonly userRepository: UserRepository,
     private readonly logger: LoggingService,
     private readonly certificateStatsService: CertificateStatsService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
   ) {}
 
   async findAllUsers(
     filterDto: UserFilterDto,
-  ): Promise<IPaginatedResult<User>> {
+  ): Promise<IPaginatedResult<UserResponseDto>> {
     const { page, limit, sortBy, sortOrder, ...filters } = filterDto;
 
-    return this.userRepository.findPaginated(
+    const result = await this.userRepository.findPaginated(
       { page: page || 1, limit: limit || 10 },
       filters,
       { field: sortBy || 'createdAt', order: sortOrder || 'DESC' },
     );
+    return {
+      ...result,
+      data: result.data.map(toAdminUserResponse),
+    };
   }
 
-  async findUserById(id: string): Promise<User> {
+  async findUserById(id: string): Promise<UserResponseDto> {
     const user = await this.userRepository.findById(id);
 
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    return user;
+    return toAdminUserResponse(user);
   }
 
   async adminUpdateUser(
     adminId: string,
     userId: string,
     updateDto: AdminUpdateUserDto,
-  ): Promise<User> {
+  ): Promise<UserResponseDto> {
     // Prevent admin from modifying their own role
     if (adminId === userId && updateDto.role) {
       throw new ForbiddenException('Cannot modify your own role');
@@ -69,14 +75,14 @@ export class UserAdminService {
 
     this.logger.log(`Admin ${adminId} updated user ${userId}`);
 
-    return updatedUser!;
+    return toAdminUserResponse(updatedUser!);
   }
 
   async updateUserRole(
     adminId: string,
     userId: string,
     updateRoleDto: UpdateUserRoleDto,
-  ): Promise<User> {
+  ): Promise<UserResponseDto> {
     // Prevent admin from modifying their own role
     if (adminId === userId) {
       throw new ForbiddenException('Cannot modify your own role');
@@ -96,14 +102,14 @@ export class UserAdminService {
       `Admin ${adminId} changed role of user ${userId} to ${updateRoleDto.role}`,
     );
 
-    return updatedUser!;
+    return toAdminUserResponse(updatedUser!);
   }
 
   async updateUserStatus(
     adminId: string,
     userId: string,
     updateStatusDto: UpdateUserStatusDto,
-  ): Promise<User> {
+  ): Promise<UserResponseDto> {
     const user = await this.userRepository.findById(userId);
 
     if (!user) {
@@ -119,14 +125,14 @@ export class UserAdminService {
       `Admin ${adminId} changed status of user ${userId} to ${updateStatusDto.status}`,
     );
 
-    return updatedUser!;
+    return toAdminUserResponse(updatedUser!);
   }
 
   async deactivateUser(
     adminId: string,
     userId: string,
     deactivateDto: DeactivateUserDto,
-  ): Promise<User> {
+  ): Promise<UserResponseDto> {
     // Prevent admin from deactivating themselves
     if (adminId === userId) {
       throw new ForbiddenException('Cannot deactivate your own account');
@@ -151,10 +157,13 @@ export class UserAdminService {
 
     this.logger.log(`Admin ${adminId} deactivated user ${userId}`);
 
-    return updatedUser!;
+    return toAdminUserResponse(updatedUser!);
   }
 
-  async reactivateUser(adminId: string, userId: string): Promise<User> {
+  async reactivateUser(
+    adminId: string,
+    userId: string,
+  ): Promise<UserResponseDto> {
     const user = await this.userRepository.findById(userId);
 
     if (!user) {
@@ -175,7 +184,7 @@ export class UserAdminService {
 
     this.logger.log(`Admin ${adminId} reactivated user ${userId}`);
 
-    return updatedUser!;
+    return toAdminUserResponse(updatedUser!);
   }
 
   async deleteUser(

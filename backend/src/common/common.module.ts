@@ -29,6 +29,7 @@ import {
   RATE_LIMIT_QUEUE_NAME,
 } from './rate-limiting/rate-limit.service';
 import { Issuer } from '../modules/issuers/entities/issuer.entity';
+import { DistributedLockService } from './services/distributed-lock.service';
 
 @Global()
 @Module({
@@ -38,10 +39,11 @@ import { Issuer } from '../modules/issuers/entities/issuer.entity';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const secret = configService.get<string>('JWT_ACCESS_SECRET')
-          || configService.get<string>('JWT_SECRET')
-          || process.env.JWT_ACCESS_SECRET
-          || process.env.JWT_SECRET;
+        const secret =
+          configService.get<string>('JWT_ACCESS_SECRET') ||
+          configService.get<string>('JWT_SECRET') ||
+          process.env.JWT_ACCESS_SECRET ||
+          process.env.JWT_SECRET;
         const expiresIn = (configService.get<string>('JWT_ACCESS_EXPIRES_IN') ||
           '15m') as any;
 
@@ -75,6 +77,7 @@ import { Issuer } from '../modules/issuers/entities/issuer.entity';
     MetricsService,
     SentryService,
     RateLimitService,
+    DistributedLockService,
 
     {
       provide: APP_GUARD,
@@ -131,10 +134,13 @@ import { Issuer } from '../modules/issuers/entities/issuer.entity';
     SentryService,
     JwtModule,
     RateLimitService,
+    DistributedLockService,
   ],
 })
 export class CommonModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(CorrelationIdMiddleware, MetricsMiddleware).forRoutes('*');
+    consumer
+      .apply(CorrelationIdMiddleware, MetricsMiddleware)
+      .forRoutes('{*path}');
   }
 }

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -18,16 +19,51 @@ import {
   ValidationErrorDetail,
   MetadataValidationResultDto,
 } from '../dto/metadata-schema.dto';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
+import { UserRole } from '../../../common/constants/roles';
+
+const MAX_PATTERN_LENGTH = 200;
+
+/**
+ * Rejects patterns that do not compile or that look prone to catastrophic backtracking
+ * (a quantified group that itself contains a quantifier, such as `(a+)+$`). This is a
+ * conservative heuristic, not a proof; a linear-time engine such as `re2` would be stronger.
+ */
+export function assertSafePattern(fieldName: string, pattern: string): RegExp {
+  if (pattern.length > MAX_PATTERN_LENGTH) {
+    throw new BadRequestException(
+      `Pattern for field "${fieldName}" is longer than ${MAX_PATTERN_LENGTH} characters`,
+    );
+  }
+  if (/\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)[+*{]/.test(pattern)) {
+    throw new BadRequestException(
+      `Pattern for field "${fieldName}" contains nested quantifiers and is not allowed`,
+    );
+  }
+  try {
+    return new RegExp(pattern);
+  } catch {
+    throw new BadRequestException(
+      `Pattern for field "${fieldName}" is not a valid regular expression`,
+    );
+  }
+}
 
 @Injectable()
 export class MetadataSchemaService {
   constructor(
     @InjectRepository(MetadataSchema)
-    private readonly schemaRepository: Repository<MetadataSchema>, private readonly logger: LoggingService
+    private readonly schemaRepository: Repository<MetadataSchema>,
+    private readonly logger: LoggingService,
   ) {}
 
-  async create(dto: CreateMetadataSchemaDto): Promise<MetadataSchema> {
+  async create(
+    dto: CreateMetadataSchemaDto,
+    ownerId: string,
+  ): Promise<MetadataSchema> {
+    dto.fields?.forEach(
+      (f) => f.pattern && assertSafePattern(f.name, f.pattern),
+    );
     const existing = await this.schemaRepository.findOne({
       where: { name: dto.name, version: dto.version },
     });
@@ -46,6 +82,7 @@ export class MetadataSchemaService {
 
     const schema = this.schemaRepository.create({
       ...dto,
+      ownerId,
       requiredFields,
       allowCustomFields: dto.allowCustomFields ?? true,
       previousVersionId: previous?.id,
@@ -88,8 +125,25 @@ export class MetadataSchemaService {
   async update(
     id: string,
     dto: UpdateMetadataSchemaDto,
+    actorId: string,
+    actorRole?: string,
   ): Promise<MetadataSchema> {
     const schema = await this.findOne(id);
+    this.assertCanModify(schema, actorId, actorRole);
+
+    // (name, version) is the uniqueness key that create/upgradeSchema rely on, so it is immutable.
+    if (
+      (dto.name !== undefined && dto.name !== schema.name) ||
+      (dto.version !== undefined && dto.version !== schema.version)
+    ) {
+      throw new BadRequestException(
+        'name and version cannot be changed; create a new version with upgradeSchema instead',
+      );
+    }
+    dto.fields?.forEach(
+      (f) => f.pattern && assertSafePattern(f.name, f.pattern),
+    );
+
     Object.assign(schema, dto);
 
     const dtoAny = dto as any;
@@ -107,6 +161,8 @@ export class MetadataSchemaService {
   async upgradeSchema(
     name: string,
     dto: CreateMetadataSchemaDto,
+    actorId: string,
+    actorRole?: string,
   ): Promise<MetadataSchema> {
     const current = await this.findLatestByName(name);
     if (!current) {
@@ -114,6 +170,7 @@ export class MetadataSchemaService {
         `No existing schema found with name "${name}"`,
       );
     }
+    this.assertCanModify(current, actorId, actorRole);
 
     const [curMajor, curMinor, curPatch] = current.version
       .split('.')
@@ -131,13 +188,38 @@ export class MetadataSchemaService {
       );
     }
 
-    return this.create({ ...dto, name });
+    // The new version belongs to the schema's owner, even when an admin
+    // performs the upgrade on their behalf. Unowned legacy rows stay unowned
+    // unless the actor creating the version is the only candidate.
+    return this.create({ ...dto, name }, current.ownerId ?? actorId);
   }
 
-  async deactivate(id: string): Promise<MetadataSchema> {
+  async deactivate(
+    id: string,
+    actorId: string,
+    actorRole?: string,
+  ): Promise<MetadataSchema> {
     const schema = await this.findOne(id);
+    this.assertCanModify(schema, actorId, actorRole);
     schema.isActive = false;
     return this.schemaRepository.save(schema);
+  }
+
+  /**
+   * Admins may manage every schema; everyone else may only modify the schema
+   * they created. Rows without an owner predate ownership tracking and are
+   * therefore admin-only.
+   */
+  private assertCanModify(
+    schema: MetadataSchema,
+    actorId: string,
+    actorRole?: string,
+  ): void {
+    if (actorRole === UserRole.ADMIN) return;
+    if (schema.ownerId && schema.ownerId === actorId) return;
+    throw new ForbiddenException(
+      'Only the schema owner or an admin can modify this schema',
+    );
   }
 
   async getVersionHistory(name: string): Promise<MetadataSchema[]> {
@@ -248,7 +330,8 @@ export class MetadataSchemaService {
           });
         }
         if (field.pattern) {
-          const regex = new RegExp(field.pattern);
+          // Patterns are validated on create/update; recompile defensively for legacy rows.
+          const regex = assertSafePattern(field.name, field.pattern);
           if (!regex.test(value)) {
             errors.push({
               field: field.name,
@@ -257,6 +340,14 @@ export class MetadataSchemaService {
               constraint: 'pattern',
             });
           }
+        }
+        if (field.enumValues && !field.enumValues.includes(value)) {
+          errors.push({
+            field: field.name,
+            message: `"${field.name}" must be one of: ${field.enumValues.join(', ')}`,
+            value,
+            constraint: 'enum',
+          });
         }
         break;
 

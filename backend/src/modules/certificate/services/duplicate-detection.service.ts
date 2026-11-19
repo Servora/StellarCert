@@ -280,6 +280,9 @@ export class DuplicateDetectionService {
     action: 'block' | 'warn' | 'allow',
   ): string {
     const count = matches.length;
+    if (count === 0) {
+      return '';
+    }
     const highestMatch = matches.reduce((prev, current) =>
       prev.similarityScore > current.similarityScore ? prev : current,
     );

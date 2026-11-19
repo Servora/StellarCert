@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from './email.service';
+import { LoggingService } from '../../common/logging/logging.service';
 
 describe('EmailService', () => {
   let service: EmailService;
@@ -24,6 +25,14 @@ describe('EmailService', () => {
               };
               return config[key];
             }),
+          },
+        },
+        {
+          provide: LoggingService,
+          useValue: {
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
           },
         },
       ],
@@ -139,10 +148,25 @@ describe('EmailService', () => {
   });
 
   describe('verifyConnection', () => {
-    it('should verify email service connection', async () => {
+    it('should return true when the transport verifies', async () => {
+      // Stub the transporter so the test does not attempt a real SMTP round-trip
+      // (which hangs and times out in the test environment).
+      (
+        service as unknown as { transporter: { verify: jest.Mock } }
+      ).transporter = { verify: jest.fn().mockResolvedValue(true) };
       const result = await service.verifyConnection();
-      // This will likely fail in test environment without proper SMTP config
       expect(typeof result).toBe('boolean');
+      expect(result).toBe(true);
+    });
+
+    it('should return false when the transport fails to verify', async () => {
+      (
+        service as unknown as { transporter: { verify: jest.Mock } }
+      ).transporter = {
+        verify: jest.fn().mockRejectedValue(new Error('smtp unavailable')),
+      };
+      const result = await service.verifyConnection();
+      expect(result).toBe(false);
     });
   });
 });

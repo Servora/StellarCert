@@ -21,6 +21,9 @@ vi.mock('./pages/IssuerProfile', () => ({ default: () => <div>Profile Page</div>
 vi.mock('./pages/NotificationPreferences', () => ({
   default: () => <div>Preferences Page</div>,
 }));
+vi.mock('./components/admin/users/UserManagement', () => ({
+  default: () => <div>User Management Page</div>,
+}));
 
 const authedUser: User = {
   id: '1',
@@ -28,6 +31,14 @@ const authedUser: User = {
   firstName: 'U',
   lastName: 'R',
   role: UserRole.USER,
+};
+
+const adminUser: User = {
+  id: '2',
+  email: 'admin@example.com',
+  firstName: 'Admin',
+  lastName: 'User',
+  role: UserRole.ADMIN,
 };
 
 const setUser = (user: User | null) =>
@@ -38,6 +49,7 @@ const setUser = (user: User | null) =>
     isLoading: false,
     clearAuth: vi.fn(),
     login: vi.fn(),
+    logout: vi.fn(),
   });
 
 const renderAt = (path: string) =>
@@ -76,5 +88,27 @@ describe('App account-route protection (#566)', () => {
     setUser(authedUser);
     renderAt('/preferences');
     expect(await screen.findByText('Preferences Page')).toBeTruthy();
+  });
+});
+
+describe('Admin users route protection (#1003)', () => {
+  it('redirects unauthenticated users away from /admin/users to login', async () => {
+    setUser(null);
+    renderAt('/admin/users');
+    expect(await screen.findByText('Login Page')).toBeTruthy();
+    expect(screen.queryByText('User Management Page')).toBeNull();
+  });
+
+  it('redirects non-admin users away from /admin/users to home', async () => {
+    setUser(authedUser);
+    renderAt('/admin/users');
+    // Should redirect to home (/) which shows Dashboard
+    expect(screen.queryByText('User Management Page')).toBeNull();
+  });
+
+  it('allows an admin user to view /admin/users', async () => {
+    setUser(adminUser);
+    renderAt('/admin/users');
+    expect(await screen.findByText('User Management Page')).toBeTruthy();
   });
 });

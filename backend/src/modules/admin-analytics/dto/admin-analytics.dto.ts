@@ -29,6 +29,15 @@ export class UsersByRoleDto {
   @ApiPropertyOptional({ description: 'Number of admins' })
   admins: number;
 
+  @ApiPropertyOptional({ description: 'Number of auditors' })
+  auditors: number;
+
+  @ApiPropertyOptional({ description: 'Number of recipients' })
+  recipients: number;
+
+  @ApiPropertyOptional({ description: 'Number of verifiers' })
+  verifiers: number;
+
   @ApiPropertyOptional({ description: 'Total users across all roles' })
   total: number;
 }

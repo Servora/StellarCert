@@ -8,8 +8,8 @@
 /** Known magic-byte signatures mapped to their MIME types. */
 const MAGIC_BYTES: { mime: string; bytes: number[]; offset?: number }[] = [
   { mime: 'image/jpeg', bytes: [0xff, 0xd8, 0xff] },
-  { mime: 'image/png',  bytes: [0x89, 0x50, 0x4e, 0x47] },
-  { mime: 'image/gif',  bytes: [0x47, 0x49, 0x46, 0x38] },
+  { mime: 'image/png', bytes: [0x89, 0x50, 0x4e, 0x47] },
+  { mime: 'image/gif', bytes: [0x47, 0x49, 0x46, 0x38] },
   { mime: 'image/webp', bytes: [0x52, 0x49, 0x46, 0x46], offset: 0 },
   { mime: 'application/pdf', bytes: [0x25, 0x50, 0x44, 0x46] },
 ];
@@ -18,7 +18,10 @@ const MAGIC_BYTES: { mime: string; bytes: number[]; offset?: number }[] = [
  * Returns true when the buffer's leading bytes match the expected signature
  * for the given MIME type.
  */
-export function fileHeaderMatchesMime(buffer: Buffer, declaredMime: string): boolean {
+export function fileHeaderMatchesMime(
+  buffer: Buffer,
+  declaredMime: string,
+): boolean {
   const signature = MAGIC_BYTES.find((s) => s.mime === declaredMime);
   if (!signature) return false;
 
@@ -30,7 +33,10 @@ export function fileHeaderMatchesMime(buffer: Buffer, declaredMime: string): boo
  * Throws if the file header does not match the declared MIME type.
  * Use this in any file-upload handler before persisting the file.
  */
-export function assertSafeFileHeader(buffer: Buffer, declaredMime: string): void {
+export function assertSafeFileHeader(
+  buffer: Buffer,
+  declaredMime: string,
+): void {
   if (!fileHeaderMatchesMime(buffer, declaredMime)) {
     throw new Error(
       `File header does not match declared MIME type "${declaredMime}". Upload rejected.`,

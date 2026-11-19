@@ -21,7 +21,11 @@ export class InputSanitizationMiddleware implements NestMiddleware {
         .split('')
         .filter((char) => {
           const code = char.charCodeAt(0);
-          return code >= 32 && code !== 127;
+          // Drop control characters, but keep tab (9), newline (10) and carriage return (13)
+          // so multi-line descriptions and addresses survive.
+          return code >= 32
+            ? code !== 127
+            : code === 9 || code === 10 || code === 13;
         })
         .join('')
         .trim();

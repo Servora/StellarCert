@@ -1,3 +1,4 @@
+// Use tsc -b (bare tsc --noEmit checks nothing)
 {
   "files": [],
   "references": [

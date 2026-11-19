@@ -47,6 +47,10 @@ export class AuditSearchDto {
 
   @IsOptional()
   @IsString()
+  cursor?: string;
+
+  @IsOptional()
+  @IsString()
   correlationId?: string;
 
   @IsOptional()

@@ -5,6 +5,8 @@ import {
   Body,
   Param,
   UseGuards,
+  UsePipes,
+  ValidationPipe,
   Req,
 } from '@nestjs/common';
 import {
@@ -40,26 +42,31 @@ export class CertificateTransferController {
   @ApiResponse({ status: 409, description: 'Transfer conflict' })
   async initiateTransfer(
     @Body() dto: InitiateTransferDto,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() user: any,
     @Req() req: any,
   ) {
-    return this.transferService.initiateTransfer(dto, userId, req.ip);
+    return this.transferService.initiateTransfer(dto, user, req.ip);
   }
 
   @Post('approve')
   @UseGuards(JwtAuthGuard)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({ summary: 'Approve a certificate transfer' })
   @ApiResponse({ status: 200, description: 'Transfer approved successfully' })
+  @ApiResponse({
+    status: 403,
+    description: 'Approver is not the intended new owner',
+  })
   @ApiResponse({ status: 404, description: 'Transfer not found' })
   async approveTransfer(
     @Body() dto: ApproveTransferDto,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() user: any,
     @Req() req: any,
   ) {
     return this.transferService.approveTransfer(
       dto.transferId,
       dto.confirmationCode || '',
-      userId,
+      user,
       req.ip,
     );
   }
@@ -70,13 +77,13 @@ export class CertificateTransferController {
   @ApiResponse({ status: 200, description: 'Transfer rejected successfully' })
   async rejectTransfer(
     @Body() dto: RejectTransferDto,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() user: any,
     @Req() req: any,
   ) {
     return this.transferService.rejectTransfer(
       dto.transferId,
       dto.reason || 'No reason provided',
-      userId,
+      user,
       req.ip,
     );
   }
@@ -87,17 +94,20 @@ export class CertificateTransferController {
   @ApiResponse({ status: 200, description: 'Transfer cancelled successfully' })
   async cancelTransfer(
     @Param('id') transferId: string,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() user: any,
     @Req() req: any,
   ) {
-    return this.transferService.cancelTransfer(transferId, userId, req.ip);
+    return this.transferService.cancelTransfer(transferId, user, req.ip);
   }
 
   @Get('certificate/:certificateId/history')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get transfer history for a certificate' })
-  async getTransferHistory(@Param('certificateId') certificateId: string) {
-    return this.transferService.getTransferHistory(certificateId);
+  async getTransferHistory(
+    @Param('certificateId') certificateId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.transferService.getTransferHistory(certificateId, user);
   }
 
   @Get('pending')

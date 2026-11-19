@@ -125,7 +125,27 @@ export class JwtManagementService {
     refreshToken: string,
   ): Promise<{ accessToken: string; refreshToken: string }> {
     // Verify the refresh token
-    const payload = await this.verifyRefreshToken(refreshToken);
+    const verified = await this.verifyRefreshToken(refreshToken);
+
+    // Re-sign only the identity claims. The verified payload still carries the
+    // registered claims from the old token (iat/exp, and nbf/jti when set), and
+    // jsonwebtoken refuses to sign a payload that already has `exp` while an
+    // `expiresIn` option is given - "Bad options.expiresIn option the payload
+    // already has an exp property". That threw on every refresh, so the catch
+    // in AuthService.refreshTokens turned all of them into 401s and silent
+    // refresh never worked: sessions ended as soon as the access token aged out.
+    const {
+      iat: _iat,
+      exp: _exp,
+      nbf: _nbf,
+      jti: _jti,
+      ...payload
+    } = verified as JwtPayload & {
+      iat?: number;
+      exp?: number;
+      nbf?: number;
+      jti?: string;
+    };
 
     // Generate new access token
     const newAccessToken = await this.generateAccessToken(payload);
@@ -151,5 +171,35 @@ export class JwtManagementService {
     } catch (error) {
       return null;
     }
+  }
+
+  /**
+   * Record a failed 2FA verification attempt for a pre-auth token.
+   * If attempts reach or exceed maxAttempts, the token is invalidated (blacklisted).
+   */
+  async recordFailed2faAttempt(
+    token: string,
+    maxAttempts = 3,
+  ): Promise<{ attempts: number; invalidated: boolean }> {
+    const key = `2fa_attempts:${token}`;
+    const current = (await this.cacheManager.get<number>(key)) || 0;
+    const attempts = current + 1;
+    // Window of 5 minutes (matching pre-auth token expiration)
+    await this.cacheManager.set(key, attempts, 5 * 60 * 1000);
+
+    if (attempts >= maxAttempts) {
+      await this.blacklistToken(token, 5 * 60);
+      return { attempts, invalidated: true };
+    }
+
+    return { attempts, invalidated: false };
+  }
+
+  /**
+   * Clear failed 2FA verification attempts for a pre-auth token.
+   */
+  async clear2faAttempts(token: string): Promise<void> {
+    const key = `2fa_attempts:${token}`;
+    await this.cacheManager.del(key);
   }
 }

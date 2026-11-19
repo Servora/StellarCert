@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bell, CheckCircle, AlertTriangle, Info, Check } from 'lucide-react';
 import { useNotifications } from '../context/NotificationContext';
+import { Link } from 'react-router-dom';
 
 export default function NotificationDropdown() {
     const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
@@ -100,9 +101,9 @@ export default function NotificationDropdown() {
                     </div>
 
                     <div className="p-3 border-t border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900/50 text-center">
-                        <a href="/preferences" className="text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
+                        <Link to="/preferences" onClick={() => setIsOpen(false)} className="text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
                             Notification Preferences
-                        </a>
+                        </Link>
                     </div>
                 </div>
             )}

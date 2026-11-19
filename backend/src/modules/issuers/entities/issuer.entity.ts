@@ -65,11 +65,11 @@ export class Issuer {
 
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore TypeORM decorator signature incompatible with TS5
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore TypeORM decorator signature incompatible with TS5
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 }

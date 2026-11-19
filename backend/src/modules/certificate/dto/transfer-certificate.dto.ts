@@ -1,11 +1,18 @@
-import { IsString, IsEmail, IsOptional, IsNotEmpty } from 'class-validator';
+import {
+  IsString,
+  IsEmail,
+  IsOptional,
+  IsNotEmpty,
+  MinLength,
+  MaxLength,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { TransferStatus } from '../entities/certificate-transfer.entity';
 
 export class InitiateTransferDto {
   @ApiProperty({
     description: 'ID of the certificate to transfer',
-    example: 'a3d8a582-bd23-4a2d-9630-6d4a2f5fd6f0',
+    example: 'a3d8a582-bd23-4a2d-9630-6d5af5fd6f0',
   })
   @IsString()
   @IsNotEmpty()
@@ -45,13 +52,15 @@ export class ApproveTransferDto {
   @IsNotEmpty()
   transferId: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     description: 'Confirmation code sent to the new owner',
-    example: 'AB12CD',
+    example: 'AB12CD34EF56',
   })
   @IsString()
-  @IsOptional()
-  confirmationCode?: string;
+  @IsNotEmpty()
+  @MinLength(6)
+  @MaxLength(64)
+  confirmationCode: string;
 }
 
 export class RejectTransferDto {
@@ -81,33 +90,33 @@ export class TransferHistoryResponseDto {
 
   @ApiProperty({
     description: 'Certificate ID associated with the transfer',
-    example: 'a3d8a582-bd23-4a2d-9630-6d4a2f5fd6f0',
+    example: 'a3d8a582-bd23-4a2d-9630-6d5af5fd6f0',
   })
   certificateId: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Email address of the previous owner',
     example: 'previous.owner@example.com',
   })
-  fromEmail: string;
+  fromEmail?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Name of the previous owner',
     example: 'Previous Owner',
   })
-  fromName: string;
+  fromName?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Email address of the requested new owner',
     example: 'new.owner@example.com',
   })
-  toEmail: string;
+  toEmail?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Name of the requested new owner',
     example: 'New Owner',
   })
-  toName: string;
+  toName?: string;
 
   @ApiProperty({
     description: 'Current transfer status',
@@ -143,6 +152,73 @@ export class TransferHistoryResponseDto {
     format: 'date-time',
   })
   completedAt?: Date;
+
+  @ApiPropertyOptional({
+    description: 'Expiration timestamp for the transfer confirmation code',
+    example: '2026-05-04T12:00:00Z',
+    type: String,
+    format: 'date-time',
+  })
+  expiresAt?: Date;
+}
+
+export class InitiateTransferResponseDto {
+  @ApiProperty({
+    description: 'Transfer request ID',
+    example: 'd1f7d9d9-6b42-4d9f-9b2c-e6e1f8dfc9ba',
+  })
+  id: string;
+
+  @ApiProperty({
+    description: 'Certificate ID associated with the transfer',
+    example: 'a3d8a582-bd23-4a2d-9630-6d5af5fd6f0',
+  })
+  certificateId: string;
+
+  @ApiPropertyOptional({
+    description: 'Email address of the previous owner',
+    example: 'previous.owner@example.com',
+  })
+  fromEmail?: string;
+
+  @ApiPropertyOptional({
+    description: 'Name of the previous owner',
+    example: 'Previous Owner',
+  })
+  fromName?: string;
+
+  @ApiPropertyOptional({
+    description: 'Email address of the requested new owner',
+    example: 'new.owner@example.com',
+  })
+  toEmail?: string;
+
+  @ApiPropertyOptional({
+    description: 'Name of the requested new owner',
+    example: 'New Owner',
+  })
+  toName?: string;
+
+  @ApiProperty({
+    description: 'Current transfer status',
+    enum: TransferStatus,
+    example: TransferStatus.PENDING,
+  })
+  status: TransferStatus;
+
+  @ApiPropertyOptional({
+    description: 'Reason provided for the transfer',
+    example: 'Recipient changed employers',
+  })
+  reason?: string;
+
+  @ApiPropertyOptional({
+    description: 'Timestamp when the transfer was initiated',
+    example: '2026-04-27T12:00:00Z',
+    type: String,
+    format: 'date-time',
+  })
+  initiatedAt: Date;
 
   @ApiPropertyOptional({
     description: 'Expiration timestamp for the transfer confirmation code',

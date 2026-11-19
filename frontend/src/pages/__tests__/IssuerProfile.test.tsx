@@ -1,9 +1,10 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
+import { createTestQueryClient, renderWithProviders } from "../../test/renderWithProviders";
 
-// Mock the api module that IssuerProfile imports from '../api'
-vi.mock("../../api", () => {
+// Mock the endpoints module the page's queries import their fetchers from
+vi.mock("../../api/endpoints", () => {
   const mockStats = {
     totalCertificates: 125,
     activeCertificates: 118,
@@ -57,7 +58,9 @@ import IssuerProfile from "../IssuerProfile";
 
 describe("IssuerProfile", () => {
   it("renders issuer stats and recent activity from API", async () => {
-    render(<IssuerProfile />);
+    renderWithProviders(<IssuerProfile />, {
+      queryClient: createTestQueryClient(),
+    });
 
     // Wait for the total certificates stat to appear
     await waitFor(() =>

@@ -45,6 +45,14 @@ class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
+  DB_SSL?: string;
+
+  @IsOptional()
+  @IsString()
+  DB_SSL_CA?: string;
+
+  @IsOptional()
+  @IsString()
   JWT_SECRET?: string;
 
   @IsString()
@@ -85,6 +93,15 @@ class EnvironmentVariables {
 
   @IsString()
   STELLAR_ISSUER_PUBLIC_KEY: string;
+
+  /**
+   * 'false' issues certificates off-chain only. Local and CI have no funded
+   * issuer key, and on-chain issuance re-throws on failure, so anchoring has
+   * to be switchable without one.
+   */
+  @IsOptional()
+  @IsString()
+  STELLAR_ANCHORING_ENABLED?: string;
 
   @IsString()
   ALLOWED_ORIGINS: string;
@@ -129,6 +146,19 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   REDIS_URL?: string;
+
+  // Bull Board (queue dashboard) Configuration
+  @IsOptional()
+  @IsString()
+  BULL_BOARD_ENABLED?: string;
+
+  @IsOptional()
+  @IsString()
+  BULL_BOARD_USERNAME?: string;
+
+  @IsOptional()
+  @IsString()
+  BULL_BOARD_PASSWORD?: string;
 
   // Storage Configuration
   @IsOptional()
@@ -221,7 +251,9 @@ class EnvironmentVariables {
   DUPLICATE_DETECTION_TIME_WINDOW_DAYS?: number;
 }
 
-export function validateEnv(config: Record<string, unknown> = {}): EnvironmentVariables {
+export function validateEnv(
+  config: Record<string, unknown> = {},
+): EnvironmentVariables {
   const e = (key: string) => (config[key] as string) || process.env[key];
   const validatedEnv = plainToClass(
     EnvironmentVariables,
@@ -233,6 +265,8 @@ export function validateEnv(config: Record<string, unknown> = {}): EnvironmentVa
       DB_USERNAME: e('DB_USERNAME') || 'postgres',
       DB_PASSWORD: e('DB_PASSWORD') || 'password',
       DB_NAME: e('DB_NAME') || 'stellarcert',
+      DB_SSL: e('DB_SSL'),
+      DB_SSL_CA: e('DB_SSL_CA'),
       JWT_SECRET: e('JWT_SECRET'),
       JWT_ACCESS_SECRET: e('JWT_ACCESS_SECRET') || e('JWT_SECRET'),
       JWT_REFRESH_SECRET: e('JWT_REFRESH_SECRET') || e('JWT_SECRET'),
@@ -240,42 +274,81 @@ export function validateEnv(config: Record<string, unknown> = {}): EnvironmentVa
       JWT_ACCESS_EXPIRES_IN: e('JWT_ACCESS_EXPIRES_IN') || '15m',
       JWT_REFRESH_EXPIRES_IN: e('JWT_REFRESH_EXPIRES_IN') || '7d',
       STELLAR_NETWORK: e('STELLAR_NETWORK') || 'testnet',
-      STELLAR_HORIZON_URL: e('STELLAR_HORIZON_URL') || 'https://horizon-testnet.stellar.org',
+      STELLAR_HORIZON_URL:
+        e('STELLAR_HORIZON_URL') || 'https://horizon-testnet.stellar.org',
       STELLAR_ISSUER_SECRET_KEY: e('STELLAR_ISSUER_SECRET_KEY') || '',
       STELLAR_ISSUER_PUBLIC_KEY: e('STELLAR_ISSUER_PUBLIC_KEY') || '',
+      // NB: this object is an allow-list. A variable that is not named here is
+      // dropped, and ConfigService.get() then returns undefined for it however
+      // it is set in .env - which is silent and easy to miss.
+      STELLAR_ANCHORING_ENABLED: e('STELLAR_ANCHORING_ENABLED') || 'true',
       ALLOWED_ORIGINS: e('ALLOWED_ORIGINS') || 'http://localhost:5173',
       SENTRY_DSN: e('SENTRY_DSN'),
       ENABLE_SENTRY: e('ENABLE_SENTRY') === 'true',
       EMAIL_SERVICE: e('EMAIL_SERVICE'),
       EMAIL_HOST: e('EMAIL_HOST'),
-      EMAIL_PORT: e('EMAIL_PORT') ? parseInt(e('EMAIL_PORT') as string, 10) : undefined,
+      EMAIL_PORT: e('EMAIL_PORT')
+        ? parseInt(e('EMAIL_PORT') as string, 10)
+        : undefined,
       EMAIL_USERNAME: e('EMAIL_USERNAME'),
       EMAIL_PASSWORD: e('EMAIL_PASSWORD'),
       EMAIL_FROM: e('EMAIL_FROM'),
       SENDGRID_API_KEY: e('SENDGRID_API_KEY'),
       REDIS_URL: e('REDIS_URL'),
+      BULL_BOARD_ENABLED: e('BULL_BOARD_ENABLED'),
+      BULL_BOARD_USERNAME: e('BULL_BOARD_USERNAME'),
+      BULL_BOARD_PASSWORD: e('BULL_BOARD_PASSWORD'),
       STORAGE_ENDPOINT: e('STORAGE_ENDPOINT'),
       STORAGE_REGION: e('STORAGE_REGION'),
       STORAGE_ACCESS_KEY: e('STORAGE_ACCESS_KEY'),
       STORAGE_SECRET_KEY: e('STORAGE_SECRET_KEY'),
       STORAGE_BUCKET: e('STORAGE_BUCKET'),
       STORAGE_REQUIRED: e('STORAGE_REQUIRED') !== 'false',
-      AUDIT_RETENTION_DAYS: e('AUDIT_RETENTION_DAYS') ? parseInt(e('AUDIT_RETENTION_DAYS') as string, 10) : undefined,
+      AUDIT_RETENTION_DAYS: e('AUDIT_RETENTION_DAYS')
+        ? parseInt(e('AUDIT_RETENTION_DAYS') as string, 10)
+        : undefined,
       REQUEST_SIZE_LIMIT: e('REQUEST_SIZE_LIMIT'),
-      RATE_LIMIT_DEFAULT_WINDOW_MS: e('RATE_LIMIT_DEFAULT_WINDOW_MS') ? parseInt(e('RATE_LIMIT_DEFAULT_WINDOW_MS') as string, 10) : undefined,
-      RATE_LIMIT_DEFAULT_MAX_REQUESTS: e('RATE_LIMIT_DEFAULT_MAX_REQUESTS') ? parseInt(e('RATE_LIMIT_DEFAULT_MAX_REQUESTS') as string, 10) : undefined,
-      AUTH_BRUTE_FORCE_WINDOW_MS: e('AUTH_BRUTE_FORCE_WINDOW_MS') ? parseInt(e('AUTH_BRUTE_FORCE_WINDOW_MS') as string, 10) : undefined,
-      AUTH_BRUTE_FORCE_MAX_ATTEMPTS: e('AUTH_BRUTE_FORCE_MAX_ATTEMPTS') ? parseInt(e('AUTH_BRUTE_FORCE_MAX_ATTEMPTS') as string, 10) : undefined,
-      VERIFICATION_RATE_LIMIT_WINDOW_MS: e('VERIFICATION_RATE_LIMIT_WINDOW_MS') ? parseInt(e('VERIFICATION_RATE_LIMIT_WINDOW_MS') as string, 10) : 60 * 1000,
-      VERIFICATION_RATE_LIMIT_MAX_REQUESTS: e('VERIFICATION_RATE_LIMIT_MAX_REQUESTS') ? parseInt(e('VERIFICATION_RATE_LIMIT_MAX_REQUESTS') as string, 10) : 100,
+      RATE_LIMIT_DEFAULT_WINDOW_MS: e('RATE_LIMIT_DEFAULT_WINDOW_MS')
+        ? parseInt(e('RATE_LIMIT_DEFAULT_WINDOW_MS') as string, 10)
+        : undefined,
+      RATE_LIMIT_DEFAULT_MAX_REQUESTS: e('RATE_LIMIT_DEFAULT_MAX_REQUESTS')
+        ? parseInt(e('RATE_LIMIT_DEFAULT_MAX_REQUESTS') as string, 10)
+        : undefined,
+      AUTH_BRUTE_FORCE_WINDOW_MS: e('AUTH_BRUTE_FORCE_WINDOW_MS')
+        ? parseInt(e('AUTH_BRUTE_FORCE_WINDOW_MS') as string, 10)
+        : undefined,
+      AUTH_BRUTE_FORCE_MAX_ATTEMPTS: e('AUTH_BRUTE_FORCE_MAX_ATTEMPTS')
+        ? parseInt(e('AUTH_BRUTE_FORCE_MAX_ATTEMPTS') as string, 10)
+        : undefined,
+      VERIFICATION_RATE_LIMIT_WINDOW_MS: e('VERIFICATION_RATE_LIMIT_WINDOW_MS')
+        ? parseInt(e('VERIFICATION_RATE_LIMIT_WINDOW_MS') as string, 10)
+        : 60 * 1000,
+      VERIFICATION_RATE_LIMIT_MAX_REQUESTS: e(
+        'VERIFICATION_RATE_LIMIT_MAX_REQUESTS',
+      )
+        ? parseInt(e('VERIFICATION_RATE_LIMIT_MAX_REQUESTS') as string, 10)
+        : 100,
       SECURITY_CSP: e('SECURITY_CSP'),
       SECURITY_FORCE_HSTS: e('SECURITY_FORCE_HSTS'),
-      DUPLICATE_DETECTION_THRESHOLD: e('DUPLICATE_DETECTION_THRESHOLD') ? parseFloat(e('DUPLICATE_DETECTION_THRESHOLD') as string) : undefined,
-      DUPLICATE_DETECTION_EMAIL_WEIGHT: e('DUPLICATE_DETECTION_EMAIL_WEIGHT') ? parseFloat(e('DUPLICATE_DETECTION_EMAIL_WEIGHT') as string) : undefined,
-      DUPLICATE_DETECTION_NAME_WEIGHT: e('DUPLICATE_DETECTION_NAME_WEIGHT') ? parseFloat(e('DUPLICATE_DETECTION_NAME_WEIGHT') as string) : undefined,
-      DUPLICATE_DETECTION_TITLE_WEIGHT: e('DUPLICATE_DETECTION_TITLE_WEIGHT') ? parseFloat(e('DUPLICATE_DETECTION_TITLE_WEIGHT') as string) : undefined,
-      DUPLICATE_DETECTION_FUZZY_MATCHING: e('DUPLICATE_DETECTION_FUZZY_MATCHING') === 'true',
-      DUPLICATE_DETECTION_TIME_WINDOW_DAYS: e('DUPLICATE_DETECTION_TIME_WINDOW_DAYS') ? parseInt(e('DUPLICATE_DETECTION_TIME_WINDOW_DAYS') as string, 10) : undefined,
+      DUPLICATE_DETECTION_THRESHOLD: e('DUPLICATE_DETECTION_THRESHOLD')
+        ? parseFloat(e('DUPLICATE_DETECTION_THRESHOLD') as string)
+        : undefined,
+      DUPLICATE_DETECTION_EMAIL_WEIGHT: e('DUPLICATE_DETECTION_EMAIL_WEIGHT')
+        ? parseFloat(e('DUPLICATE_DETECTION_EMAIL_WEIGHT') as string)
+        : undefined,
+      DUPLICATE_DETECTION_NAME_WEIGHT: e('DUPLICATE_DETECTION_NAME_WEIGHT')
+        ? parseFloat(e('DUPLICATE_DETECTION_NAME_WEIGHT') as string)
+        : undefined,
+      DUPLICATE_DETECTION_TITLE_WEIGHT: e('DUPLICATE_DETECTION_TITLE_WEIGHT')
+        ? parseFloat(e('DUPLICATE_DETECTION_TITLE_WEIGHT') as string)
+        : undefined,
+      DUPLICATE_DETECTION_FUZZY_MATCHING:
+        e('DUPLICATE_DETECTION_FUZZY_MATCHING') === 'true',
+      DUPLICATE_DETECTION_TIME_WINDOW_DAYS: e(
+        'DUPLICATE_DETECTION_TIME_WINDOW_DAYS',
+      )
+        ? parseInt(e('DUPLICATE_DETECTION_TIME_WINDOW_DAYS') as string, 10)
+        : undefined,
     },
     { enableImplicitConversion: true },
   );

@@ -5,12 +5,7 @@
   "compilerOptions": {
     "assets": [
       {
-        "include": "modules/email/templates/**/*",
-        "outDir": "dist/modules/email/templates"
-      },
-      {
-        "include": "email/templates/**/*",
-        "outDir": "dist/email/templates"
+        "include": "modules/email/templates/**/*"
       }
     ]
   }

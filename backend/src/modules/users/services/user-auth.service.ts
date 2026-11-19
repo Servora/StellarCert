@@ -1,10 +1,7 @@
 import {
   Injectable,
-  NotFoundException,
   ConflictException,
   BadRequestException,
-  UnauthorizedException,
-  ForbiddenException
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -12,7 +9,6 @@ import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { User, UserRole, UserStatus } from '../entities/user.entity';
 import { UserRepository } from '../repositories/user.repository';
-import { LoginUserDto, RefreshTokenDto } from '../dto/login-user.dto';
 import { CreateUserDto } from '../dto/create-user.dto';
 import {
   VerifyEmailDto,
@@ -22,12 +18,12 @@ import { IAuthTokens, IUserPublic } from '../interfaces/user.interface';
 import { EmailQueueService } from '../../email/email-queue.service';
 import { LoggingService } from '../../../common/logging/logging.service';
 import { AuditService } from '../../audit/services/audit.service';
+import { tokenLifetimeSeconds } from '../../auth/utils/token-lifetime';
+import { buildAppLink as buildTokenLink } from '../../../config/public-url.config';
 
 @Injectable()
 export class UserAuthService {
   private readonly SALT_ROUNDS = 12;
-  private readonly MAX_LOGIN_ATTEMPTS = 5;
-  private readonly LOCK_TIME_MINUTES = 30;
   private readonly EMAIL_VERIFICATION_EXPIRY_HOURS = 24;
 
   constructor(
@@ -36,12 +32,8 @@ export class UserAuthService {
     private readonly configService: ConfigService,
     private readonly emailQueueService: EmailQueueService,
     private readonly logger: LoggingService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
   ) {}
-
-  async findByEmailWithPassword(email: string): Promise<User | null> {
-    return await this.userRepository.findByEmailWithPassword(email);
-  }
 
   async register(
     createUserDto: CreateUserDto,
@@ -84,7 +76,7 @@ export class UserAuthService {
       emailVerificationToken,
       emailVerificationExpires,
       status: UserStatus.PENDING_VERIFICATION,
-      role: UserRole.ISSUER,
+      role: UserRole.USER,
     });
 
     this.logger.log(`New user registered: ${user.email}`);
@@ -98,127 +90,6 @@ export class UserAuthService {
       user: this.toPublicUser(user),
       tokens,
     };
-  }
-
-  async login(
-    loginDto: LoginUserDto,
-  ): Promise<{ user: IUserPublic; tokens: IAuthTokens }> {
-    const { email, password } = loginDto;
-
-    // Find user with password
-    const user = await this.userRepository.findByEmailWithPassword(email);
-
-    if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    // Check if account is locked
-    if (user.isLocked()) {
-      const remainingTime = Math.ceil(
-        (user.lockedUntil.getTime() - Date.now()) / 60000,
-      );
-      throw new ForbiddenException(
-        `Account is locked. Please try again in ${remainingTime} minutes`,
-      );
-    }
-
-    // Check if account is suspended
-    if (user.status === UserStatus.SUSPENDED) {
-      throw new ForbiddenException('Account is suspended');
-    }
-
-    // Check if account is active
-    if (!user.isActive) {
-      throw new ForbiddenException('Account is deactivated');
-    }
-
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-
-    if (!isPasswordValid) {
-      // Increment login attempts
-      await this.userRepository.incrementLoginAttempts(user.id);
-
-      // Check if should lock account
-      if (user.loginAttempts + 1 >= this.MAX_LOGIN_ATTEMPTS) {
-        const lockUntil = new Date();
-        lockUntil.setMinutes(lockUntil.getMinutes() + this.LOCK_TIME_MINUTES);
-        await this.userRepository.lockAccount(user.id, lockUntil);
-        throw new ForbiddenException(
-          `Too many failed attempts. Account locked for ${this.LOCK_TIME_MINUTES} minutes`,
-        );
-      }
-
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    // Reset login attempts on successful login
-    await this.userRepository.resetLoginAttempts(user.id);
-
-    // Update last login
-    await this.userRepository.updateLastLogin(user.id);
-
-    // Generate tokens
-    const tokens = await this.generateTokens(user);
-
-    this.logger.log(`User logged in: ${user.email}`);
-
-    return {
-      user: this.toPublicUser(user),
-      tokens,
-    };
-  }
-
-  async logout(userId: string): Promise<void> {
-    await this.userRepository.update(userId, {
-      refreshToken: undefined as any,
-      refreshTokenExpires: undefined as any,
-    });
-    this.logger.log(`User logged out: ${userId}`);
-  }
-
-  async refreshTokens(refreshTokenDto: RefreshTokenDto): Promise<IAuthTokens> {
-    const { refreshToken } = refreshTokenDto;
-
-    // Verify refresh token signature and extract payload
-    let payload: { sub: string } | null = null;
-    try {
-      const decoded = this.jwtService.verify(refreshToken, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-      });
-
-      if (!decoded || !decoded.sub || typeof decoded.sub !== 'string') {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-
-      payload = { sub: decoded.sub };
-    } catch {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
-
-    const userId = payload?.sub;
-    if (!userId) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
-
-    // Load user and validate stored refresh token hash
-    const user = await this.userRepository.findById(userId);
-    if (!user || !user.refreshToken) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
-
-    const matches = await bcrypt.compare(refreshToken, user.refreshToken);
-    if (!matches) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
-
-    // Check if refresh token is expired
-    if (user.refreshTokenExpires && user.refreshTokenExpires < new Date()) {
-      throw new UnauthorizedException('Refresh token expired');
-    }
-
-    // Generate new tokens
-    return this.generateTokens(user);
   }
 
   async verifyEmail(
@@ -236,12 +107,25 @@ export class UserAuthService {
       throw new BadRequestException('Verification token has expired');
     }
 
-    await this.userRepository.update(user.id, {
+    // Issue #1109: these two must be `null`, not `undefined`. TypeORM's
+    // update() skips any field whose value is `undefined`, so the previous
+    // version wrote only `isEmailVerified` and `status` and left the token in
+    // the row - a verified account could be verified again by re-posting the
+    // same token, and the token stayed readable for the lifetime of the account.
+    //
+    // The assertion is confined to these two columns. Both are declared
+    // `string` / `Date` rather than `| null` on the entity, unlike the adjacent
+    // `refreshToken` and `twoFactorSecret`, which is why `null` does not type
+    // check. Widening both column types to `| null` is the correct follow-up;
+    // it is a separate change because it reaches every reader of these fields.
+    const verifiedUpdate: Partial<User> = {
       isEmailVerified: true,
-      emailVerificationToken: undefined as any,
-      emailVerificationExpires: undefined as any,
       status: UserStatus.ACTIVE,
-    });
+      emailVerificationToken: null as unknown as string,
+      emailVerificationExpires: null as unknown as Date,
+    };
+
+    await this.userRepository.update(user.id, verifiedUpdate);
 
     this.logger.log(`Email verified for user: ${user.email}`);
 
@@ -294,7 +178,7 @@ export class UserAuthService {
     };
 
     const accessToken = this.jwtService.sign(payload, {
-      expiresIn: this.configService.get('JWT_EXPIRES_IN', '1h'),
+      expiresIn: this.configService.get('JWT_ACCESS_EXPIRES_IN', '15m'),
     });
 
     const refreshToken = this.jwtService.sign(payload, {
@@ -318,7 +202,7 @@ export class UserAuthService {
     return {
       accessToken,
       refreshToken,
-      expiresIn: 3600, // 1 hour in seconds
+      expiresIn: tokenLifetimeSeconds(accessToken),
     };
   }
 
@@ -349,15 +233,7 @@ export class UserAuthService {
   }
 
   private buildAppLink(path: string, token: string): string {
-    const appUrl =
-      this.configService.get<string>('APP_URL') ||
-      this.configService.get<string>('ALLOWED_ORIGINS')?.split(',')[0] ||
-      'http://localhost:5173';
-
-    const normalizedBaseUrl = appUrl.replace(/\/+$/, '');
-    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-
-    return `${normalizedBaseUrl}${normalizedPath}?token=${encodeURIComponent(token)}`;
+    return buildTokenLink(path, token);
   }
 
   private getUserDisplayName(user: User): string {

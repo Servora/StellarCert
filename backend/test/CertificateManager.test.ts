@@ -216,7 +216,6 @@ describe('CertificateManager Integration Tests', () => {
       const revoked = await certificateService.revoke(
         created.id,
         'Test revocation reason',
-        TEST_ISSUER_ID,
       );
 
       expect(revoked.status).toBe('revoked');

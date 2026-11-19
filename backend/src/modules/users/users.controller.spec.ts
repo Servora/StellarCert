@@ -1,13 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Reflector } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { User, UserRole, UserStatus } from './entities/user.entity';
-import { CreateUserDto } from './dto/create-user.dto';
-import { LoginUserDto } from './dto/login-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UserFilterDto } from './dto/pagination.dto';
 import { UpdateUserRoleDto, UpdateUserStatusDto } from './dto/admin-user.dto';
+import { StorageService } from '../files/services/storage.service';
+import { PUBLIC_KEY } from 'src/common/decorators/public.decorator';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -67,6 +70,31 @@ describe('UsersController', () => {
           provide: UsersService,
           useValue: mockUsersService,
         },
+        {
+          provide: StorageService,
+          useValue: {
+            uploadFile: jest.fn(),
+            getSignedUrl: jest.fn(),
+            deleteFile: jest.fn(),
+          },
+        },
+        {
+          provide: JwtService,
+          useValue: {
+            sign: jest.fn(),
+            verify: jest.fn(),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn(),
+          },
+        },
+        {
+          provide: Reflector,
+          useValue: new Reflector(),
+        },
       ],
     }).compile();
 
@@ -98,75 +126,33 @@ describe('UsersController', () => {
     expect(activityIndex).toBeLessThan(wildcardIndex);
   });
 
-  describe('Authentication Endpoints', () => {
-    describe('register', () => {
-      it('should register a new user', async () => {
-        const createUserDto: CreateUserDto = {
-          email: 'newuser@example.com',
-          password: 'SecureP@ss123',
-          firstName: 'Jane',
-          lastName: 'Doe',
-        };
+  describe('Public route metadata', () => {
+    const reflector = new Reflector();
 
-        const expectedResult = {
-          user: mockUser,
-          tokens: mockTokens,
-        };
+    it.each(['verifyEmail', 'forgotPassword'])(
+      'should mark %s as public so the global JwtAuthGuard allows anonymous access',
+      (methodName) => {
+        const handler = (
+          UsersController.prototype as unknown as Record<string, unknown>
+        )[methodName];
 
-        mockUsersService.register.mockResolvedValue(expectedResult);
+        expect(typeof handler).toBe('function');
+        expect(reflector.get<boolean>(PUBLIC_KEY, handler as never)).toBe(true);
+      },
+    );
+  });
 
-        const result = await controller.register(createUserDto);
-
-        expect(result).toEqual(expectedResult);
-        expect(usersService.register).toHaveBeenCalledWith(createUserDto);
-      });
-    });
-
-    describe('login', () => {
-      it('should login a user', async () => {
-        const loginDto: LoginUserDto = {
-          email: 'test@example.com',
-          password: 'SecureP@ss123',
-        };
-
-        const expectedResult = {
-          user: mockUser,
-          tokens: mockTokens,
-        };
-
-        mockUsersService.login.mockResolvedValue(expectedResult);
-
-        const result = await controller.login(loginDto);
-
-        expect(result).toEqual(expectedResult);
-        expect(usersService.login).toHaveBeenCalledWith(loginDto);
-      });
-    });
-
-    describe('logout', () => {
-      it('should logout a user', async () => {
-        mockUsersService.logout.mockResolvedValue(undefined);
-
-        const result = await controller.logout(mockUser.id!);
-
-        expect(result).toEqual({ message: 'Logged out successfully' });
-        expect(usersService.logout).toHaveBeenCalledWith(mockUser.id);
-      });
-    });
-
-    describe('refreshToken', () => {
-      it('should refresh tokens', async () => {
-        const refreshTokenDto = { refreshToken: 'valid-refresh-token' };
-
-        mockUsersService.refreshTokens.mockResolvedValue(mockTokens);
-
-        const result = await controller.refreshToken(refreshTokenDto);
-
-        expect(result).toEqual(mockTokens);
-        expect(usersService.refreshTokens).toHaveBeenCalledWith(
-          refreshTokenDto,
-        );
-      });
+  describe('Authentication endpoints were removed (#1195)', () => {
+    it('no longer exposes register/login/logout/refresh-token on /users', () => {
+      const prototype = UsersController.prototype as unknown as Record<
+        string,
+        unknown
+      >;
+      // Authentication lives exclusively under /auth/* (AuthService);
+      // duplicate /users entry points were deleted with the consolidation.
+      for (const removed of ['register', 'login', 'logout', 'refreshToken']) {
+        expect(prototype[removed]).toBeUndefined();
+      }
     });
   });
 
@@ -273,7 +259,7 @@ describe('UsersController', () => {
   describe('Profile Management Endpoints', () => {
     describe('getProfile', () => {
       it('should get user profile', async () => {
-        mockUsersService.getProfile.mockResolvedValue(mockUser as User);
+        mockUsersService.getProfile.mockResolvedValue(mockUser);
 
         const result = await controller.getProfile(mockUser.id!);
 
@@ -290,7 +276,7 @@ describe('UsersController', () => {
         };
         const updatedUser = { ...mockUser, ...updateProfileDto };
 
-        mockUsersService.updateProfile.mockResolvedValue(updatedUser as User);
+        mockUsersService.updateProfile.mockResolvedValue(updatedUser);
 
         const result = await controller.updateProfile(
           mockUser.id!,
@@ -376,7 +362,7 @@ describe('UsersController', () => {
 
     describe('findOne', () => {
       it('should return a user by ID', async () => {
-        mockUsersService.findUserById.mockResolvedValue(mockUser as User);
+        mockUsersService.findUserById.mockResolvedValue(mockUser);
 
         const result = await controller.findOne(mockUser.id!);
 
@@ -390,7 +376,7 @@ describe('UsersController', () => {
         const updateDto = { firstName: 'Updated' };
         const updatedUser = { ...mockUser, ...updateDto };
 
-        mockUsersService.adminUpdateUser.mockResolvedValue(updatedUser as User);
+        mockUsersService.adminUpdateUser.mockResolvedValue(updatedUser);
 
         const result = await controller.adminUpdate(
           adminId,
@@ -412,7 +398,7 @@ describe('UsersController', () => {
         const updateRoleDto: UpdateUserRoleDto = { role: UserRole.ISSUER };
         const updatedUser = { ...mockUser, role: UserRole.ISSUER };
 
-        mockUsersService.updateUserRole.mockResolvedValue(updatedUser as User);
+        mockUsersService.updateUserRole.mockResolvedValue(updatedUser);
 
         const result = await controller.updateRole(
           adminId,
@@ -436,9 +422,7 @@ describe('UsersController', () => {
         };
         const updatedUser = { ...mockUser, status: UserStatus.SUSPENDED };
 
-        mockUsersService.updateUserStatus.mockResolvedValue(
-          updatedUser as User,
-        );
+        mockUsersService.updateUserStatus.mockResolvedValue(updatedUser);
 
         const result = await controller.updateStatus(
           adminId,
@@ -464,9 +448,7 @@ describe('UsersController', () => {
           status: UserStatus.INACTIVE,
         };
 
-        mockUsersService.deactivateUser.mockResolvedValue(
-          deactivatedUser as User,
-        );
+        mockUsersService.deactivateUser.mockResolvedValue(deactivatedUser);
 
         const result = await controller.deactivate(
           adminId,
@@ -491,9 +473,7 @@ describe('UsersController', () => {
           status: UserStatus.ACTIVE,
         };
 
-        mockUsersService.reactivateUser.mockResolvedValue(
-          reactivatedUser as User,
-        );
+        mockUsersService.reactivateUser.mockResolvedValue(reactivatedUser);
 
         const result = await controller.reactivate(adminId, mockUser.id!);
 

@@ -99,7 +99,7 @@ export class Certificate {
   @Column({ nullable: true })
   revocationReason?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   revokedAt?: Date;
 
   @Column({ nullable: true })
@@ -119,7 +119,8 @@ export class Certificate {
   @Column({ type: 'bigint', nullable: true })
   stellarSequenceNumber?: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, unique: true })
+  @Index()
   verificationCode?: string;
 
   @Column({ type: 'jsonb', nullable: true })
@@ -152,13 +153,14 @@ export class Certificate {
   @Column({ nullable: true })
   metadataSchemaId?: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   issuedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
+  @Index('IDX_certificates_expires_at')
   expiresAt?: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
   @ManyToOne(() => User, { nullable: true })

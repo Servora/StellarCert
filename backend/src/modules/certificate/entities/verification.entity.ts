@@ -18,6 +18,6 @@ export class Verification {
   @Column()
   success: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   verifiedAt: Date;
 }

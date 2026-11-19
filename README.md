@@ -1,6 +1,37 @@
 StellarCert - Wave Program Certificate System
 A decentralized certificate program management system built on the Stellar blockchain using React, NestJS, and Stellar SDK. This system allows for issuing, verifying, and managing digital certificates program credentials in a secure, transparent, and immutable manner.
 
+🚀 Getting Started
+
+Get the stack running from a clean clone:
+
+```bash
+# 1. Install root dependencies (this does NOT populate backend/node_modules)
+npm install
+
+# 2. Install backend dependencies separately
+(cd backend && npm install)
+
+# 3. Create the compose environment file (docker compose reads ./.env)
+#    Every value in .env.example is a required placeholder; docker-compose.yml
+#    fails fast with ${VAR:?} if one is missing or empty.
+cp .env.example .env
+
+# 4. Start Postgres and Redis
+docker compose up -d postgres redis
+
+# 5. Copy the backend environment file
+cp backend/.env.example backend/.env
+
+# 6. Start development servers (backend :3000, frontend :5173)
+npm run dev
+
+# 7. Verify the API is running
+curl http://localhost:3000/api/v1/health
+```
+
+> **Note on env vars:** The app starts with warnings for missing Stellar, Soroban, and storage config — this is fine for local development. Only `JWT_SECRET` and the database config (`DB_*`) are required to boot. See the [Configuration](#configuration) section for details.
+
 🌟 Features
 Core Features
 Certificate Issuance: Authorized issuers can create digital certificates credentials
@@ -128,11 +159,9 @@ Node.js (v18 or higher)
 
 npm or yarn or pnpm
 
-Docker & Docker Compose (optional, for containerization)
+Docker & Docker Compose (required for Postgres and Redis in local dev)
 
 Stellar CLI Tools (for contract deployment)
-
-PostgreSQL (or Docker for database)
 
 Stellar Requirements
 Stellar Testnet/Livenet account
@@ -163,8 +192,16 @@ cp .env.example .env
 npm install 4. Setup Stellar (Optional - for contract deployment)
 bash
 cd ../stellar-contracts
-rustup target add wasm32-unknown-unknown
-cargo install --locked soroban-cli
+rustup target add wasm32v1-none
+cargo install stellar-cli@25.2.0
+./build-contracts.sh
+
+# One WASM per contract, since they share exported function names:
+
+# target/contracts/{certificate,multisig,crl,admin-multisig}.wasm
+
+# A single contract: stellar contract build --no-default-features --features crl
+
 🏃‍♂️ Running the Application
 Development Mode
 Option A: Using Docker Compose (Recommended)
@@ -206,12 +243,31 @@ bash
 cd frontend
 npm test # Unit tests
 npm run test:e2e # E2E tests
+Frontend Linting
+bash
+cd frontend
+npm run lint # ESLint 9 flat config (eslint.config.js)
 Stellar Contract Tests
 bash
 cd stellar-contracts
 cargo test
 🔧 Configuration
 Environment Variables
+
+**Required to boot:**
+
+- `JWT_SECRET` — any string works for local development (e.g. `dev-secret`)
+- `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_NAME` — defaults in `.env.example` match `docker compose`
+- `DB_SSL` — set to `true` to require TLS for a managed PostgreSQL provider; it is disabled by default for local Docker PostgreSQL
+- `DB_SSL_CA` — optional PEM CA certificate used to verify the database server; requires `DB_SSL=true` (use `\n` for line breaks when the environment provider only accepts one line)
+
+**Optional (the app will start with warnings):**
+
+- `STELLAR_ISSUER_SECRET_KEY` / `STELLAR_ISSUER_PUBLIC_KEY` — only needed for certificate operations
+- `SENTRY_DSN` / `ENABLE_SENTRY` — error reporting
+- `STORAGE_*` — file storage (S3/MinIO)
+- `AUDIT_RETENTION_DAYS`, `DUPLICATE_DETECTION_*` — feature toggles with safe defaults
+
 Backend (.env):
 
 env
@@ -238,9 +294,43 @@ CORS_ORIGIN=http://localhost:5173
 Frontend (.env):
 
 env
-VITE_API_URL=http://localhost:3000/api
+VITE_API_URL=http://localhost:3000/api/v1
 VITE_STELLAR_NETWORK=TESTNET
 VITE_HORIZON_URL=https://horizon-testnet.stellar.org
+📡 API Base URL & Versioning
+The backend applies a global `api` prefix and URI-based versioning with default version `1` (see `backend/src/main.ts`):
+
+```
+app.setGlobalPrefix('api');
+app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
+```
+
+Every route is therefore served under `/api/v1/...`. A plain `/api/...` path returns **404** — this has caused issues in docker-compose and healthcheck configs in the past.
+
+Base URL (local dev):
+
+```
+http://localhost:3000/api/v1
+```
+
+Quick smoke-test (health check):
+
+```bash
+curl http://localhost:3000/api/v1/health
+```
+
+The Swagger UI (available at `http://localhost:3000/api/docs` in development) reflects the versioned paths — all routes shown there include the `/v1/` segment.
+
+**Important for configuration:** make sure environment variables that point at the API use the versioned base URL:
+
+```env
+# ✅ Correct
+VITE_API_URL=http://localhost:3000/api/v1
+
+# ❌ Wrong — returns 404
+VITE_API_URL=http://localhost:3000/api
+```
+
 📡 Stellar Integration
 Key Components
 Transaction Builder: Creates Stellar transactions for certificate operations

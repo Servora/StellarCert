@@ -20,6 +20,39 @@ across environments so that `synchronize: true` is **never used in production**.
 
 ---
 
+## The application never synchronizes
+
+`synchronize` is hard-coded to `false` in `backend/src/config/typeorm.config.ts`
+and is no longer read from the environment, so it cannot be switched on by
+accident. Two reasons:
+
+1. The data-loss risk described above.
+2. `synchronize` is the only step TypeORM performs during `initialize()` that
+   issues **concurrent queries on a single pooled client** — the schema
+   comparison fans out over tables, columns and drifted indexes with
+   `Promise.all`. That is what makes `pg` print
+   `Calling client.query() when the client is already executing a query is
+   deprecated`, which becomes a hard error in `pg@9`, and the application
+   cannot serialise it because it happens inside TypeORM (#956).
+
+`TYPEORM_SYNCHRONIZE` is therefore ignored: when it is set to `true` the app
+logs a warning at boot and continues with `synchronize: false`. It also no
+longer disables `migrationsRun`, so migrations always remain the schema source.
+
+### Who applies the schema
+
+| Context | Who runs the migrations |
+| ------- | ----------------------- |
+| Docker / Compose | `docker-entrypoint.sh` — `typeorm migration:run -d dist/database/data-source.js` before `node dist/main` |
+| Local development | `npm run migration:run` |
+| CI | `npm run migration:run` against the CI database |
+
+The application connects and serves; it does not own the schema. `migrationsRun`
+in the Nest configuration uses the same migrations, so a fresh database is
+provisioned on boot where no entrypoint runs first.
+
+---
+
 ## Workflow
 
 ### 1. Generate a migration after entity changes

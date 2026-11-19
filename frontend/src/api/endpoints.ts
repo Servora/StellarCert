@@ -3,6 +3,7 @@ import {
   AdminAnalytics,
   ApiError,
   AuthResponse,
+  AuditLogItem,
   Certificate,
   CertificateTemplate,
   CreateCertificateData,
@@ -29,6 +30,7 @@ import {
   ForgotPasswordRequest,
   ResetPasswordRequest,
   VerifyEmailRequest,
+  PublicCertificate,
 } from "./types";
 import { tokenStorage, notifyTokenRefreshed } from "./tokens";
 
@@ -41,12 +43,11 @@ interface AuditLogQueryParams {
   limit?: number;
 }
 
-// Configuration flag - can be enabled via Vite env `VITE_USE_DUMMY_DATA` ("true"/"false") in development only.
+// Configuration flag - can be enabled via Vite env `VITE_(import.meta.env.VITE_USE_DUMMY_DATA === 'true')` ("true"/"false") in development only.
 const viteEnv = import.meta as unknown as { env: Record<string, string> };
-const USE_DUMMY_DATA =
-  viteEnv.env?.VITE_USE_DUMMY_DATA === "true" &&
-  viteEnv.env?.MODE !== "production";
-const API_URL_BASE = viteEnv.env?.VITE_API_URL || "http://localhost:3000/api/v1";
+
+const API_URL_BASE =
+  viteEnv.env?.VITE_API_URL || "http://localhost:3000/api/v1";
 export const API_URL = API_URL_BASE;
 
 // Helper function to simulate API delay
@@ -55,69 +56,75 @@ const simulateDelay = () => new Promise((resolve) => setTimeout(resolve, 300));
 // Common error handler
 const handleError = (error: unknown, endpointName: string): never => {
   console.error(`Error in ${endpointName}:`, error);
-  const apiError: ApiError = {
-    message:
-      error instanceof Error ? error.message : "An unexpected error occurred",
-    statusCode:
-      error && typeof error === "object" && "statusCode" in error
-        ? (error as { statusCode: number }).statusCode
-        : 500,
-    error:
-      error && typeof error === "object" && "name" in error
-        ? (error as { name: string }).name
-        : "API Error",
-  };
-  throw apiError;
+  const message =
+    error instanceof Error ? error.message : "An unexpected error occurred";
+  const statusCode =
+    error && typeof error === "object" && "statusCode" in error
+      ? (error as { statusCode: number }).statusCode
+      : 500;
+  const errorName =
+    error && typeof error === "object" && "name" in error
+      ? (error as { name: string }).name
+      : "API Error";
+  throw new ApiError(message, statusCode, errorName);
 };
 
-/**
- * Sleep utility for retry delays
- */
-const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+// Base path constants for authentication. All auth now lives under /auth/*
+// (issue #1195): the /users login/register/logout/refresh duplicates were
+// removed from the backend, so these point at the single AuthService-backed
+// surface — which the httpOnly-cookie refresh flow already expected.
+export const AUTH_ENDPOINTS = {
+  LOGIN: "/auth/login",
+  REGISTER: "/auth/register",
+  REFRESH: "/auth/refresh",
+  LOGOUT: "/auth/logout",
+} as const;
 
 /**
  * Refresh tokens using the HttpOnly cookie sent automatically by the browser.
+ *
+ * Concurrent callers are coalesced onto a single in-flight request. The refresh
+ * endpoint is IP-rate-limited, so the app must never issue a page-load burst of
+ * refresh requests. AuthContext now performs one explicit bootstrap refresh
+ * before rendering routes, removing the old need for a cooldown workaround.
+ *
+ * This stays in the fetch layer (rather than the query layer) because it has to
+ * rewrite the Authorization header of already-issued requests, not just queue
+ * another one.
  */
+let _refreshInFlight: Promise<AuthResponse> | null = null;
+
 const refreshTokens = async (): Promise<AuthResponse> => {
-  return apiClient<AuthResponse>('/auth/refresh', {
-    method: 'POST',
+  if (_refreshInFlight) return _refreshInFlight;
+
+  _refreshInFlight = apiClient<AuthResponse>(AUTH_ENDPOINTS.REFRESH, {
+    method: "POST",
     skipAuth: true,
+  }).finally(() => {
+    _refreshInFlight = null;
   });
+
+  return _refreshInFlight;
 };
 
 /**
- * Retry configuration
- */
-interface RetryConfig {
-  maxRetries: number;
-  baseDelay: number;
-  maxDelay: number;
-  backoffFactor: number;
-  retryCondition?: (error: any) => boolean;
-}
-
-const DEFAULT_RETRY_CONFIG: RetryConfig = {
-  maxRetries: 2,
-  baseDelay: 300,
-  maxDelay: 2000,
-  backoffFactor: 2,
-  retryCondition: (error) => {
-    // Retry on network errors and 5xx server errors
-    return !error.statusCode || (error.statusCode >= 500 && error.statusCode < 600);
-  }
-};
-
-/**
- * Standardized API client for all requests with retry logic
+ * Standardized API client: a plain fetcher over the REST endpoints.
+ *
+ * Deliberately no retry/backoff here. Retries are a caching concern and live in
+ * the query layer (`src/lib/queryClient.ts`), which can only retry queries it
+ * owns -- doing it in both places produced duplicate requests and multiplied
+ * delays. Mutating calls are also never retried here, so a double-submitted
+ * revoke can't be manufactured by a network hiccup.
+ *
+ * The one exception is the 401 access-token refresh, which stays in this layer
+ * because it has to rewrite the Authorization header of the in-flight request
+ * and coalesce across every caller.
  */
 export async function apiClient<T>(
   endpoint: string,
   options: RequestInit & { skipAuth?: boolean } = {},
-  retryConfig: Partial<RetryConfig> = {},
 ): Promise<T> {
-  const config = { ...DEFAULT_RETRY_CONFIG, ...retryConfig };
   const url = `${API_URL}${endpoint}`;
-  const isGetRequest = !options.method || options.method.toUpperCase() === 'GET';
 
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
@@ -129,87 +136,129 @@ export async function apiClient<T>(
     }
   }
 
-  const attemptRequest = async (attempt: number, hasTriedRefresh: boolean = false): Promise<T> => {
+  const attemptRequest = async (
+    hasTriedRefresh: boolean = false,
+  ): Promise<T> => {
+    let response: Response;
     try {
-      const response = await fetch(url, {
+      response = await fetch(url, {
         ...options,
         headers,
-        credentials: 'include',
+        credentials: "include",
       });
-
-      if (!response.ok) {
-        const errorData: ApiError = await response.json().catch(() => ({
-          message: response.statusText || "API request failed",
-          statusCode: response.status,
-        }));
-
-        if (response.status === 401 && !hasTriedRefresh) {
-          try {
-            const refreshResponse = await refreshTokens();
-            tokenStorage.setAccessToken(refreshResponse.accessToken);
-            // Forward the fresh user too so AuthContext updates both the user
-            // object and isAuthenticated, not just the stored token (#560).
-            notifyTokenRefreshed(refreshResponse.accessToken, refreshResponse.user);
-            // Retry the original request with hasTriedRefresh = true
-            return attemptRequest(attempt, true);
-          } catch (refreshError) {
-            tokenStorage.clearTokens();
-            throw errorData;
-          }
-        } else if (response.status === 401) {
-          tokenStorage.clearTokens();
-          throw errorData;
-        }
-
-        throw errorData;
-      }
-
-      if (response.status === 204) {
-        return {} as T;
-      }
-
-      const json = await response.json();
-      // Unwrap the global ResponseInterceptor envelope { statusCode, message, data }
-      if (json && typeof json === 'object' && 'data' in json && 'statusCode' in json) {
-        return json.data as T;
-      }
-      return json as T;
     } catch (error) {
-      // Don't retry if this is the last attempt or retry condition is not met
-      if (attempt >= config.maxRetries || !config.retryCondition?.(error)) {
-        if ((error as ApiError).statusCode) {
-          throw error;
-        }
+      // A rejected fetch is a network-level failure, not an HTTP status, so
+      // normalise it into the same shape callers already handle. Built with the
+      // constructor rather than an object literal so `instanceof ApiError` holds
+      // for `getErrorMessage` and friends.
+      throw new ApiError(
+        error instanceof Error ? error.message : "An unexpected error occurred",
+        0,
+        "Network Error",
+      );
+    }
 
-        const apiError: ApiError = {
-          message:
-            error instanceof Error ? error.message : "An unexpected error occurred",
-          statusCode: 0,
-          error: "Network Error",
-        };
-        throw apiError;
+    if (!response.ok) {
+      const errorData: ApiError = await response.json().catch(() => ({
+        message: response.statusText || "API request failed",
+        statusCode: response.status,
+      }));
+
+      // Never attempt a refresh for the refresh call itself (skipAuth) — that
+      // would recurse into refreshTokens and, with the shared in-flight
+      // promise, deadlock the request against itself.
+      if (response.status === 401 && !hasTriedRefresh && !options.skipAuth) {
+        try {
+          const refreshResponse = await refreshTokens();
+          tokenStorage.setAccessToken(refreshResponse.accessToken);
+          headers.set("Authorization", `Bearer ${refreshResponse.accessToken}`);
+          // Forward the fresh user too so AuthContext updates both the user
+          // object and isAuthenticated, not just the stored token (#560).
+          notifyTokenRefreshed(
+            refreshResponse.accessToken,
+            refreshResponse.user,
+          );
+          // Replay the original request with the refreshed credential.
+          return attemptRequest(true);
+        } catch {
+          tokenStorage.clearTokens();
+          throw new ApiError(
+            errorData.message,
+            errorData.statusCode,
+            errorData.error,
+          );
+        }
       }
 
-      // Calculate delay with exponential backoff
-      const delay = Math.min(
-        config.baseDelay * Math.pow(config.backoffFactor, attempt - 1),
-        config.maxDelay
-      );
+      if (response.status === 401) {
+        tokenStorage.clearTokens();
+      }
 
-      console.warn(`API request failed (attempt ${attempt}/${config.maxRetries + 1}), retrying in ${delay}ms:`, error);
-
-      await sleep(delay);
-      return attemptRequest(attempt + 1, hasTriedRefresh);
+      throw errorData;
     }
+
+    if (response.status === 204) {
+      return {} as T;
+    }
+
+    const json = await response.json();
+    // Unwrap the global ResponseInterceptor envelope { statusCode, message, data }
+    if (
+      json &&
+      typeof json === "object" &&
+      "data" in json &&
+      "statusCode" in json
+    ) {
+      return json.data as T;
+    }
+    return json as T;
   };
 
-  // Only apply retry logic to GET requests by default
-  if (isGetRequest) {
-    return attemptRequest(1, false);
-  } else {
-    // For non-GET requests, make a single attempt
-    return attemptRequest(config.maxRetries + 1, false);
+  return attemptRequest(false);
+}
+
+/**
+ * Raw request helper for endpoints that need the underlying `Response`
+ * (file/blob downloads and multipart uploads) rather than the parsed,
+ * envelope-unwrapped JSON that `apiClient` returns. It attaches the bearer
+ * token and performs a single transparent refresh-and-retry on a 401, but does
+ * NOT force a JSON `Content-Type` — so callers can send `FormData` (letting the
+ * browser set the multipart boundary) or their own JSON body.
+ */
+export async function apiClientRaw(
+  url: string,
+  options: RequestInit & { skipAuth?: boolean } = {},
+): Promise<Response> {
+  const headers = new Headers(options.headers);
+
+  if (!options.skipAuth) {
+    const token = tokenStorage.getAccessToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
   }
+
+  let response = await fetch(url, {
+    ...options,
+    headers,
+    credentials: "include",
+  });
+
+  if (response.status === 401 && !options.skipAuth) {
+    try {
+      const refreshResponse = await refreshTokens();
+      tokenStorage.setAccessToken(refreshResponse.accessToken);
+      headers.set("Authorization", `Bearer ${refreshResponse.accessToken}`);
+      notifyTokenRefreshed(refreshResponse.accessToken, refreshResponse.user);
+      response = await fetch(url, {
+        ...options,
+        headers,
+        credentials: "include",
+      });
+    } catch {
+      tokenStorage.clearTokens();
+    }
+  }
+
+  return response;
 }
 
 // Dummy data generators
@@ -281,7 +330,7 @@ const dummyData = {
 // ==================== USER MANAGEMENT ====================
 
 export const fetchUserByEmail = async (email: string): Promise<User | null> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const user = dummyData.users.find((user) => user.email === email);
 
@@ -306,7 +355,7 @@ export const userApi = {
     });
   },
   getByEmail: fetchUserByEmail,
-  listAll: async (
+  getAll: async (
     params?: Record<string, string | number | boolean>,
   ): Promise<PaginatedResponse<User>> => {
     const searchParams = new URLSearchParams();
@@ -319,15 +368,6 @@ export const userApi = {
       `/users?${searchParams.toString()}`,
     );
   },
-  getAll: async (params?: Record<string, string | number | boolean>) => {
-    const searchParams = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        searchParams.set(key, String(value));
-      });
-    }
-    return apiClient<PaginatedResponse<User>>(`/users?${searchParams.toString()}`);
-  },
   getById: async (id: string) => apiClient<User>(`/users/${id}`),
   updateRole: async (id: string, role: string) =>
     apiClient<User>(`/users/${id}/role`, {
@@ -339,13 +379,14 @@ export const userApi = {
       method: "PATCH",
       body: JSON.stringify({ isActive }),
     }),
-  delete: async (id: string) => apiClient<void>(`/users/${id}`, { method: "DELETE" }),
+  delete: async (id: string) =>
+    apiClient<void>(`/users/${id}`, { method: "DELETE" }),
 };
 
 // ==================== TEMPLATE MANAGEMENT ====================
 
 export const fetchDefaultTemplate = async (): Promise<CertificateTemplate> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const template = dummyData.templates[0];
     console.log("Dummy Template Data:", template);
@@ -361,7 +402,7 @@ export const fetchDefaultTemplate = async (): Promise<CertificateTemplate> => {
 
 export const templateApi = {
   list: async (): Promise<CertificateTemplate[]> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return dummyData.templates;
     }
@@ -375,7 +416,7 @@ export const templateApi = {
 export const verifyCertificate = async (
   serialNumber: string,
 ): Promise<VerificationResult> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const certificate = dummyData.certificates.find(
       (cert) => cert.serialNumber === serialNumber,
@@ -407,7 +448,7 @@ export const verifyCertificate = async (
 
   try {
     return await apiClient<VerificationResult>(
-      `/certificates/verify/${serialNumber}`,
+      `/certificates/verify/${encodeURIComponent(serialNumber)}`,
     );
   } catch (error) {
     return handleError(error, "verifyCertificate");
@@ -417,7 +458,7 @@ export const verifyCertificate = async (
 export const createCertificate = async (
   data: CreateCertificateData,
 ): Promise<Certificate> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const newCertificate: Certificate = {
       id: `cert-${Date.now()}`,
@@ -466,7 +507,7 @@ export const revokeCertificate = async (
   id: string,
   reason: string,
 ): Promise<Certificate> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const certificate = dummyData.certificates.find((cert) => cert.id === id);
     if (certificate) {
@@ -490,7 +531,7 @@ export const revokeCertificate = async (
 export const findCertBySerialNumber = async (
   serialNumber: string,
 ): Promise<Certificate | null> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const certificate = dummyData.certificates.find(
       (cert) => cert.serialNumber === serialNumber,
@@ -511,7 +552,7 @@ export const findCertBySerialNumber = async (
 export const getCertificatePdfUrl = async (
   certificateId: string,
 ): Promise<string | null> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const certificate = dummyData.certificates.find(
       (cert) => cert.id === certificateId,
@@ -529,10 +570,33 @@ export const getCertificatePdfUrl = async (
   }
 };
 
+export const getMyCertificates = async (): Promise<Certificate[]> => {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
+    await simulateDelay();
+    return dummyData.certificates;
+  }
+
+  try {
+    const result = await apiClient<
+      | Certificate[]
+      | { certificates: Certificate[]; total: number }
+      | PaginatedResponse<Certificate>
+    >('/certificates/me');
+    if (Array.isArray(result)) return result;
+    if ("data" in result)
+      return (result as PaginatedResponse<Certificate>).data;
+    if ("certificates" in result)
+      return (result as { certificates: Certificate[] }).certificates;
+    return [];
+  } catch (error) {
+    return handleError(error, "getMyCertificates");
+  }
+};
+
 export const getUserCertificates = async (
   userId: string,
 ): Promise<Certificate[]> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     return dummyData.certificates.filter(
       (cert) => cert.recipientEmail === userId || cert.id === userId,
@@ -540,20 +604,27 @@ export const getUserCertificates = async (
   }
 
   try {
-    const result = await apiClient<Certificate[] | { certificates: Certificate[]; total: number } | PaginatedResponse<Certificate>>(`/certificates/user/${userId}`);
+    const result = await apiClient<
+      | Certificate[]
+      | { certificates: Certificate[]; total: number }
+      | PaginatedResponse<Certificate>
+    >(`/certificates/user/${userId}`);
     if (Array.isArray(result)) return result;
-    if ('data' in result) return (result as PaginatedResponse<Certificate>).data;
-    if ('certificates' in result) return (result as { certificates: Certificate[] }).certificates;
+    if ("data" in result)
+      return (result as PaginatedResponse<Certificate>).data;
+    if ("certificates" in result)
+      return (result as { certificates: Certificate[] }).certificates;
     return [];
   } catch (error) {
     return handleError(error, "getUserCertificates");
   }
 };
 
+
 export const getCertificateQR = async (
   certificateId: string,
 ): Promise<string> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     // Return a dummy QR code URL
     return `data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+CiAgPHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzMzMyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkJJIENvZGU6ICR7Y2VydGlmaWNhdGVJZH08L3RleHQ+Cjwvc3ZnPg==`;
@@ -569,6 +640,24 @@ export const getCertificateQR = async (
   }
 };
 
+/**
+ * Public certificate projection + embeddable badge (#1178). Anonymous by
+ * design: keyed by the publishable serial, never sends credentials.
+ */
+export const publicCertificateApi = {
+  getByPublicId: (publicId: string): Promise<PublicCertificate> =>
+    apiClient<PublicCertificate>(
+      `/certificates/public/${encodeURIComponent(publicId)}`,
+      { skipAuth: true },
+    ),
+  /** Direct URL of the SVG badge, for <img src> and markdown embeds. */
+  badgeUrl: (publicId: string): string =>
+    `${API_URL}/certificates/public/${encodeURIComponent(publicId)}/badge`,
+  /** iframe-ready HTML page wrapping the badge. */
+  embedUrl: (publicId: string): string =>
+    `${API_URL}/certificates/public/${encodeURIComponent(publicId)}/embed`,
+};
+
 export const certificateApi = {
   list: async (params?: {
     page?: number;
@@ -579,10 +668,12 @@ export const certificateApi = {
     sortOrder?: "asc" | "desc";
     startDate?: string;
     endDate?: string;
+    signal?: AbortSignal;
   }): Promise<PaginatedResponse<Certificate>> => {
+    const { signal, ...restParams } = params || {};
     const searchParams = new URLSearchParams();
     if (params) {
-      Object.entries(params).forEach(([key, value]) => {
+      Object.entries(restParams).forEach(([key, value]) => {
         if (value !== undefined && value !== "") {
           searchParams.append(key, String(value));
         }
@@ -590,6 +681,7 @@ export const certificateApi = {
     }
     return apiClient<PaginatedResponse<Certificate>>(
       `/certificates?${searchParams.toString()}`,
+      { signal },
     );
   },
   create: createCertificate,
@@ -608,7 +700,7 @@ export const certificateApi = {
       });
     }
 
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         data: dummyData.certificates,
@@ -624,12 +716,13 @@ export const certificateApi = {
       `/certificates?${searchParams.toString()}`,
     );
   },
+  getMyCertificates,
   getUserCertificates,
   bulkExport: async (
     certificateIds: string[],
     filters?: CertificateExportFilters,
   ): Promise<Blob> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       const headers = [
         "ID",
@@ -681,7 +774,7 @@ export const certificateApi = {
       const csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
       return new Blob([csv], { type: "text/csv" });
     }
-    const response = await fetch(`${API_URL}/certificates/export`, {
+    const response = await apiClientRaw(`${API_URL}/certificates/export`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -693,7 +786,7 @@ export const certificateApi = {
     return response.blob();
   },
   bulkExportAll: async (filters?: CertificateExportFilters): Promise<Blob> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       const headers = [
         "ID",
@@ -739,7 +832,7 @@ export const certificateApi = {
       return new Blob([csv], { type: "text/csv" });
     }
 
-    const response = await fetch(`${API_URL}/certificates/export/all`, {
+    const response = await apiClientRaw(`${API_URL}/certificates/export/all`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -756,11 +849,13 @@ export const certificateApi = {
     certificateIds: string[],
     reason?: string,
   ): Promise<Certificate[]> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       const updatedCerts: Certificate[] = [];
       for (const id of certificateIds) {
-        const cert = dummyData.certificates.find((certificate) => certificate.id === id);
+        const cert = dummyData.certificates.find(
+          (certificate) => certificate.id === id,
+        );
         if (cert) {
           cert.status = "revoked";
           updatedCerts.push(cert);
@@ -779,9 +874,11 @@ export const certificateApi = {
     reason: string,
     durationDays: number,
   ): Promise<Certificate> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
-      const cert = dummyData.certificates.find((certificate) => certificate.id === certificateId);
+      const cert = dummyData.certificates.find(
+        (certificate) => certificate.id === certificateId,
+      );
       if (!cert) {
         throw new Error("Certificate not found");
       }
@@ -801,9 +898,11 @@ export const certificateApi = {
     });
   },
   unfreeze: async (certificateId: string): Promise<Certificate> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
-      const cert = dummyData.certificates.find((certificate) => certificate.id === certificateId);
+      const cert = dummyData.certificates.find(
+        (certificate) => certificate.id === certificateId,
+      );
       if (!cert) {
         throw new Error("Certificate not found");
       }
@@ -823,7 +922,9 @@ export const certificateApi = {
 
   // Certificate Transfer API (#286)
   transfer: {
-    initiate: async (data: InitiateTransferDto): Promise<CertificateTransfer> => {
+    initiate: async (
+      data: InitiateTransferDto,
+    ): Promise<CertificateTransfer> => {
       return apiClient("/certificates/transfers/initiate", {
         method: "POST",
         body: JSON.stringify(data),
@@ -844,7 +945,7 @@ export const certificateApi = {
     getPending: async (): Promise<CertificateTransfer[]> => {
       return apiClient("/certificates/transfers/pending");
     },
-  }
+  },
 };
 
 // ==================== AUTHENTICATION ====================
@@ -852,7 +953,7 @@ export const certificateApi = {
 export const loginApi = async (
   credentials: LoginCredentials,
 ): Promise<AuthResponse> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const user = dummyData.users.find((u) => u.email === credentials.email);
     if (user && credentials.password === "password123") {
@@ -868,9 +969,12 @@ export const loginApi = async (
   }
 
   try {
-    const response = await apiClient<AuthResponse>("/auth/login", {
+    const response = await apiClient<AuthResponse>(AUTH_ENDPOINTS.LOGIN, {
       method: "POST",
-      body: JSON.stringify({ email: credentials.email, password: credentials.password }),
+      body: JSON.stringify({
+        email: credentials.email,
+        password: credentials.password,
+      }),
       skipAuth: true,
     });
     tokenStorage.setAccessToken(response.accessToken);
@@ -883,7 +987,7 @@ export const loginApi = async (
 export const registerApi = async (
   data: RegisterData,
 ): Promise<AuthResponse> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     const newUser: User = {
       id: `user-${Date.now()}`,
@@ -905,7 +1009,7 @@ export const registerApi = async (
   }
 
   try {
-    const response = await apiClient<AuthResponse>("/auth/register", {
+    const response = await apiClient<AuthResponse>(AUTH_ENDPOINTS.REGISTER, {
       method: "POST",
       body: JSON.stringify({
         email: data.email,
@@ -929,35 +1033,43 @@ export const registerApi = async (
 export const authApi = {
   login: loginApi,
   register: registerApi,
-  refresh: async (): Promise<AuthResponse> => {
-    return apiClient<AuthResponse>('/auth/refresh', {
-      method: 'POST',
-      skipAuth: true,
-    });
-  },
+  /**
+   * Establish the session during AuthProvider's initial bootstrap.
+   * The HttpOnly refresh-token cookie is sent by the browser and the returned
+   * access token remains in memory, preserving the XSS-hardening design.
+   */
+  bootstrapAuth: (): Promise<AuthResponse> => refreshTokens(),
+  // Keep the legacy refresh entry point for existing callers/tests.
+  refresh: (): Promise<AuthResponse> => refreshTokens(),
   logout: async (): Promise<void> => {
     try {
-      if (!USE_DUMMY_DATA) {
+      if (!(import.meta.env.VITE_USE_DUMMY_DATA === "true")) {
         const accessToken = tokenStorage.getAccessToken();
-        await apiClient("/auth/logout", {
+        await apiClient(AUTH_ENDPOINTS.LOGOUT, {
           method: "POST",
-          body: JSON.stringify({ accessToken: accessToken ?? '' }),
+          body: JSON.stringify({ accessToken: accessToken ?? "" }),
         });
       }
     } finally {
       tokenStorage.clearTokens();
     }
   },
-  forgotPassword: async (data: ForgotPasswordRequest): Promise<{ message: string }> => {
+  forgotPassword: async (
+    data: ForgotPasswordRequest,
+  ): Promise<{ message: string }> => {
     return apiClient("/users/forgot-password", {
       method: "POST",
       body: JSON.stringify(data),
+      skipAuth: true,
     });
   },
-  resetPassword: async (data: ResetPasswordRequest): Promise<{ message: string }> => {
+  resetPassword: async (
+    data: ResetPasswordRequest,
+  ): Promise<{ message: string }> => {
     return apiClient("/users/reset-password", {
       method: "POST",
       body: JSON.stringify(data),
+      skipAuth: true,
     });
   },
   verifyEmail: async (
@@ -1036,7 +1148,9 @@ const buildRecentActivityFromCertificates = (
 ): ActivityItem[] =>
   certificates
     .map((cert) => ({
-      type: (cert.status === "revoked" ? "revoke" : "issue") as ActivityItem["type"],
+      type: (cert.status === "revoked"
+        ? "revoke"
+        : "issue") as ActivityItem["type"],
       date: cert.issueDate,
       description:
         cert.status === "revoked"
@@ -1047,29 +1161,42 @@ const buildRecentActivityFromCertificates = (
 
 export const dailyCertificateVerification =
   async (): Promise<DailyVerificationStats> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return { count: Math.floor(Math.random() * 50) + 20 };
     }
-    return apiClient<DailyVerificationStats>(
-      "/certificates/stats/daily-verification",
-    );
+    const stats = await apiClient<{
+      verificationStats?: { dailyVerifications?: number };
+      count?: number;
+    }>("/certificates/stats");
+    return {
+      count:
+        stats.verificationStats?.dailyVerifications ?? stats.count ?? 0,
+    };
   };
 
 export const totalCertificates = async (): Promise<TotalCertificatesStats> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     return { total: dummyData.certificates.length };
   }
-  return apiClient<TotalCertificatesStats>("/certificates/stats/total");
+  const stats = await apiClient<{
+    totalCertificates?: number;
+    total?: number;
+  }>("/certificates/stats");
+  return { total: stats.totalCertificates ?? stats.total ?? 0 };
 };
 
 export const totalActiveUsers = async (): Promise<TotalActiveUsersStats> => {
-  if (USE_DUMMY_DATA) {
+  if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
     await simulateDelay();
     return { total: dummyData.users.length };
   }
-  return apiClient<TotalActiveUsersStats>("/users/stats/active");
+  const stats = await apiClient<{
+    total?: number;
+    active?: number;
+  }>("/users/stats");
+  return { total: stats.active ?? stats.total ?? 0 };
 };
 
 export const analyticsApi = {
@@ -1078,7 +1205,7 @@ export const analyticsApi = {
     endDate?: string;
     issuerId?: string;
   }): Promise<DashboardStats> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
 
       let certificates = dummyData.certificates;
@@ -1142,7 +1269,7 @@ export const adminAnalyticsApi = {
     startDate?: string;
     endDate?: string;
   }): Promise<import("./types").AdminAnalytics> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         usersByRole: {
@@ -1158,9 +1285,15 @@ export const adminAnalyticsApi = {
           pendingVerification: 0,
         },
         certificatesByStatus: {
-          active: dummyData.certificates.filter((cert) => cert.status === "active").length,
-          revoked: dummyData.certificates.filter((cert) => cert.status === "revoked").length,
-          expired: dummyData.certificates.filter((cert) => cert.status === "expired").length,
+          active: dummyData.certificates.filter(
+            (cert) => cert.status === "active",
+          ).length,
+          revoked: dummyData.certificates.filter(
+            (cert) => cert.status === "revoked",
+          ).length,
+          expired: dummyData.certificates.filter(
+            (cert) => cert.status === "expired",
+          ).length,
           total: dummyData.certificates.length,
         },
         topIssuers: [
@@ -1181,7 +1314,10 @@ export const adminAnalyticsApi = {
           last30Days: 830,
         },
         userRegistrationTrend: [
-          { date: params?.startDate ?? new Date().toISOString().slice(0, 10), count: 2 },
+          {
+            date: params?.startDate ?? new Date().toISOString().slice(0, 10),
+            count: 2,
+          },
         ],
         certificateIssuanceTrend: buildIssuanceTrendFromCertificates(
           dummyData.certificates,
@@ -1199,7 +1335,7 @@ export const adminAnalyticsApi = {
 
 export const issuerProfileApi = {
   getStats: async (): Promise<IssuerStats> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         totalCertificates: 125,
@@ -1216,13 +1352,14 @@ export const issuerProfileApi = {
     page: number = 1,
     limit: number = 10,
   ): Promise<PaginatedActivityLog> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       const activities = [
         {
           id: "1",
           action: "ISSUE_CERTIFICATE",
-          description: 'Issued "Blockchain Fundamentals" certificate to Alice Johnson',
+          description:
+            'Issued "Blockchain Fundamentals" certificate to Alice Johnson',
           ipAddress: "192.168.1.100",
           userAgent: "Mozilla/5.0",
           timestamp: new Date().toISOString(),
@@ -1243,7 +1380,7 @@ export const issuerProfileApi = {
     );
   },
   updateProfile: async (data: ProfileUpdateData): Promise<User> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return dummyData.users[0];
     }
@@ -1255,7 +1392,7 @@ export const issuerProfileApi = {
   uploadProfilePicture: async (
     file: File,
   ): Promise<{ profilePicture: string; message: string }> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         profilePicture: URL.createObjectURL(file),
@@ -1266,31 +1403,52 @@ export const issuerProfileApi = {
     const formData = new FormData();
     formData.append("file", file);
 
-    const response = await fetch(`${API_URL}/users/profile/picture`, {
+    // Multipart upload: route through apiClientRaw so the browser sets the
+    // multipart boundary (apiClient would force application/json and break it),
+    // while still getting auth + 401-refresh handling.
+    const response = await apiClientRaw(`${API_URL}/users/profile/picture`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${tokenStorage.getAccessToken() ?? ""}`,
-      },
       body: formData,
     });
-
     if (!response.ok) {
-      const errorData: ApiError = await response.json().catch(() => ({
+      const errorData = await response.json().catch(() => ({
         message: response.statusText || "Profile picture upload failed",
         statusCode: response.status,
       }));
-      throw errorData;
+      throw new ApiError(
+        errorData.message,
+        errorData.statusCode,
+        errorData.error,
+        errorData.details,
+      );
     }
-
     return response.json();
   },
 };
 
 // ==================== DASHBOARD & ANALYTICS ====================
+//
+// Dashboard statistics are served by `analyticsApi.getDashboardSummary` above,
+// which reads /certificates/stats. That is the endpoint to use and to change.
+//
+// A second `dashboardApi.getStats` used to live here, reading
+// /admin/analytics. It was removed rather than merged because it was wrong on
+// two counts, and neither was visible from the frontend alone:
+//
+//   1. /admin/analytics is @Roles(ADMIN) in AdminAnalyticsController, while
+//      /certificates/stats allows ADMIN, ISSUER and AUDITOR. Dashboard.tsx
+//      renders IssuerDashboard for any non-admin, non-recipient, non-verifier
+//      user, so an issuer using it would have been rejected with a 403.
+//   2. It never populated `statusDistribution`, so any consumer reading it
+//      would have silently seen undefined for that field.
+//
+// Its sibling `getRecentActivity` called /admin/analytics/activity, a route
+// that does not exist in the backend at all. Neither function had any caller
+// outside this file, so removing them changed no behaviour.
 
 export const dashboardApi = {
   getStats: async (): Promise<DashboardStats> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         totalCertificates: 1250,
@@ -1308,7 +1466,7 @@ export const dashboardApi = {
         statusDistribution: {
           active: 1200,
           revoked: 30,
-          expired: 20
+          expired: 20,
         },
         recentActivity: [
           {
@@ -1334,7 +1492,7 @@ export const dashboardApi = {
   },
 
   getRecentActivity: async (limit = 10): Promise<ActivityItem[]> => {
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return [
         {
@@ -1344,24 +1502,57 @@ export const dashboardApi = {
         },
       ];
     }
-    return apiClient<ActivityItem[]>(`/admin/analytics/activity?limit=${limit}`);
+    const response = await apiClient<{ data?: AuditLogItem[] } | AuditLogItem[]>(
+      `/audit/logs?limit=${limit}`,
+    );
+    const logs = Array.isArray(response) ? response : response.data || [];
+    return logs.map((log) => {
+      let type: "issue" | "verify" | "revoke" = "issue";
+      const actionLower = (log.action || "").toLowerCase();
+      if (actionLower.includes("revoke")) {
+        type = "revoke";
+      } else if (
+        actionLower.includes("verify") ||
+        actionLower.includes("verified") ||
+        actionLower.includes("check")
+      ) {
+        type = "verify";
+      }
+      return {
+        id: log.id,
+        type,
+        date: new Date(
+          Number(log.timestamp) || log.createdAt || Date.now(),
+        ).toISOString(),
+        description:
+          log.description ||
+          log.errorMessage ||
+          `${String(log.action).replace(/_/g, " ")} by ${log.userEmail || "unknown"}`,
+      };
+    });
   },
 };
 
 // ==================== AUDIT LOGS (#283) ====================
 
 export const auditApi = {
-  getLogs: async (params?: AuditLogQueryParams): Promise<PaginatedActivityLog> => {
+  getLogs: async (
+    params?: AuditLogQueryParams,
+  ): Promise<PaginatedActivityLog> => {
     const searchParams = new URLSearchParams();
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
         if (value) searchParams.append(key, String(value));
       });
     }
-    return apiClient<PaginatedActivityLog>(`/audit?${searchParams.toString()}`);
+    return apiClient<PaginatedActivityLog>(
+      `/audit/logs?${searchParams.toString()}`,
+    );
   },
-  getCertificateHistory: async (certificateId: string): Promise<ActivityItem[]> => {
-    if (USE_DUMMY_DATA) {
+  getCertificateHistory: async (
+    certificateId: string,
+  ): Promise<ActivityItem[]> => {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return [
         {
@@ -1376,19 +1567,30 @@ export const auditApi = {
         },
       ];
     }
-    const response = await apiClient<any[]>(`/audit/certificates/${certificateId}/history`);
+    const response = await apiClient<AuditLogItem[]>(
+      `/audit/certificates/${certificateId}/history`,
+    );
     return response.map((log) => {
       let type: "issue" | "verify" | "revoke" = "issue";
       const actionLower = (log.action || "").toLowerCase();
       if (actionLower.includes("revoke")) {
         type = "revoke";
-      } else if (actionLower.includes("verify") || actionLower.includes("check")) {
+      } else if (
+        actionLower.includes("verify") ||
+        actionLower.includes("verified") ||
+        actionLower.includes("check")
+      ) {
         type = "verify";
       }
       return {
         type,
-        date: new Date(Number(log.timestamp) || log.createdAt).toISOString(),
-        description: log.description || log.errorMessage || `${String(log.action).replace(/_/g, " ")} by ${log.userEmail || "unknown"}`,
+        date: new Date(
+          Number(log.timestamp) || log.createdAt || Date.now(),
+        ).toISOString(),
+        description:
+          log.description ||
+          log.errorMessage ||
+          `${String(log.action).replace(/_/g, " ")} by ${log.userEmail || "unknown"}`,
       };
     });
   },
@@ -1404,7 +1606,7 @@ export const auditApi = {
       });
     }
 
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         data: [
@@ -1420,7 +1622,7 @@ export const auditApi = {
       };
     }
 
-    return apiClient(`/audit/search?${searchParams.toString()}`);
+    return apiClient(`/audit/logs?${searchParams.toString()}`);
   },
   getStatistics: async (
     params?: Record<string, string | number | boolean | undefined>,
@@ -1434,7 +1636,7 @@ export const auditApi = {
       });
     }
 
-    if (USE_DUMMY_DATA) {
+    if (import.meta.env.VITE_USE_DUMMY_DATA === "true") {
       await simulateDelay();
       return {
         total: 1,
@@ -1460,4 +1662,28 @@ export const auditApi = {
     const query = searchParams.toString();
     return `${API_URL}/audit/export${query ? `?${query}` : ""}`;
   },
+};
+
+// ─── Account security / sessions (#1184) ─────────────────────────────────────
+
+export interface AuthSessionDto {
+  id: string;
+  device: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+  current: boolean;
+}
+
+export const listSessions = async (): Promise<AuthSessionDto[]> => {
+  return apiClient<AuthSessionDto[]>("/auth/sessions");
+};
+
+export const revokeSession = async (sessionId: string): Promise<void> => {
+  await apiClient<void>(`/auth/sessions/${sessionId}`, { method: "DELETE" });
+};
+
+export const revokeAllSessions = async (): Promise<{ revoked: number }> => {
+  return apiClient<{ revoked: number }>("/auth/sessions", { method: "DELETE" });
 };

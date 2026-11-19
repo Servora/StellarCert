@@ -6,11 +6,14 @@ import { SendVerificationDto } from './dto/send-verification.dto';
 import { SendPasswordResetDto } from './dto/send-password-reset.dto';
 import { SendRevocationNoticeDto } from './dto/send-revocation-notice.dto';
 import { EMAIL_QUEUE_NAME, EmailJobType } from './email-queue.processor';
-import { LoggingService } from "../../common/logging/logging.service";
+import { LoggingService } from '../../common/logging/logging.service';
 
 @Injectable()
 export class EmailQueueService {
-  constructor(@InjectQueue(EMAIL_QUEUE_NAME) private emailQueue: Queue, private readonly logger: LoggingService) {}
+  constructor(
+    @InjectQueue(EMAIL_QUEUE_NAME) private emailQueue: Queue,
+    private readonly logger: LoggingService,
+  ) {}
 
   async queueCertificateIssued(dto: SendCertificateIssuedDto): Promise<void> {
     try {

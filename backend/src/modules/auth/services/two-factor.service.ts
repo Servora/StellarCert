@@ -2,7 +2,11 @@ import {
   Injectable,
   BadRequestException,
   UnauthorizedException,
+  Inject,
+  Optional,
 } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { authenticator } from 'otplib';
 import * as qrcode from 'qrcode';
 import * as bcrypt from 'bcryptjs';
@@ -18,6 +22,9 @@ export class TwoFactorService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @Optional()
+    @Inject(CACHE_MANAGER)
+    private readonly cacheManager?: Cache,
   ) {}
 
   /**
@@ -79,14 +86,17 @@ export class TwoFactorService {
       throw new BadRequestException('2FA is not enabled');
     }
 
-    if (!user.twoFactorSecret || !this.verifyToken(token, user.twoFactorSecret)) {
+    if (
+      !user.twoFactorSecret ||
+      !this.verifyToken(token, user.twoFactorSecret)
+    ) {
       throw new UnauthorizedException('Invalid TOTP token');
     }
 
     await this.userRepository.update(userId, {
       twoFactorEnabled: false,
-      twoFactorSecret: null as unknown as string,
-      twoFactorBackupCodes: null as unknown as string[],
+      twoFactorSecret: null,
+      twoFactorBackupCodes: null,
     });
   }
 
@@ -95,6 +105,16 @@ export class TwoFactorService {
    * Returns true if valid, throws otherwise.
    */
   async validateLogin(userId: string, token: string): Promise<void> {
+    const lockoutKey = `2fa_user_lockout:${userId}`;
+    if (this.cacheManager) {
+      const isLocked = await this.cacheManager.get(lockoutKey);
+      if (isLocked) {
+        throw new UnauthorizedException(
+          'Too many failed 2FA attempts. Account 2FA temporarily locked. Please try again later.',
+        );
+      }
+    }
+
     const user = await this.userRepository
       .createQueryBuilder('user')
       .addSelect('user.twoFactorSecret')
@@ -108,6 +128,9 @@ export class TwoFactorService {
 
     // Try TOTP first
     if (this.verifyToken(token, user.twoFactorSecret)) {
+      if (this.cacheManager) {
+        await this.cacheManager.del(`2fa_user_attempts:${userId}`);
+      }
       return;
     }
 
@@ -122,8 +145,26 @@ export class TwoFactorService {
           await this.userRepository.update(userId, {
             twoFactorBackupCodes: remaining,
           });
+          if (this.cacheManager) {
+            await this.cacheManager.del(`2fa_user_attempts:${userId}`);
+          }
           return;
         }
+      }
+    }
+
+    // Track failed attempt on the user
+    if (this.cacheManager) {
+      const attemptsKey = `2fa_user_attempts:${userId}`;
+      const current =
+        ((await this.cacheManager.get<number>(attemptsKey)) || 0) + 1;
+      await this.cacheManager.set(attemptsKey, current, 5 * 60 * 1000);
+
+      if (current >= 5) {
+        await this.cacheManager.set(lockoutKey, true, 5 * 60 * 1000);
+        throw new UnauthorizedException(
+          'Too many failed 2FA attempts. Account 2FA temporarily locked. Please try again later.',
+        );
       }
     }
 
@@ -147,7 +188,10 @@ export class TwoFactorService {
       throw new BadRequestException('2FA is not enabled');
     }
 
-    if (!user.twoFactorSecret || !this.verifyToken(token, user.twoFactorSecret)) {
+    if (
+      !user.twoFactorSecret ||
+      !this.verifyToken(token, user.twoFactorSecret)
+    ) {
       throw new UnauthorizedException('Invalid TOTP token');
     }
 

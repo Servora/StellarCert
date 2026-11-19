@@ -13,7 +13,7 @@ import { LoggingService } from '../../../common/logging/logging.service';
 export class UserProfileService {
   constructor(
     private readonly userRepository: UserRepository,
-    private readonly logger: LoggingService
+    private readonly logger: LoggingService,
   ) {}
 
   async getProfile(userId: string): Promise<User> {

@@ -80,9 +80,14 @@ export class CertificateRepository {
     email: string,
     page = 1,
     limit = 10,
+    issuerId?: string,
   ): Promise<PaginatedCertificates> {
+    const where: FindOptionsWhere<Certificate> = { recipientEmail: email };
+    if (issuerId) {
+      where.issuerId = issuerId;
+    }
     const [data, total] = await this.repo.findAndCount({
-      where: { recipientEmail: email },
+      where,
       relations: ['issuer'],
       order: { issuedAt: 'DESC' },
       skip: (page - 1) * limit,
@@ -123,7 +128,10 @@ export class CertificateRepository {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async search(dto: SearchCertificatesDto): Promise<PaginatedCertificates> {
+  async search(
+    dto: SearchCertificatesDto,
+    scopedIssuerId?: string,
+  ): Promise<PaginatedCertificates> {
     const page = dto.page ?? 1;
     const limit = dto.limit ?? 10;
     const sortBy = this.sanitizeSortField(dto.sortBy ?? 'issuedAt');
@@ -132,6 +140,14 @@ export class CertificateRepository {
     const qb = this.repo
       .createQueryBuilder('cert')
       .leftJoinAndSelect('cert.issuer', 'issuer');
+
+    if (scopedIssuerId) {
+      qb.andWhere('cert.issuerId = :scopedIssuerId', {
+        scopedIssuerId: scopedIssuerId,
+      });
+    } else if (dto.issuerId) {
+      qb.andWhere('cert.issuerId = :issuerId', { issuerId: dto.issuerId });
+    }
 
     if (dto.recipientEmail) {
       qb.andWhere('cert.recipientEmail ILIKE :email', {
@@ -143,10 +159,6 @@ export class CertificateRepository {
       qb.andWhere('cert.recipientName ILIKE :recipientName', {
         recipientName: `%${dto.recipientName}%`,
       });
-    }
-
-    if (dto.issuerId) {
-      qb.andWhere('cert.issuerId = :issuerId', { issuerId: dto.issuerId });
     }
 
     if (dto.status) {

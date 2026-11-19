@@ -5,7 +5,7 @@ import { VerifiedCertificateData } from '../interfaces/verification-result.inter
 export interface CertificateResponseDto {
   id: string;
   certificateId: string;
-  serialNumber: string;       // alias for certificateId — used by frontend
+  serialNumber: string; // alias for certificateId — used by frontend
   issuerId: string;
   issuerName?: string;
   issuerStellarAddress?: string;
@@ -20,22 +20,22 @@ export interface CertificateResponseDto {
   revocationReason?: string;
   revokedAt?: Date;
   stellarTransactionHash?: string;
-  txHash?: string;            // alias for stellarTransactionHash — used by frontend
+  txHash?: string; // alias for stellarTransactionHash — used by frontend
   stellarMemo?: string;
   verificationCode?: string;
   verificationCount: number;
   qrCodeData?: string;
   pdfUrl?: string;
   issuedAt: Date;
-  issueDate: string;          // alias for issuedAt as ISO string — used by frontend
+  issueDate: string; // alias for issuedAt as ISO string — used by frontend
   expiresAt?: Date;
-  expiryDate?: string;        // alias for expiresAt as ISO string — used by frontend
+  expiryDate?: string; // alias for expiresAt as ISO string — used by frontend
   updatedAt: Date;
 }
 
 export interface VerificationResultDto {
   isValid: boolean;
-  status: 'valid' | 'revoked' | 'expired' | 'not_found';
+  status: 'valid' | 'revoked' | 'expired' | 'frozen' | 'not_found';
   certificate?: CertificateResponseDto;
   verifiedAt: string;
   verificationDate: string;
@@ -55,15 +55,46 @@ export interface CertificateSummaryDto {
   hasStellarRecord: boolean;
 }
 
+/**
+ * Public projection of a certificate (#1178): everything a stranger needs to
+ * verify a credential, and nothing that identifies the recipient privately.
+ * `recipientEmail` and `verificationCode` are deliberately absent — the code
+ * is the credential-equivalent secret for verification-by-code lookups, and
+ * the email is PII with no verification value.
+ */
+export interface PublicCertificateDto {
+  publicId: string;
+  title: string;
+  courseName?: string;
+  description?: string;
+  recipientName: string;
+  issuerName?: string;
+  issuerStellarAddress?: string;
+  status: 'valid' | 'revoked' | 'expired' | 'frozen';
+  issuedAt: Date;
+  expiresAt?: Date;
+  verificationCount: number;
+  chainProof: {
+    anchored: boolean;
+    transactionHash?: string;
+    explorerUrl?: string;
+  };
+}
+
 @Injectable()
 export class CertificateMapper {
   toResponse(certificate: Certificate): CertificateResponseDto {
-    const issuerName = certificate.issuerName ??
+    const issuerName =
+      certificate.issuerName ??
       (certificate.issuer
         ? `${certificate.issuer.firstName ?? ''} ${certificate.issuer.lastName ?? ''}`.trim()
         : undefined);
-    const issuedAtIso = certificate.issuedAt ? new Date(certificate.issuedAt).toISOString() : new Date().toISOString();
-    const expiresAtIso = certificate.expiresAt ? new Date(certificate.expiresAt).toISOString() : undefined;
+    const issuedAtIso = certificate.issuedAt
+      ? new Date(certificate.issuedAt).toISOString()
+      : new Date().toISOString();
+    const expiresAtIso = certificate.expiresAt
+      ? new Date(certificate.expiresAt).toISOString()
+      : undefined;
     return {
       id: certificate.id,
       certificateId: certificate.certificateId,
@@ -98,7 +129,10 @@ export class CertificateMapper {
     };
   }
 
-  toVerificationResult(certificate: Certificate | null, code: string): VerificationResultDto {
+  toVerificationResult(
+    certificate: Certificate | null,
+    code: string,
+  ): VerificationResultDto {
     const now = new Date().toISOString();
     if (!certificate) {
       return {
@@ -111,21 +145,92 @@ export class CertificateMapper {
       };
     }
     const mapped = this.toResponse(certificate);
-    const isExpired = certificate.expiresAt ? new Date() > new Date(certificate.expiresAt) : false;
+    const isExpired = certificate.expiresAt
+      ? new Date() > new Date(certificate.expiresAt)
+      : false;
     const isRevoked = certificate.status === 'revoked';
-    const status = isRevoked ? 'revoked' : isExpired ? 'expired' : 'valid';
+    // Frozen is a temporary hold, distinct from revoked: the holder should be
+    // told the certificate is suspended rather than that it was withdrawn (or,
+    // as before this was handled, that it does not exist at all).
+    const isFrozen = certificate.status === 'frozen';
+    const status = isRevoked
+      ? 'revoked'
+      : isFrozen
+        ? 'frozen'
+        : isExpired
+          ? 'expired'
+          : 'valid';
     return {
       isValid: status === 'valid',
       status,
       certificate: mapped,
       verifiedAt: now,
       verificationDate: now,
-      message: status === 'valid'
-        ? 'Certificate is valid and active'
-        : status === 'revoked'
-          ? 'Certificate has been revoked'
-          : 'Certificate has expired',
+      message:
+        status === 'valid'
+          ? 'Certificate is valid and active'
+          : status === 'revoked'
+            ? 'Certificate has been revoked'
+            : status === 'frozen'
+              ? 'Certificate is temporarily frozen'
+              : 'Certificate has expired',
       verificationId: `ver_${Date.now()}`,
+    };
+  }
+
+  /**
+   * #1178 — public share-page projection with the chain-proof panel data.
+   * The Stellar Expert link is built here so the frontend never has to know
+   * which network the issuer anchors on.
+   */
+  toPublicProjection(
+    certificate: Certificate,
+    network: 'public' | 'testnet' = 'public',
+  ): PublicCertificateDto {
+    const issuerName =
+      certificate.issuerName ??
+      (certificate.issuer
+        ? `${certificate.issuer.firstName ?? ''} ${certificate.issuer.lastName ?? ''}`.trim()
+        : undefined);
+
+    const isExpired = certificate.expiresAt
+      ? new Date() > new Date(certificate.expiresAt)
+      : false;
+    const isFrozen = certificate.status === 'frozen';
+    const isRevoked = certificate.status === 'revoked';
+    const status = isRevoked
+      ? 'revoked'
+      : isFrozen
+        ? 'frozen'
+        : isExpired
+          ? 'expired'
+          : 'valid';
+
+    const txHash = certificate.stellarTransactionHash;
+
+    return {
+      publicId: certificate.certificateId,
+      title: certificate.title,
+      courseName: certificate.courseName,
+      description: certificate.description,
+      recipientName: certificate.recipientName,
+      issuerName,
+      issuerStellarAddress:
+        certificate.issuerStellarAddress ??
+        certificate.issuer?.stellarPublicKey,
+      status,
+      issuedAt: certificate.issuedAt,
+      expiresAt: certificate.expiresAt,
+      verificationCount: certificate.verificationCount ?? 0,
+      chainProof: {
+        anchored: !!txHash,
+        ...(txHash
+          ? {
+              transactionHash: txHash,
+              explorerUrl: `https://stellar.expert/explorer/${network}/tx/${txHash}`,
+            }
+          : {}),
+      },
     };
   }
 
@@ -151,7 +256,11 @@ export class CertificateMapper {
       recipientEmail: certificate.recipientEmail,
       title: certificate.title,
       issuerName:
-        certificate.issuerName ?? (certificate.issuer ? `${certificate.issuer.firstName ?? ''} ${certificate.issuer.lastName ?? ''}`.trim() : undefined) ?? 'Unknown',
+        certificate.issuerName ??
+        (certificate.issuer
+          ? `${certificate.issuer.firstName ?? ''} ${certificate.issuer.lastName ?? ''}`.trim()
+          : undefined) ??
+        'Unknown',
       issuedAt: certificate.issuedAt,
       expiresAt: certificate.expiresAt ?? null,
       status: certificate.status,

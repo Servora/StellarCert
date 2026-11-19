@@ -16,6 +16,8 @@ export enum WebhookEvent {
   CERTIFICATE_REVOKED = 'certificate.revoked',
   CERTIFICATE_VERIFIED = 'certificate.verified',
   CERTIFICATE_EXPIRED = 'certificate.expired',
+  CERTIFICATE_FROZEN = 'certificate.frozen',
+  CERTIFICATE_UNFROZEN = 'certificate.unfrozen',
   WEBHOOK_TEST = 'webhook.test',
 }
 
@@ -42,16 +44,27 @@ export class WebhookSubscription {
   })
   events: WebhookEvent[];
 
+  /**
+   * HMAC signing secret. Never expose after create (#719).
+   * API responses use {@link sanitizeSubscription} which strips this field.
+   */
   @Column()
   secret: string;
+
+  /**
+   * SHA-256 hash of the secret for storage integrity checks.
+   * Not a substitute for the secret used in HMAC delivery.
+   */
+  @Column({ nullable: true })
+  secretHash?: string;
 
   @Column({ default: true })
   isActive: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
   @OneToMany(() => WebhookLog, (log) => log.subscription)

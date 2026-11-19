@@ -8,7 +8,7 @@
 
 const CERT_ID_MIN_LENGTH = 8;
 const CERT_ID_MAX_LENGTH = 128;
-const CERT_ID_PATTERN = /^[A-Za-z0-9_\-]+$/;
+const CERT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 export interface CertIdValidationResult {
   valid: boolean;
@@ -40,7 +40,8 @@ export function validateCertificateId(id: string): CertIdValidationResult {
   if (!CERT_ID_PATTERN.test(id)) {
     return {
       valid: false,
-      reason: 'Certificate ID may only contain alphanumeric characters, hyphens, and underscores.',
+      reason:
+        'Certificate ID may only contain alphanumeric characters, hyphens, and underscores.',
     };
   }
 
@@ -51,12 +52,18 @@ export function validateCertificateId(id: string): CertIdValidationResult {
  * Builds a namespaced certificate ID by prefixing with the issuer's address.
  * This prevents cross-issuer collisions even when raw IDs are identical.
  */
-export function buildNamespacedCertId(issuerAddress: string, rawId: string): string {
+export function buildNamespacedCertId(
+  issuerAddress: string,
+  rawId: string,
+): string {
   const validation = validateCertificateId(rawId);
   if (!validation.valid) {
     throw new Error(`Invalid certificate ID: ${validation.reason}`);
   }
   // Truncate issuer address to first 10 chars for readability
-  const prefix = issuerAddress.replace(/[^A-Za-z0-9]/g, '').slice(0, 10).toUpperCase();
+  const prefix = issuerAddress
+    .replace(/[^A-Za-z0-9]/g, '')
+    .slice(0, 10)
+    .toUpperCase();
   return `${prefix}_${rawId}`;
 }

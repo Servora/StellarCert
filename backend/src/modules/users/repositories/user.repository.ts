@@ -57,9 +57,11 @@ export class UserRepository {
   }
 
   async findByEmailVerificationToken(token: string): Promise<User | null> {
-    return this.repository.findOne({
-      where: { emailVerificationToken: token },
-    });
+    return this.repository
+      .createQueryBuilder('user')
+      .addSelect('user.emailVerificationToken')
+      .where('user.emailVerificationToken = :token', { token })
+      .getOne();
   }
 
   async findUsersWithPasswordResetTokens(): Promise<User[]> {
@@ -71,9 +73,21 @@ export class UserRepository {
   async findByPasswordResetTokenHash(
     passwordResetTokenHash: string,
   ): Promise<User | null> {
-    return this.repository.findOne({
-      where: { passwordResetTokenHash },
-    });
+    return this.repository
+      .createQueryBuilder('user')
+      .addSelect('user.passwordResetToken')
+      .where('user.passwordResetTokenHash = :passwordResetTokenHash', {
+        passwordResetTokenHash,
+      })
+      .getOne();
+  }
+
+  async findByIdWithRefreshToken(id: string): Promise<User | null> {
+    return this.repository
+      .createQueryBuilder('user')
+      .addSelect('user.refreshToken')
+      .where('user.id = :id', { id })
+      .getOne();
   }
 
   async findByRefreshToken(refreshToken: string): Promise<User | null> {
@@ -118,7 +132,7 @@ export class UserRepository {
     }
 
     // Apply sorting
-    const sortField = sort?.field || 'createdAt';
+    const sortField = this.sanitizeSortField(sort?.field);
     const sortOrder = sort?.order || 'DESC';
     queryBuilder.orderBy(`user.${sortField}`, sortOrder);
 
@@ -231,14 +245,55 @@ export class UserRepository {
   }
 
   async resetLoginAttempts(id: string): Promise<void> {
+    // `null`, never `undefined`: TypeORM silently skips undefined values in
+    // update(), so the lock would never actually be cleared.
     await this.repository.update(id, {
       loginAttempts: 0,
-      lockedUntil: undefined as any,
+      lockedUntil: null,
     });
   }
 
   async lockAccount(id: string, until: Date): Promise<void> {
     await this.repository.update(id, { lockedUntil: until });
+  }
+
+  /**
+   * Set a new password hash and atomically invalidate everything tied to the
+   * old one (#1108):
+   *
+   * - `refreshToken` / `refreshTokenExpires`: the legacy refresh token can no
+   *   longer mint new access tokens.
+   * - `passwordResetToken` / `passwordResetTokenHash` / `passwordResetExpires`:
+   *   a reset link issued for the old password becomes useless.
+   * - `loginAttempts` / `lockedUntil`: the failed-login lockout state is reset.
+   * - `tokenVersion + 1`: every outstanding access token and session refresh
+   *   is rejected from here on (the `ver` claim is checked by JwtAuthGuard and
+   *   by AuthService.refreshTokens, so auth_sessions rows are dead too).
+   *
+   * A single UPDATE so a partial write can never leave a usable session
+   * behind. Values are `null`, never `undefined` — TypeORM skips undefined
+   * keys in update payloads (see REFACTORING_REPORT.md).
+   */
+  async setPasswordAndInvalidateSessions(
+    id: string,
+    hashedPassword: string,
+  ): Promise<void> {
+    await this.repository
+      .createQueryBuilder()
+      .update(User)
+      .set({
+        password: hashedPassword,
+        refreshToken: null,
+        refreshTokenExpires: null,
+        passwordResetToken: null,
+        passwordResetTokenHash: null,
+        passwordResetExpires: null,
+        loginAttempts: 0,
+        lockedUntil: null,
+        tokenVersion: () => '"tokenVersion" + 1',
+      })
+      .where('id = :id', { id })
+      .execute();
   }
 
   async updateLastLogin(id: string): Promise<void> {
@@ -259,5 +314,19 @@ export class UserRepository {
       result[row.userId] = parseInt(row.count, 10);
     });
     return result;
+  }
+
+  private sanitizeSortField(field?: string): string {
+    const allowed = [
+      'createdAt',
+      'updatedAt',
+      'email',
+      'firstName',
+      'lastName',
+      'role',
+      'status',
+      'lastLoginAt',
+    ];
+    return field && allowed.includes(field) ? field : 'createdAt';
   }
 }

@@ -1,16 +1,21 @@
-import { Module, forwardRef, MiddlewareConsumer, NestModule } from '@nestjs/common';
+import {
+  Module,
+  forwardRef,
+  MiddlewareConsumer,
+  NestModule,
+} from '@nestjs/common';
 import { RequestMethod } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
-import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtManagementService } from './services/jwt.service';
 import { TwoFactorService } from './services/two-factor.service';
 import { UsersModule } from '../users/users.module';
 import { User } from '../users/entities/user.entity';
+import { AuthSession } from './entities/auth-session.entity';
+import { SessionsService } from './services/sessions.service';
 import { CacheModule } from '@nestjs/cache-manager';
 import { AuthRateLimitMiddleware } from './middleware/auth-rate-limit.middleware';
 
@@ -18,8 +23,7 @@ import { AuthRateLimitMiddleware } from './middleware/auth-rate-limit.middleware
   imports: [
     CacheModule.register(),
     ConfigModule,
-    PassportModule,
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, AuthSession]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -45,12 +49,18 @@ import { AuthRateLimitMiddleware } from './middleware/auth-rate-limit.middleware
   controllers: [AuthController],
   providers: [
     AuthService,
-    JwtStrategy,
     JwtManagementService,
     TwoFactorService,
+    SessionsService,
     AuthRateLimitMiddleware,
   ],
-  exports: [AuthService, JwtModule, JwtManagementService, TwoFactorService],
+  exports: [
+    AuthService,
+    JwtModule,
+    JwtManagementService,
+    TwoFactorService,
+    SessionsService,
+  ],
 })
 export class AuthModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
@@ -59,6 +69,7 @@ export class AuthModule implements NestModule {
       .forRoutes(
         { path: 'auth/login', method: RequestMethod.POST },
         { path: 'auth/register', method: RequestMethod.POST },
+        { path: 'auth/2fa/verify', method: RequestMethod.POST },
       );
   }
 }

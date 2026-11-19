@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EmailService } from './email.service';
 import { EmailQueueProcessor } from './email-queue.processor';
+import { LoggingService } from '../../common/logging/logging.service';
 
 describe('EmailQueueProcessor', () => {
   let processor: EmailQueueProcessor;
@@ -18,6 +19,14 @@ describe('EmailQueueProcessor', () => {
             sendVerificationEmail: jest.fn(),
             sendPasswordReset: jest.fn(),
             sendRevocationNotice: jest.fn(),
+          },
+        },
+        {
+          provide: LoggingService,
+          useValue: {
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
           },
         },
       ],

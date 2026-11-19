@@ -2,7 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  UnauthorizedException
+  UnauthorizedException,
 } from '@nestjs/common';
 import { User } from '../entities/user.entity';
 import { UserRepository } from '../repositories/user.repository';
@@ -15,6 +15,7 @@ import {
 import { EmailQueueService } from '../../email/email-queue.service';
 import { LoggingService } from '../../../common/logging/logging.service';
 import * as crypto from 'crypto';
+import { buildAppLink as buildTokenLink } from '../../../config/public-url.config';
 
 @Injectable()
 export class UserPasswordService {
@@ -24,7 +25,7 @@ export class UserPasswordService {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly emailQueueService: EmailQueueService,
-    private readonly logger: LoggingService
+    private readonly logger: LoggingService,
   ) {}
 
   async changePassword(
@@ -56,7 +57,12 @@ export class UserPasswordService {
     // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, this.SALT_ROUNDS);
 
-    await this.userRepository.update(userId, { password: hashedPassword });
+    // #1108 — a password change must also kill every session and reset the
+    // lockout state, not just swap the hash.
+    await this.userRepository.setPasswordAndInvalidateSessions(
+      userId,
+      hashedPassword,
+    );
 
     this.logger.log(`Password changed for user: ${user.email}`);
 
@@ -127,12 +133,12 @@ export class UserPasswordService {
     // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, this.SALT_ROUNDS);
 
-    await this.userRepository.update(user.id, {
-      password: hashedPassword,
-      passwordResetToken: null as any,
-      passwordResetTokenHash: null as any,
-      passwordResetExpires: null as any,
-    });
+    // #1108 — also revoke refresh tokens / bump tokenVersion (killing
+    // outstanding access tokens) and clear any lockout state.
+    await this.userRepository.setPasswordAndInvalidateSessions(
+      user.id,
+      hashedPassword,
+    );
 
     this.logger.log(`Password reset completed for: ${user.email}`);
 
@@ -170,15 +176,7 @@ export class UserPasswordService {
   }
 
   private buildAppLink(path: string, token: string): string {
-    const appUrl =
-      process.env.APP_URL ||
-      process.env.ALLOWED_ORIGINS?.split(',')[0] ||
-      'http://localhost:5173';
-
-    const normalizedBaseUrl = appUrl.replace(/\/+$/, '');
-    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-
-    return `${normalizedBaseUrl}${normalizedPath}?token=${encodeURIComponent(token)}`;
+    return buildTokenLink(path, token);
   }
 
   private getUserDisplayName(user: User): string {

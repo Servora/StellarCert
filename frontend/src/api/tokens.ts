@@ -1,29 +1,45 @@
 import type { User } from './types';
 
-const ACCESS_TOKEN_KEY = 'accessToken';
-
 /**
  * Callback invoked after `apiClient` silently refreshes the access token, so
  * AuthContext can keep its reactive `isAuthenticated` / `user` state in sync.
  * The fresh `user` from the refresh response is forwarded when available.
  */
-type TokenRefreshCallback = (accessToken: string, user?: User | null) => void;
+export type TokenRefreshCallback = (accessToken: string, user?: User | null) => void;
 
-let _onTokenRefreshed: TokenRefreshCallback | null = null;
+const _tokenRefreshSubscribers = new Set<TokenRefreshCallback>();
+
+export const subscribeTokenRefresh = (cb: TokenRefreshCallback): (() => void) => {
+  _tokenRefreshSubscribers.add(cb);
+  return () => {
+    _tokenRefreshSubscribers.delete(cb);
+  };
+};
+
 export const setTokenRefreshCallback = (cb: TokenRefreshCallback) => {
-  _onTokenRefreshed = cb;
+  _tokenRefreshSubscribers.clear();
+  _tokenRefreshSubscribers.add(cb);
 };
+
 export const notifyTokenRefreshed = (accessToken: string, user?: User | null) => {
-  _onTokenRefreshed?.(accessToken, user);
+  _tokenRefreshSubscribers.forEach((cb) => {
+    try {
+      cb(accessToken, user);
+    } catch (err) {
+      console.error('Error in token refresh callback:', err);
+    }
+  });
 };
+
+let _inMemoryAccessToken: string | null = null;
 
 export const tokenStorage = {
-  getAccessToken: (): string | null => localStorage.getItem(ACCESS_TOKEN_KEY),
-  setAccessToken: (token: string): void => localStorage.setItem(ACCESS_TOKEN_KEY, token),
-  clearTokens: (): void => {
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    // The refresh token lives in an HttpOnly cookie managed by the server.
-    // Clearing it requires a logout API call, not direct JS access.
+  getAccessToken: (): string | null => _inMemoryAccessToken,
+  setAccessToken: (token: string): void => {
+    _inMemoryAccessToken = token;
   },
-  hasAccessToken: (): boolean => !!localStorage.getItem(ACCESS_TOKEN_KEY),
+  clearTokens: (): void => {
+    _inMemoryAccessToken = null;
+  },
+  hasAccessToken: (): boolean => !!_inMemoryAccessToken,
 };

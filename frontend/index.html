@@ -10,6 +10,22 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:wght@400;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // Apply the persisted/system theme before the first paint to avoid a
+      // flash of the wrong theme (FOUC). Mirrors ThemeContext's STORAGE_KEY
+      // ('stellar-cert-theme') and prefers-color-scheme fallback.
+      (() => {
+        try {
+          const stored = localStorage.getItem("stellar-cert-theme");
+          const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const dark =
+            stored === "dark" || (stored !== "light" && systemDark);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (_) {
+          /* ignore storage/matchMedia access errors */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

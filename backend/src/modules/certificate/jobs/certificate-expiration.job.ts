@@ -9,7 +9,7 @@ import { AuditAction } from '../../audit/constants/audit-action.enum';
 import { AuditResourceType } from '../../audit/constants/audit-resource-type.enum';
 import { StellarService } from '../../stellar/services/stellar.service';
 import { ConfigService } from '@nestjs/config';
-import { LoggingService } from "../../../common/logging/logging.service";
+import { LoggingService } from '../../../common/logging/logging.service';
 
 @Injectable()
 export class CertificateExpirationJob {
@@ -18,7 +18,8 @@ export class CertificateExpirationJob {
     private readonly certificateRepository: Repository<Certificate>,
     private readonly stellarService: StellarService,
     private readonly auditService: AuditService,
-    private readonly configService: ConfigService, private readonly logger: LoggingService
+    private readonly configService: ConfigService,
+    private readonly logger: LoggingService,
   ) {}
 
   /**

@@ -11,7 +11,10 @@
 import { statSync, readdirSync } from 'fs';
 import { join, extname } from 'path';
 
-const SNAPSHOT_PATH = join(__dirname, '../../../stellar-contracts/test_snapshots/test');
+const SNAPSHOT_PATH = join(
+  __dirname,
+  '../../../stellar-contracts/test_snapshots/test',
+);
 const CONTRACT_SRC_PATH = join(__dirname, '../../../stellar-contracts/src');
 
 function getLatestMtime(dir: string, ext: string): number {

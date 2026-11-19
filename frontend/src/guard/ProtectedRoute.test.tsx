@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import ProtectedRoute from './ProtectedRoute';
 import { useAuth } from '../context/AuthContext';
@@ -25,6 +25,11 @@ const setUser = (user: User | null) =>
     clearAuth: vi.fn(),
     login: vi.fn(),
   });
+
+const LocationProbe = () => {
+  const loc = useLocation();
+  return <div data-testid="loc">{loc.pathname + loc.search}</div>;
+};
 
 const renderAt = (path: string, allowedRoles?: UserRole[]) =>
   render(
@@ -60,16 +65,19 @@ describe('ProtectedRoute prefix matching (#565)', () => {
     expect(screen.queryByText('home')).toBeNull();
   });
 
-  it('does not match a path that merely shares a prefix (segment boundary)', () => {
-    // /certificatesfoo must NOT be treated as a sub-route of /certificates.
-    renderAt('/certificatesfoo');
+  it('does not grant access to a sibling path that merely shares a prefix', () => {
+    // The built-in per-role path matrix was removed in #852; authorization
+    // now comes from the explicit allowedRoles on each route group. A
+    // /certificatesfoo route wrapped for recipients must not be reachable
+    // by an issuer.
+    renderAt('/certificatesfoo', [UserRole.RECIPIENT]);
     expect(screen.getByText('home')).toBeTruthy();
     expect(screen.queryByText('certs foo')).toBeNull();
   });
 
-  it('redirects a disallowed path to home', () => {
+  it('redirects a disallowed path to home (incl. sub-routes)', () => {
     setUser({ ...issuer, role: UserRole.RECIPIENT }); // recipient: only /wallet
-    renderAt('/certificates/abc-123');
+    renderAt('/certificates/abc-123', [UserRole.ISSUER, UserRole.ADMIN]);
     expect(screen.getByText('home')).toBeTruthy();
     expect(screen.queryByText('cert detail')).toBeNull();
   });
@@ -78,6 +86,23 @@ describe('ProtectedRoute prefix matching (#565)', () => {
     setUser(null);
     renderAt('/certificates/abc-123');
     expect(screen.getByText('login')).toBeTruthy();
+  });
+
+  it('preserves the original path and query as returnUrl when redirecting to login', () => {
+    setUser(null);
+    render(
+      <MemoryRouter initialEntries={['/certificates/abc-123?tab=files']}>
+        <Routes>
+          <Route element={<ProtectedRoute />}>
+            <Route path="/certificates/:id" element={<div>cert detail</div>} />
+          </Route>
+          <Route path="/login" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('loc').textContent).toBe(
+      `/login?returnUrl=${encodeURIComponent('/certificates/abc-123?tab=files')}`,
+    );
   });
 
   it('honours explicit allowedRoles (role mismatch redirects home)', () => {

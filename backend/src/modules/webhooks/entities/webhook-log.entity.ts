@@ -41,6 +41,6 @@ export class WebhookLog {
   @Column({ default: false })
   isSuccess: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 }

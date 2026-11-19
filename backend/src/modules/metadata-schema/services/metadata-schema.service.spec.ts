@@ -5,10 +5,13 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { MetadataSchemaService } from './metadata-schema.service';
 import { MetadataSchema, FieldType } from '../entities/metadata-schema.entity';
 import { CreateMetadataSchemaDto } from '../dto/metadata-schema.dto';
+import { LoggingService } from '../../../common/logging/logging.service';
+import { UserRole } from '../../../common/constants/roles';
 
 describe('MetadataSchemaService', () => {
   let service: MetadataSchemaService;
@@ -57,6 +60,7 @@ describe('MetadataSchemaService', () => {
     requiredFields: (baseSchemaDto.requiredFields as string[]) || null,
     allowCustomFields: true,
     issuerId: null,
+    ownerId: null,
     isActive: true,
     previousVersionId: null,
     createdAt: new Date(),
@@ -87,6 +91,14 @@ describe('MetadataSchemaService', () => {
           provide: getRepositoryToken(MetadataSchema),
           useValue: mockRepository,
         },
+        {
+          provide: LoggingService,
+          useValue: {
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -105,14 +117,17 @@ describe('MetadataSchemaService', () => {
       mockRepository.findOne
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(null);
-      const result = await service.create(baseSchemaDto);
+      const result = await service.create(baseSchemaDto, 'owner-1');
       expect(result.name).toBe(baseSchemaDto.name);
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ ownerId: 'owner-1' }),
+      );
       expect(mockRepository.save).toHaveBeenCalled();
     });
 
     it('should reject duplicate name+version', async () => {
       mockRepository.findOne.mockResolvedValueOnce(savedSchema);
-      await expect(service.create(baseSchemaDto)).rejects.toThrow(
+      await expect(service.create(baseSchemaDto, 'owner-1')).rejects.toThrow(
         ConflictException,
       );
     });
@@ -135,14 +150,138 @@ describe('MetadataSchemaService', () => {
 
   describe('upgradeSchema', () => {
     it('should reject downgrade', async () => {
-      mockRepository.findOne
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(savedSchema);
+      // upgradeSchema resolves the current schema via findLatestByName (findOne)
+      mockRepository.findOne.mockResolvedValueOnce({
+        ...savedSchema,
+        ownerId: 'owner-1',
+      });
 
       const downgradeDto = { ...baseSchemaDto, version: '0.9.0' };
       await expect(
-        service.upgradeSchema('course-certificate', downgradeDto),
+        service.upgradeSchema(
+          'course-certificate',
+          downgradeDto,
+          'owner-1',
+          UserRole.ISSUER,
+        ),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('ownership', () => {
+    const ownedSchema = { ...savedSchema, ownerId: 'owner-1' };
+
+    it('lets the owner update a schema', async () => {
+      mockRepository.findOne.mockResolvedValue({ ...ownedSchema });
+
+      const result = await service.update(
+        ownedSchema.id,
+        { description: 'updated' },
+        'owner-1',
+        UserRole.ISSUER,
+      );
+
+      expect(result.description).toBe('updated');
+      expect(mockRepository.save).toHaveBeenCalled();
+    });
+
+    it('rejects an update from another issuer', async () => {
+      mockRepository.findOne.mockResolvedValue({ ...ownedSchema });
+
+      await expect(
+        service.update(
+          ownedSchema.id,
+          { description: 'hijacked' },
+          'other-user',
+          UserRole.ISSUER,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('lets an admin update any schema', async () => {
+      mockRepository.findOne.mockResolvedValue({ ...ownedSchema });
+
+      const result = await service.update(
+        ownedSchema.id,
+        { description: 'admin edit' },
+        'admin-1',
+        UserRole.ADMIN,
+      );
+
+      expect(result.description).toBe('admin edit');
+    });
+
+    it('rejects deactivation from another issuer', async () => {
+      mockRepository.findOne.mockResolvedValue({ ...ownedSchema });
+
+      await expect(
+        service.deactivate(ownedSchema.id, 'other-user', UserRole.ISSUER),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('lets the owner deactivate a schema', async () => {
+      mockRepository.findOne.mockResolvedValue({ ...ownedSchema });
+
+      const result = await service.deactivate(
+        ownedSchema.id,
+        'owner-1',
+        UserRole.ISSUER,
+      );
+
+      expect(result.isActive).toBe(false);
+    });
+
+    it('rejects an upgrade from another issuer', async () => {
+      mockRepository.findOne.mockResolvedValueOnce({ ...ownedSchema });
+
+      await expect(
+        service.upgradeSchema(
+          'course-certificate',
+          { ...baseSchemaDto, version: '1.1.0' },
+          'other-user',
+          UserRole.ISSUER,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('keeps the original owner when an admin upgrades', async () => {
+      mockRepository.findOne
+        .mockResolvedValueOnce({ ...ownedSchema })
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ ...ownedSchema });
+
+      await service.upgradeSchema(
+        'course-certificate',
+        { ...baseSchemaDto, version: '1.1.0' },
+        'admin-1',
+        UserRole.ADMIN,
+      );
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ ownerId: 'owner-1' }),
+      );
+    });
+
+    it('treats legacy schemas without an owner as admin-managed', async () => {
+      mockRepository.findOne.mockResolvedValue({
+        ...savedSchema,
+        ownerId: null,
+      });
+
+      await expect(
+        service.update(
+          savedSchema.id,
+          { description: 'issuer edit' },
+          'any-issuer',
+          UserRole.ISSUER,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        service.deactivate(savedSchema.id, 'admin-1', UserRole.ADMIN),
+      ).resolves.toMatchObject({ isActive: false });
     });
   });
 

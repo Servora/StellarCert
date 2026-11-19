@@ -14,6 +14,6 @@ export class JobLog {
   @Column({ nullable: true })
   errorMessage?: string;
 
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
   createdAt: Date;
 }

@@ -7,14 +7,30 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+# One feature per deployable contract. Every contract lives in this crate, and a
+# WASM module may export each function name only once, so a WASM build must
+# select exactly one of them (they share names such as `initialize`). Native
+# builds (tests) compile all four. The default keeps a plain
+# `stellar contract build` producing the certificate contract.
+[features]
+default = ["certificate"]
+certificate = []
+multisig = []
+crl = []
+admin-multisig = []
+
 [dependencies]
-soroban-sdk = "21.0.0"
+soroban-sdk = "29.0.1"
 
 [dev-dependencies]
-soroban-sdk = { version = "21.0.0", features = ["testutils"] }
+soroban-sdk = { version = "29.0.1", features = ["testutils"] }
 
 [profile.release]
 opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"
+# Trap on integer overflow instead of wrapping silently. Required by
+# `stellar contract build` (stellar-cli >= 25) and closes the long-standing
+# "release profile has no overflow-checks" issue.
+overflow-checks = true

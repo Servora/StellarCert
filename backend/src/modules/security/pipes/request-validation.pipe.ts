@@ -13,13 +13,18 @@ type Constructor<T = unknown> = new (...args: unknown[]) => T;
 @Injectable()
 export class RequestValidationPipe implements PipeTransform {
   async transform(value: unknown, { metatype }: ArgumentMetadata) {
-    const sanitizedValue = this.sanitizeInput(value);
-
+    // Input is sanitized once, by InputSanitizationMiddleware. This pipe only validates.
     if (!metatype || !this.toValidate(metatype)) {
-      return sanitizedValue;
+      return value;
     }
 
-    const object = plainToClass(metatype, sanitizedValue);
+    // A body-less request (POST /auth/logout, for instance) arrives as
+    // undefined. plainToClass then yields undefined and class-validator
+    // dereferences it - "Cannot read properties of undefined (reading
+    // 'constructor')" - which surfaced as a 500 on an ordinary logout.
+    // Validating an empty object instead keeps DTOs with required fields
+    // failing as proper 400s while letting empty-bodied DTOs through.
+    const object = plainToClass(metatype, value ?? {});
     const errors = await validate(object, {
       skipMissingProperties: false,
       whitelist: true,
@@ -35,7 +40,7 @@ export class RequestValidationPipe implements PipeTransform {
       );
     }
 
-    return sanitizedValue;
+    return object;
   }
 
   private toValidate(metatype: Constructor): boolean {
@@ -43,49 +48,30 @@ export class RequestValidationPipe implements PipeTransform {
     return !types.includes(metatype);
   }
 
-  private sanitizeInput(value: unknown): unknown {
-    if (typeof value === 'string') {
-      return value
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-        .split('')
-        .filter((char) => {
-          const code = char.charCodeAt(0);
-          return code >= 32 && code !== 127;
-        })
-        .join('')
-        .trim();
-    }
+  private formatErrors(
+    errors: ValidationError[],
+  ): Array<{ field: string; constraints: Record<string, string> }> {
+    const formattedErrors: Array<{
+      field: string;
+      constraints: Record<string, string>;
+    }> = [];
 
-    if (Array.isArray(value)) {
-      return value.map((item) => this.sanitizeInput(item));
-    }
+    const traverse = (errs: ValidationError[], prefix = '') => {
+      errs.forEach((error) => {
+        const field = prefix ? `${prefix}.${error.property}` : error.property;
+        if (error.constraints) {
+          formattedErrors.push({
+            field,
+            constraints: error.constraints,
+          });
+        }
+        if (error.children && error.children.length > 0) {
+          traverse(error.children, field);
+        }
+      });
+    };
 
-    if (value && typeof value === 'object') {
-      return Object.entries(value as Record<string, unknown>).reduce(
-        (acc, [key, currentValue]) => {
-          acc[key] = this.sanitizeInput(currentValue);
-          return acc;
-        },
-        {} as Record<string, unknown>,
-      );
-    }
-
-    return value;
-  }
-
-  private formatErrors(errors: ValidationError[]): Record<string, unknown> {
-    const formattedErrors: Record<string, unknown> = {};
-
-    errors.forEach((error) => {
-      if (error.constraints) {
-        formattedErrors[error.property] = Object.values(error.constraints).join(
-          ', ',
-        );
-      } else if (error.children && error.children.length > 0) {
-        formattedErrors[error.property] = this.formatErrors(error.children);
-      }
-    });
-
+    traverse(errors);
     return formattedErrors;
   }
 }

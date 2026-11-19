@@ -333,10 +333,13 @@ pub struct TransferInitiatedEvent {
     pub to_owner: Address,
 }
 
-#[contracttype]
+#[contractevent(topics = ["metadata_updated"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CertificateMetadataUpdatedEvent {
-    pub certificate_id: u64,
+    #[topic]
+    pub topic_id: String,
+    pub id: String,
+    pub metadata_uri: String,
     pub updated_by: Address,
 }
 

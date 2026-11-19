@@ -35,12 +35,12 @@ mod types;
 // Explicit re-exports replace `pub use types::*` to avoid ambiguous_glob_reexports
 pub use types::{
     CertPaginatedResult, Certificate, CertificateFrozenEvent, CertificateIssuedEvent,
-    CertificateReinstatedEvent, CertificateReissuedEvent, CertificateRevokedEvent,
-    CertificateStatus, CertificateSuspendedEvent, CertificateTransfer, CertificateUnfrozenEvent,
-    CertificateVersion, ContractVersion, DataKey, MultisigConfig, OptionalRequestStatus,
-    PaginatedResult, Pagination, PendingRequest, RequestStatus, SignatureResult,
-    TransferAcceptedEvent, TransferCompletedEvent, TransferHistoryEntry, TransferStatus,
-    VerificationReport, VerificationResult,
+    CertificateMetadataUpdatedEvent, CertificateReinstatedEvent, CertificateReissuedEvent,
+    CertificateRevokedEvent, CertificateStatus, CertificateSuspendedEvent, CertificateTransfer,
+    CertificateUnfrozenEvent, CertificateVersion, ContractVersion, DataKey, MultisigConfig,
+    OptionalRequestStatus, PaginatedResult, Pagination, PendingRequest, RequestStatus,
+    SignatureResult, TransferAcceptedEvent, TransferCompletedEvent, TransferHistoryEntry,
+    TransferStatus, VerificationReport, VerificationResult,
 };
 
 // mod metadata;
@@ -597,13 +597,14 @@ impl CertificateContract {
         cert.metadata_uri = new_metadata_uri;
 
         Self::set_persistent(&env, &DataKey::Certificate(id), &cert);
-    }
 
-    /// Update a certificate's metadata URI. The existing update path checks
-    /// the issuer stored on this certificate, so its owner or another issuer
-    /// cannot authorize a change. Keep the older entry point for callers.
-    pub fn update_metadata_uri(env: Env, id: String, new_metadata_uri: String) {
-        Self::update_certificate_metadata(env, id, new_metadata_uri);
+        CertificateMetadataUpdatedEvent {
+            topic_id: cert.id.clone(),
+            id: cert.id,
+            metadata_uri: cert.metadata_uri,
+            updated_by: cert.issuer,
+        }
+        .publish(&env);
     }
 
     /// Reissue a certificate with new version (creates child certificate)

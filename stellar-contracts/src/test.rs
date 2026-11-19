@@ -156,7 +156,7 @@ fn test_update_certificate_metadata() {
 }
 
 #[test]
-fn test_update_metadata_uri_requires_original_issuer_and_preserves_certificate() {
+fn test_update_certificate_metadata_requires_original_issuer_and_preserves_certificate() {
     let env = Env::default();
     let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
@@ -172,7 +172,7 @@ fn test_update_metadata_uri_requires_original_issuer_and_preserves_certificate()
     client.add_issuer(&issuer);
     client.issue_certificate(&id, &issuer, &owner, &original_uri, &None);
 
-    client.update_metadata_uri(&id, &migrated_uri);
+    client.update_certificate_metadata(&id, &migrated_uri);
     let auths = env.auths();
     assert_eq!(auths.len(), 1);
     assert_eq!(auths[0].0, issuer);
@@ -186,7 +186,7 @@ fn test_update_metadata_uri_requires_original_issuer_and_preserves_certificate()
 
 #[test]
 #[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
-fn test_update_metadata_uri_rejects_missing_issuer_signature() {
+fn test_update_certificate_metadata_rejects_missing_issuer_signature() {
     let env = Env::default();
     let contract_id = env.register(CertificateContract, ());
     let client = CertificateContractClient::new(&env, &contract_id);
@@ -203,7 +203,7 @@ fn test_update_metadata_uri_rejects_missing_issuer_signature() {
 
     // No authorization for the stored issuer, even if the caller knows the ID.
     env.set_auths(&[]);
-    client.update_metadata_uri(&id, &String::from_str(&env, "ipfs://unauthorized"));
+    client.update_certificate_metadata(&id, &String::from_str(&env, "ipfs://unauthorized"));
 }
 
 #[test]

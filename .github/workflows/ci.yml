@@ -110,8 +110,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Node 18 is EOL; supported lines are 20 (LTS) and 22.
-        node-version: [20, 22]
+        # Node 18 is EOL; supported lines are 20 (LTS), 22, and 26.
+        node-version: [20, 22, 26]
     defaults:
       run:
         working-directory: backend

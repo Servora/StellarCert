@@ -284,9 +284,9 @@ jobs:
         # catching down-incompatible renames that would otherwise only fail
         # during a rollback in production.
         run: |
-          npx typeorm migration:run -d dist/database/data-source.js
-          npx typeorm migration:revert -d dist/database/data-source.js
-          npx typeorm migration:run -d dist/database/data-source.js
+          npx typeorm migration:run -t each -d dist/database/data-source.js
+          npx typeorm migration:revert -t each -d dist/database/data-source.js
+          npx typeorm migration:run -t each -d dist/database/data-source.js
 
   # Nothing built the images or parsed nginx.conf, so a broken Dockerfile or
   # nginx directive could reach a release. Build every documented target.

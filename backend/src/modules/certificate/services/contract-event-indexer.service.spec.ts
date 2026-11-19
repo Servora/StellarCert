@@ -164,4 +164,103 @@ describe('ContractEventIndexerService', () => {
     await service.poll();
     expect(sorobanService.getContractEvents).not.toHaveBeenCalled();
   });
+
+  describe('webhook fan-out during backlog catch-up', () => {
+    const revokeEvent = (i: number) =>
+      event(
+        [sym('revoked'), str(`cert-${i}`)],
+        nativeToScVal({ reason: 'fraud' }),
+        { id: `evt-${i}`, pagingToken: `tok-${i}`, ledger: 10 + i },
+      );
+    const page = (from: number, count: number) => ({
+      events: Array.from({ length: count }, (_, i) => revokeEvent(from + i)),
+      cursor: undefined,
+    });
+
+    let sleep: jest.Mock;
+
+    beforeEach(() => {
+      certificateRepository.findOne.mockImplementation(() =>
+        Promise.resolve({
+          id: 'c',
+          issuerId: 'issuer-1',
+          status: CertificateStatus.ACTIVE,
+        }),
+      );
+      cursorRepository.findOne.mockResolvedValue({ cursor: 'start' });
+      sleep = jest.fn().mockResolvedValue(undefined);
+      (service as any).sleep = sleep;
+      (service as any).now = () => 1_000_000; // frozen clock: every dispatch is "too soon"
+    });
+
+    it('paces webhook dispatch while working through a full page', async () => {
+      sorobanService.getContractEvents
+        .mockResolvedValueOnce(page(0, 100))
+        .mockResolvedValueOnce(page(100, 0));
+
+      await service.syncOnce();
+
+      expect(webhooksService.triggerEvent).toHaveBeenCalledTimes(100);
+      // The first dispatch goes out at once; each following one waits 1000/20 ms.
+      expect(sleep).toHaveBeenCalledTimes(99);
+      expect(sleep).toHaveBeenCalledWith(50);
+    });
+
+    it('honours the configured catch-up rate', async () => {
+      configService.get.mockImplementation((key: string) =>
+        key === 'CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND' ? '4' : undefined,
+      );
+      sorobanService.getContractEvents
+        .mockResolvedValueOnce(page(0, 100))
+        .mockResolvedValueOnce(page(100, 0));
+
+      await service.syncOnce();
+
+      expect(sleep).toHaveBeenCalledWith(250);
+    });
+
+    it('ignores an invalid configured rate and uses the default', async () => {
+      configService.get.mockImplementation((key: string) =>
+        key === 'CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND' ? '0' : undefined,
+      );
+      sorobanService.getContractEvents
+        .mockResolvedValueOnce(page(0, 100))
+        .mockResolvedValueOnce(page(100, 0));
+
+      await service.syncOnce();
+
+      expect(sleep).toHaveBeenCalledWith(50);
+    });
+
+    it('does not throttle steady-state polling (a short first page)', async () => {
+      sorobanService.getContractEvents.mockResolvedValueOnce(page(0, 5));
+
+      await service.syncOnce();
+
+      expect(webhooksService.triggerEvent).toHaveBeenCalledTimes(5);
+      expect(sleep).not.toHaveBeenCalled();
+    });
+
+    it('still applies every event and persists the cursor per page while throttled', async () => {
+      sorobanService.getContractEvents
+        .mockResolvedValueOnce(page(0, 100))
+        .mockResolvedValueOnce(page(100, 3));
+
+      const processed = await service.syncOnce();
+
+      expect(processed).toBe(103);
+      expect(certificateRepository.save).toHaveBeenCalledTimes(103);
+      expect(cursorRepository.save).toHaveBeenCalledTimes(2);
+    });
+
+    it('leaves catch-up mode once the backlog is drained', async () => {
+      sorobanService.getContractEvents
+        .mockResolvedValueOnce(page(0, 100))
+        .mockResolvedValueOnce(page(100, 0));
+
+      await service.syncOnce();
+
+      expect((service as any).catchingUp).toBe(false);
+    });
+  });
 });

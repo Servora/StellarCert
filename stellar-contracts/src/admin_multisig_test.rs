@@ -187,6 +187,52 @@ fn test_remove_issuer_action_executes_after_threshold() {
 }
 
 #[test]
+fn test_readd_issuer_action_clears_removed_flag() {
+    let env = Env::default();
+    let admin_multisig_contract_id = env.register(AdminMultisigContract, ());
+    let client = AdminMultisigContractClient::new(&env, &admin_multisig_contract_id);
+    let certificate_contract_id = env.register(CertificateContract, ());
+    let certificate_client = CertificateContractClient::new(&env, &certificate_contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let signers = Vec::from_array(&env, [admin1.clone(), admin2.clone(), admin3.clone()]);
+
+    env.mock_all_auths();
+    certificate_client.initialize(&admin_multisig_contract_id);
+    certificate_client.add_issuer(&issuer);
+    // 2-of-3: the proposer never counts as one of their own approvals, so a
+    // threshold equal to the full signer count would make execution
+    // impossible. Use 3 signers so two distinct non-proposer approvals exist.
+    client.init_admin_multisig(&2, &signers, &5);
+    client.set_admin_certificate_contract(&admin1, &certificate_contract_id);
+
+    let remove_id = String::from_str(&env, "remove-issuer");
+    client.propose_action(
+        &remove_id,
+        &admin1,
+        &AdminAction::RemoveIssuer(issuer.clone()),
+    );
+    client.approve_action(&remove_id, &admin2);
+    client.approve_action(&remove_id, &admin3);
+    assert!(client.is_issuer_removed(&issuer));
+
+    let readd_id = String::from_str(&env, "readd-issuer");
+    client.propose_action(
+        &readd_id,
+        &admin1,
+        &AdminAction::ReAddIssuer(issuer.clone()),
+    );
+    client.approve_action(&readd_id, &admin2);
+    client.approve_action(&readd_id, &admin3);
+
+    assert!(!client.is_issuer_removed(&issuer));
+    assert!(certificate_client.is_issuer(&issuer));
+}
+
+#[test]
 #[should_panic(expected = "Proposer cannot approve their own action")]
 fn test_proposer_cannot_approve() {
     let env = Env::default();

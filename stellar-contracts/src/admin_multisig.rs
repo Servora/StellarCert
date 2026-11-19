@@ -9,6 +9,7 @@ use crate::Pagination;
 pub enum AdminAction {
     UpgradeContract(BytesN<32>),
     RemoveIssuer(Address),
+    ReAddIssuer(Address),
     UpdateConfig(u32, Vec<Address>, u32),
     Other(String),
 }
@@ -460,6 +461,22 @@ impl AdminMultisigContract {
                     &soroban_sdk::Symbol::new(&env, "remove_issuer"),
                     soroban_sdk::vec![&env, issuer.clone().into_val(&env)],
                 );
+            }
+            AdminAction::ReAddIssuer(issuer) => {
+                let certificate_contract: Address = env
+                    .storage()
+                    .instance()
+                    .get(&AdminMultisigDataKey::CertificateContractId)
+                    .expect("Certificate contract not configured");
+
+                let _: () = env.invoke_contract(
+                    &certificate_contract,
+                    &soroban_sdk::Symbol::new(&env, "add_issuer"),
+                    soroban_sdk::vec![&env, issuer.clone().into_val(&env)],
+                );
+                env.storage()
+                    .persistent()
+                    .remove(&AdminMultisigDataKey::RemovedIssuer(issuer.clone()));
             }
             AdminAction::UpdateConfig(threshold, signers, proposal_window) => {
                 Self::validate_config(signers, *threshold, *proposal_window);

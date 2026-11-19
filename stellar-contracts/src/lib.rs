@@ -43,9 +43,6 @@ pub use types::{
     VerificationReport, VerificationResult,
 };
 
-// mod metadata;
-// pub use metadata::*;
-
 mod multisig;
 // MultisigCertificateContract is the only public item in multisig.rs
 pub use multisig::MultisigCertificateContract;
@@ -79,12 +76,6 @@ mod events_test;
 mod issuer_management_test;
 #[cfg(test)]
 mod issuer_test;
-// metadata_test is deliberately NOT wired in: it exercises `mod metadata`,
-// which is itself commented out above and does not currently compile (32
-// errors). Wiring the test would mean first repairing that module, which is
-// a separate piece of work. See #1023.
-// #[cfg(test)]
-// mod metadata_test;
 #[cfg(test)]
 mod multisig_test;
 #[cfg(test)]
@@ -1221,6 +1212,18 @@ impl CertificateContract {
         Self::set_persistent(&env, &DataKey::MultisigConfig(issuer), &config);
     }
 
+    pub fn update_issuer_admin(env: Env, issuer: Address, new_admin: Address) {
+        let current_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::IssuerAdmin(issuer.clone()))
+            .expect("Issuer admin not found");
+        current_admin.require_auth();
+        new_admin.require_auth();
+
+        Self::set_persistent(&env, &DataKey::IssuerAdmin(issuer), &new_admin);
+    }
+
     pub fn propose_certificate(
         env: Env,
         request_id: String,
@@ -1789,6 +1792,10 @@ impl CertificateContract {
         request_ids: Vec<String>,
         pagination: Pagination,
     ) -> PaginatedResult {
+        if pagination.limit > Self::MAX_PAGE_SIZE {
+            panic!("Pagination limit exceeds maximum allowed");
+        }
+
         let mut all_requests = Vec::<PendingRequest>::new(env);
 
         for request_id in request_ids.iter() {

@@ -3,7 +3,7 @@
 # Production: docker build (default target)
 
 # Development stage - runs Vite dev server
-FROM node:26-alpine AS development
+FROM node:22-alpine AS development
 
 WORKDIR /app
 
@@ -21,7 +21,7 @@ EXPOSE 5173
 CMD ["npm", "run", "dev"]
 
 # Production build stage
-FROM node:26-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 

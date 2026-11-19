@@ -2,6 +2,19 @@ import React, { useState, useRef, useEffect, useId } from 'react';
 import { Bell, CheckCircle, AlertTriangle, Info, Check } from 'lucide-react';
 import { useNotifications } from '../context/NotificationContext';
 import { Link } from 'react-router-dom';
+import type { Notification } from '../api/types';
+import { getSafeRedirectPath } from '../utils/redirect';
+
+/**
+ * In-app destination for a notification, or null when it has none. The link
+ * comes from the server payload, so it is only honoured when it is a plain
+ * relative path to a known route - the same allowlist used for post-login
+ * redirects - never an absolute or protocol-relative URL.
+ */
+const getNotificationHref = (notification: Notification): string | null => {
+    if (!notification.link) return null;
+    return getSafeRedirectPath(notification.link, '') || null;
+};
 
 export default function NotificationDropdown() {
     const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
@@ -30,6 +43,13 @@ export default function NotificationDropdown() {
     const handleMarkAsRead = (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
         markAsRead(id);
+    };
+
+    const handleOpenNotification = (notification: Notification) => {
+        if (!notification.isRead) {
+            markAsRead(notification.id);
+        }
+        setIsOpen(false);
     };
 
     // The badge is purely visual (aria-hidden), so the unread count is carried
@@ -88,35 +108,58 @@ export default function NotificationDropdown() {
                             </div>
                         ) : (
                             <div className="divide-y divide-gray-100 dark:divide-slate-800">
-                                {notifications.map((notification) => (
-                                    <div
-                                        key={notification.id}
-                                        className={`flex items-start gap-3 p-4 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${!notification.isRead ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
-                                            }`}
-                                    >
-                                        <div className="flex-shrink-0 mt-1">{getIcon(notification.type)}</div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                                {notification.title}
-                                            </p>
-                                            <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
-                                                {notification.message}
-                                            </p>
-                                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                                                {new Date(notification.createdAt).toLocaleDateString()} {new Date(notification.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </p>
+                                {notifications.map((notification) => {
+                                    const href = getNotificationHref(notification);
+                                    const body = (
+                                        <>
+                                            <div className="flex-shrink-0 mt-1">{getIcon(notification.type)}</div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                                    {notification.title}
+                                                </p>
+                                                <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
+                                                    {notification.message}
+                                                </p>
+                                                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                                    {new Date(notification.createdAt).toLocaleDateString()} {new Date(notification.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </p>
+                                            </div>
+                                        </>
+                                    );
+
+                                    return (
+                                        <div
+                                            key={notification.id}
+                                            className={`flex items-start gap-3 p-4 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${!notification.isRead ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
+                                                }`}
+                                        >
+                                            {href ? (
+                                                // Link through to the resource the notification is
+                                                // about (#1327). Opening it counts as reading it.
+                                                <Link
+                                                    to={href}
+                                                    onClick={() => handleOpenNotification(notification)}
+                                                    className="flex flex-1 min-w-0 items-start gap-3 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                                >
+                                                    {body}
+                                                </Link>
+                                            ) : (
+                                                <div className="flex flex-1 min-w-0 items-start gap-3">{body}</div>
+                                            )}
+                                            {!notification.isRead && (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => handleMarkAsRead(e, notification.id)}
+                                                    className="flex-shrink-0 ml-2 p-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 rounded-full hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                                                    title="Mark as read"
+                                                    aria-label={`Mark ${notification.title} as read`}
+                                                >
+                                                    <Check className="w-4 h-4" />
+                                                </button>
+                                            )}
                                         </div>
-                                        {!notification.isRead && (
-                                            <button
-                                                onClick={(e) => handleMarkAsRead(e, notification.id)}
-                                                className="flex-shrink-0 ml-2 p-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 rounded-full hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
-                                                title="Mark as read"
-                                            >
-                                                <Check className="w-4 h-4" />
-                                            </button>
-                                        )}
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

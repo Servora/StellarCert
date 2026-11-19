@@ -158,12 +158,16 @@ fn test_readd_issuer_action_clears_removed_flag() {
 
     let admin1 = Address::generate(&env);
     let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
     let issuer = Address::generate(&env);
-    let signers = Vec::from_array(&env, [admin1.clone(), admin2.clone()]);
+    let signers = Vec::from_array(&env, [admin1.clone(), admin2.clone(), admin3.clone()]);
 
     env.mock_all_auths();
     certificate_client.initialize(&admin_multisig_contract_id);
     certificate_client.add_issuer(&issuer);
+    // 2-of-3: the proposer never counts as one of their own approvals, so a
+    // threshold equal to the full signer count would make execution
+    // impossible. Use 3 signers so two distinct non-proposer approvals exist.
     client.init_admin_multisig(&2, &signers, &5);
     client.set_admin_certificate_contract(&admin1, &certificate_contract_id);
 
@@ -174,6 +178,7 @@ fn test_readd_issuer_action_clears_removed_flag() {
         &AdminAction::RemoveIssuer(issuer.clone()),
     );
     client.approve_action(&remove_id, &admin2);
+    client.approve_action(&remove_id, &admin3);
     assert!(client.is_issuer_removed(&issuer));
 
     let readd_id = String::from_str(&env, "readd-issuer");
@@ -183,6 +188,7 @@ fn test_readd_issuer_action_clears_removed_flag() {
         &AdminAction::ReAddIssuer(issuer.clone()),
     );
     client.approve_action(&readd_id, &admin2);
+    client.approve_action(&readd_id, &admin3);
 
     assert!(!client.is_issuer_removed(&issuer));
     assert!(certificate_client.is_issuer(&issuer));

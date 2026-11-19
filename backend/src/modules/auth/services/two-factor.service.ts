@@ -35,24 +35,29 @@ export interface TwoFactorStore {
  * weaker than a shared cache on multi-instance deployments.
  */
 export class InMemoryTwoFactorStore implements TwoFactorStore {
-  private readonly entries = new Map<string, { value: unknown; expiresAt: number }>();
+  private readonly entries = new Map<
+    string,
+    { value: unknown; expiresAt: number }
+  >();
 
-  async get<T>(key: string): Promise<T | undefined> {
+  get<T>(key: string): Promise<T | undefined> {
     const entry = this.entries.get(key);
-    if (!entry) return undefined;
+    if (!entry) return Promise.resolve(undefined);
     if (entry.expiresAt <= Date.now()) {
       this.entries.delete(key);
-      return undefined;
+      return Promise.resolve(undefined);
     }
-    return entry.value as T;
+    return Promise.resolve(entry.value as T);
   }
 
-  async set(key: string, value: unknown, ttlMs: number): Promise<void> {
+  set(key: string, value: unknown, ttlMs: number): Promise<void> {
     this.entries.set(key, { value, expiresAt: Date.now() + ttlMs });
+    return Promise.resolve();
   }
 
-  async del(key: string): Promise<void> {
+  del(key: string): Promise<void> {
     this.entries.delete(key);
+    return Promise.resolve();
   }
 }
 
@@ -69,7 +74,7 @@ export class TwoFactorService {
     private readonly cacheManager?: Cache,
   ) {
     if (cacheManager) {
-      this.store = cacheManager as unknown as TwoFactorStore;
+      this.store = cacheManager;
     } else {
       // Never fail open: without a cache the lockout and replay checks still
       // run, just against this process's memory.

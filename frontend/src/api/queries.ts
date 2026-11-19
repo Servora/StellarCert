@@ -66,6 +66,10 @@ export const queryKeys = {
       ["certificates", "public", publicId] as const,
     history: (certificateId: string) =>
       ["certificates", "history", certificateId] as const,
+    // Nested under certificates.root so any certificate invalidation (e.g.
+    // after a transfer is approved or rejected) also refreshes this list.
+    pendingTransfers: (userId: string) =>
+      ["certificates", "transfers", "pending", userId] as const,
   },
   templates: () => ["templates"] as const,
   analytics: {
@@ -148,6 +152,21 @@ export const useCertificatesQuery = (params: CertificateListParams) =>
     // Keep the previous page on screen while the next one loads, so paging
     // through results doesn't flash an empty table.
     placeholderData: keepPreviousData,
+  });
+
+/**
+ * Pending transfers involving the current user, in either direction (the
+ * backend matches on both fromEmail and toEmail). Keyed by user so a
+ * logout/login in the same tab never shows another user's transfers.
+ */
+export const usePendingTransfersQuery = (userId: string | undefined) =>
+  useQuery({
+    queryKey: queryKeys.certificates.pendingTransfers(userId ?? ""),
+    queryFn: async () => {
+      const transfers = await certificateApi.transfer.getPending();
+      return Array.isArray(transfers) ? transfers : [];
+    },
+    enabled: !!userId,
   });
 
 export const useCertificateHistoryQuery = (certificateId: string | null) =>

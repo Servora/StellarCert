@@ -1,7 +1,11 @@
 import React from "react";
 import { render, screen, act, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
-import ToastContainer from "./Toast";
+import ToastContainer, {
+  MAX_DISMISSED_TOAST_IDS,
+  TOAST_RECENT_WINDOW_MS,
+  pruneDismissedIds,
+} from "./Toast";
 import { NotificationProvider } from "../context/NotificationContext";
 
 // Mock timers
@@ -118,5 +122,57 @@ describe("Toast auto-dismiss and accessibility (#1000)", () => {
     );
 
     expect(screen.queryByText("Success")).not.toBeInTheDocument();
+  });
+});
+
+describe("pruneDismissedIds (#1328)", () => {
+  const NOW = Date.parse("2026-01-01T00:00:00.000Z");
+  const at = (msAgo: number) => new Date(NOW - msAgo).toISOString();
+  const notification = (id: string, msAgo: number) => ({
+    id,
+    type: "info" as const,
+    title: id,
+    message: id,
+    isRead: false,
+    createdAt: at(msAgo),
+  });
+
+  it("keeps dismissals for notifications still inside the recent window", () => {
+    const dismissed = new Set(["fresh"]);
+    pruneDismissedIds(dismissed, [notification("fresh", 1000)], NOW);
+    expect([...dismissed]).toEqual(["fresh"]);
+  });
+
+  it("drops dismissals whose notification aged out of the recent window", () => {
+    const dismissed = new Set(["old", "fresh"]);
+    pruneDismissedIds(
+      dismissed,
+      [
+        notification("old", TOAST_RECENT_WINDOW_MS + 1),
+        notification("fresh", 1000),
+      ],
+      NOW,
+    );
+    expect([...dismissed]).toEqual(["fresh"]);
+  });
+
+  it("drops dismissals whose notification is no longer in the list", () => {
+    const dismissed = new Set(["gone"]);
+    pruneDismissedIds(dismissed, [], NOW);
+    expect(dismissed.size).toBe(0);
+  });
+
+  it("caps the set, evicting the oldest dismissals first", () => {
+    const total = MAX_DISMISSED_TOAST_IDS + 5;
+    const ids = Array.from({ length: total }, (_, i) => `n${i}`);
+    const dismissed = new Set(ids);
+    pruneDismissedIds(
+      dismissed,
+      ids.map((id) => notification(id, 0)),
+      NOW,
+    );
+    expect(dismissed.size).toBe(MAX_DISMISSED_TOAST_IDS);
+    expect(dismissed.has("n0")).toBe(false);
+    expect(dismissed.has(`n${total - 1}`)).toBe(true);
   });
 });

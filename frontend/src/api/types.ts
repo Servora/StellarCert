@@ -463,6 +463,12 @@ export interface Notification {
   message: string;
   isRead: boolean;
   createdAt: string;
+  /**
+   * Optional in-app path of the resource the notification is about (e.g. a
+   * certificate, transfer or user page). When present and it resolves to a
+   * known internal route, the notification row links through to it (#1327).
+   */
+  link?: string | null;
 }
 
 export interface NotificationPreferences {

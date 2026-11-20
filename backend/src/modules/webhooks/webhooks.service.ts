@@ -28,7 +28,9 @@ type SanitizedWebhookSubscription = Omit<
   'secret' | 'secretHash'
 > & { hasSecret: boolean };
 
-type CreatedWebhookSubscription = WebhookSubscription & { hasSecret: boolean };
+type CreatedWebhookSubscription = Omit<WebhookSubscription, 'secretHash'> & {
+  hasSecret: boolean;
+};
 
 /** Outcome of a synchronous test delivery. */
 export interface WebhookTestResult {
@@ -115,9 +117,11 @@ export class WebhooksService {
     const saved = await this.subscriptionRepository.save(subscription);
 
     // Issue #719 – return the plaintext secret ONLY on create so the caller
-    // can store it; subsequent reads never include `secret`.
+    // can store it; subsequent reads never include `secret` or `secretHash`
+    // (the latter is an internal integrity-check value, not the HMAC key).
+    const { secretHash: _savedHash, ...rest } = saved;
     return {
-      ...saved,
+      ...rest,
       secret, // one-time reveal
       hasSecret: true,
     };
@@ -166,6 +170,30 @@ export class WebhooksService {
   async remove(id: string, issuerId: string): Promise<void> {
     const subscription = await this.findOneWithSecret(id, issuerId);
     await this.subscriptionRepository.remove(subscription);
+  }
+
+  // ROTATE SECRET
+  async rotateSecret(
+    id: string,
+    issuerId: string,
+  ): Promise<CreatedWebhookSubscription> {
+    const subscription = await this.findOneWithSecret(id, issuerId);
+    const secret = crypto.randomBytes(32).toString('hex');
+    const secretHash = crypto.createHash('sha256').update(secret).digest('hex');
+
+    subscription.secret = secret;
+    subscription.secretHash = secretHash;
+    const saved = await this.subscriptionRepository.save(subscription);
+
+    // Same one-time-reveal rule as create (#719): the new plaintext secret
+    // goes out once here, but `secretHash` - an internal integrity value,
+    // not the HMAC key itself - must not leak into the API response either.
+    const { secretHash: _savedHash, ...rest } = saved;
+    return {
+      ...rest,
+      secret,
+      hasSecret: true,
+    };
   }
 
   // BROADCAST EVENT

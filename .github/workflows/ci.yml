@@ -323,6 +323,10 @@ jobs:
             openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
               -keyout nginx/ssl/key.pem -out nginx/ssl/cert.pem -subj "/CN=localhost"
           fi
+          # docker-compose.yml requires every ${VAR:?} below to come from
+          # .env; these are the same safe, documented throwaway values
+          # .env.example ships for local development, not real secrets.
+          cp .env.example .env
           docker compose up -d --build
       - name: Wait for backend health
         run: |
@@ -372,13 +376,19 @@ jobs:
       - name: Install Playwright browsers
         working-directory: frontend
         run: npx playwright install --with-deps chromium
+      - name: Configure stack environment
+        # docker-compose.yml requires every ${VAR:?} below to come from .env;
+        # these are the same safe, documented throwaway values .env.example
+        # ships for local development, not real secrets.
+        run: cp .env.example .env
       - name: Start full stack via docker compose
         run: docker compose up -d --build --wait
       - name: Run cross-stack smoke suite (issue -> verify -> transfer)
         working-directory: frontend
         env:
-          E2E_BASE_URL: http://localhost
-          E2E_API_URL: http://localhost:3000
+          E2E_BASE_URL: http://localhost:5173
+          E2E_API_URL: http://localhost:3000/api/v1
+          E2E_DB_PORT: 5433
         run: npx playwright test --project=cross-stack-smoke
       - name: Upload Playwright report
         if: failure()

@@ -291,8 +291,7 @@ type PageMeta = {
 // GET /users returns `{ data, meta: { total, page, limit, totalPages } }`;
 // older/dummy shapes put the counts at the top level or return a bare array.
 type UserListResponse =
-  | User[]
-  | ({ users?: User[]; data?: User[]; meta?: PageMeta } & PageMeta);
+  User[] | ({ users?: User[]; data?: User[]; meta?: PageMeta } & PageMeta);
 
 /** Normalises any supported `/users` response shape into one page of users. */
 export const toUserListPage = (
@@ -361,7 +360,15 @@ export const useIssuerActivityQuery = (page = 1, limit = 10) =>
 export const useNotificationsQuery = (enabled: boolean) =>
   useQuery({
     queryKey: queryKeys.notifications.list(),
-    queryFn: () => apiClient<Notification[]>("/notifications"),
+    // The endpoint is paginated ({ data, total, page, limit }); every
+    // consumer of this query (badge count, dropdown list, the socket push
+    // handler) expects a plain Notification[], so unwrap it here.
+    queryFn: async () => {
+      const response = await apiClient<{ data: Notification[] }>(
+        "/notifications",
+      );
+      return response.data;
+    },
     enabled,
   });
 

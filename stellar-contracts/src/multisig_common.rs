@@ -32,7 +32,7 @@ pub fn validate_multisig_bounds(threshold: u32, signer_count: u32, max_signers: 
 
 /// Validate a concrete signer vector (non-empty, unique, within bounds).
 pub fn validate_signer_vector(signers: &Vec<Address>, threshold: u32, max_signers: u32) {
-    let n = signers.len() as u32;
+    let n = signers.len();
     if n == 0 {
         panic!("Multisig signers must not be empty");
     }

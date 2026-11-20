@@ -598,7 +598,7 @@ impl AdminMultisigContract {
             panic!("Invalid admin multisig configuration");
         }
         // #1369 — refuse oversized signer sets (auth-entry / resource budget).
-        if signers.len() as u32 > MAX_ADMIN_MULTISIG_SIGNERS {
+        if signers.len() > MAX_ADMIN_MULTISIG_SIGNERS {
             panic!("Admin multisig signer set exceeds MAX_ADMIN_MULTISIG_SIGNERS");
         }
 

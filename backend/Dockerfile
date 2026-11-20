@@ -33,6 +33,15 @@ RUN npm ci --omit=dev --legacy-peer-deps
 # Production runtime stage (no build tools / compilers)
 FROM node:26-alpine AS production
 
+ARG VERSION=dev
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.version="${VERSION}" \
+  org.opencontainers.image.revision="${VCS_REF}" \
+  org.opencontainers.image.created="${BUILD_DATE}" \
+  org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY:-unknown}"
+
 WORKDIR /app
 
 COPY package*.json ./

@@ -142,6 +142,12 @@ services:
       start_period: 20s
 
   # Frontend Service (Production - Static files)
+  #
+  # This container serves the SPA only. Its nginx.conf intentionally has no /api/
+  # proxy, so it MUST be reached through the reverse proxy below (the `nginx`
+  # service), which routes /api/ to the backend. Running frontend-prod on its own
+  # yields a UI that cannot reach the API. Bring up both together with:
+  #   docker compose --profile production up frontend-prod nginx
   frontend-prod:
     build:
       context: ./frontend
@@ -166,6 +172,9 @@ services:
       - production
 
   # Nginx Reverse Proxy (Optional - for production)
+  #
+  # Required for the production profile: it serves the SPA from frontend-prod and
+  # proxies /api/ to the backend. frontend-prod has no /api/ route of its own.
   nginx:
     image: nginx:1.28.3-alpine
     container_name: stellarcert_nginx

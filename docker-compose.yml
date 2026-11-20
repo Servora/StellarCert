@@ -56,6 +56,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: production
+    image: ${STELLARCERT_BACKEND_IMAGE:-stellarcert-backend:local}
     container_name: stellarcert_backend
     ports:
       - "3000:3000"
@@ -153,6 +154,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: production
+    image: ${STELLARCERT_FRONTEND_IMAGE:-stellarcert-frontend:local}
     container_name: stellarcert_frontend_prod
     ports:
       - "8080:80"

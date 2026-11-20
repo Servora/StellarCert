@@ -52,6 +52,18 @@ pub struct CRLInfo {
     pub merkle_root: String,
 }
 
+/// Result of [`CRLContract::verify_certificate`] (#1367).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CertificateVerifyResult {
+    /// True when the certificate is not on the CRL.
+    pub is_valid: bool,
+    /// Ledger timestamp the check was performed at.
+    pub checked_at: u64,
+    /// True when the CRL is past its `next_update` and should be refreshed.
+    pub is_crl_stale: bool,
+}
+
 /// Emitted by [`CRLContract::revoke_certificate`] once the revocation has been
 /// stored and the CRL head refreshed.
 ///

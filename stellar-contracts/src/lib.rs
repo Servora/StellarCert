@@ -38,10 +38,11 @@ pub use types::{
     CertPaginatedResult, Certificate, CertificateFrozenEvent, CertificateIssuedEvent,
     CertificateMetadataUpdatedEvent, CertificateReinstatedEvent, CertificateReissuedEvent,
     CertificateRevokedEvent, CertificateStatus, CertificateSuspendedEvent, CertificateTransfer,
-    CertificateUnfrozenEvent, CertificateVersion, ContractVersion, DataKey, IssuerAddedEvent,
-    IssuerRemovedEvent, MultisigConfig, OptionalRequestStatus, PaginatedResult, Pagination,
-    PendingRequest, RequestStatus, SignatureResult, TransferAcceptedEvent, TransferCompletedEvent,
-    TransferHistoryEntry, TransferStatus, VerificationReport, VerificationResult,
+    CertificateUnfrozenEvent, CertificateVersion, ContractPausedEvent, ContractUnpausedEvent,
+    ContractVersion, DataKey, IssuerAddedEvent, IssuerRemovedEvent, MultisigConfig,
+    OptionalRequestStatus, PaginatedResult, Pagination, PendingRequest, RequestStatus,
+    SignatureResult, TransferAcceptedEvent, TransferCompletedEvent, TransferHistoryEntry,
+    TransferStatus, VerificationReport, VerificationResult,
 };
 
 mod multisig;
@@ -73,6 +74,8 @@ mod comprehensive_tests;
 mod crl_test;
 #[cfg(test)]
 mod events_test;
+#[cfg(test)]
+mod hardening_test;
 #[cfg(test)]
 mod issuer_management_test;
 #[cfg(test)]
@@ -129,6 +132,58 @@ impl CertificateContract {
     /// to detect a lost initialize race (#1022).
     pub fn get_admin(env: Env) -> Option<Address> {
         env.storage().persistent().get(&DataKey::Admin)
+    }
+
+    // --- Circuit breaker (#1365) ---
+    //
+    // While paused, every entry point that mutates certificate, transfer or
+    // multisig-request state panics with "Contract is paused". Admin
+    // governance entry points (`add_issuer`, `remove_issuer`,
+    // `set_crl_contract`, `upgrade`, `pause`/`unpause`) stay available so the
+    // admin can remediate — e.g. remove a compromised issuer or ship a fix —
+    // while the breaker is engaged. Read-only views are unaffected.
+
+    /// Engage the circuit breaker. Admin-only. Idempotent.
+    pub fn pause(env: Env) {
+        let admin = Self::require_admin(&env);
+        env.storage().instance().set(&DataKey::Paused, &true);
+        persistent::extend_instance_ttl(&env, None);
+        ContractPausedEvent { admin }.publish(&env);
+    }
+
+    /// Release the circuit breaker. Admin-only. Idempotent.
+    pub fn unpause(env: Env) {
+        let admin = Self::require_admin(&env);
+        env.storage().instance().set(&DataKey::Paused, &false);
+        persistent::extend_instance_ttl(&env, None);
+        ContractUnpausedEvent { admin }.publish(&env);
+    }
+
+    /// True while the circuit breaker is engaged.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    /// Panics when the circuit breaker is engaged. Must be the first check in
+    /// every state-mutating, non-governance entry point.
+    fn assert_not_paused(env: &Env) {
+        if Self::is_paused(env.clone()) {
+            panic!("Contract is paused");
+        }
+    }
+
+    /// Load the stored admin and require its authorization.
+    fn require_admin(env: &Env) -> Address {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .expect("Contract not initialized");
+        admin.require_auth();
+        admin
     }
 
     pub fn add_issuer(env: Env, issuer: Address) {
@@ -247,6 +302,7 @@ impl CertificateContract {
         metadata_uri: String,
         expires_at: Option<u64>,
     ) {
+        Self::assert_not_paused(&env);
         issuer.require_auth();
 
         // Authorization check
@@ -312,6 +368,7 @@ impl CertificateContract {
     /// revocation reverts, instead of leaving a certificate that is revoked in
     /// the main contract but still passes CRL checks.
     pub fn revoke_certificate(env: Env, id: String, reason: String) {
+        Self::assert_not_paused(&env);
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -327,7 +384,7 @@ impl CertificateContract {
         cert.revocation_reason = Some(reason.clone());
         Self::set_persistent(&env, &DataKey::Certificate(id.clone()), &cert);
 
-        Self::mirror_revocation_to_crl(&env, &cert.issuer, &id, &reason);
+        Self::mirror_revocation_to_crl(&env, &id);
 
         // Emit and publish revocation event
         CertificateRevokedEvent {
@@ -360,13 +417,36 @@ impl CertificateContract {
     ///
     /// A no-op when no CRL contract has been configured, so deployments that
     /// intentionally manage the CRL out-of-band keep working unchanged.
-    fn mirror_revocation_to_crl(env: &Env, issuer: &Address, id: &String, reason: &String) {
+    ///
+    /// This is the **only** code path allowed to invoke
+    /// `CRLContract::revoke_certificate_mirrored` (#1363). Rather than trusting
+    /// caller-supplied issuer/reason values, it re-reads the certificate from
+    /// this contract's own storage and refuses to mirror anything that is not
+    /// already recorded as `Revoked` here. Every parameter sent to the CRL is
+    /// derived from that stored record, so a future code path cannot use this
+    /// helper to revoke a certificate in the CRL that is still live in the
+    /// source of truth. Callers must persist the revoked certificate *before*
+    /// calling this.
+    fn mirror_revocation_to_crl(env: &Env, id: &String) {
         let crl_contract: Address = match env.storage().persistent().get(&DataKey::CrlContract) {
             Some(address) => address,
             None => return,
         };
 
-        let reason_code = Self::map_revocation_reason(reason);
+        let cert: Certificate = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Certificate(id.clone()))
+            .expect("Certificate not found");
+        if cert.status != CertificateStatus::Revoked {
+            panic!("Refusing to mirror a revocation not recorded in the certificate contract");
+        }
+        let issuer = &cert.issuer;
+        let reason = cert
+            .revocation_reason
+            .unwrap_or_else(|| String::from_str(env, ""));
+
+        let reason_code = Self::map_revocation_reason(&reason);
         // `revoke_certificate_mirrored` authenticates this contract instead of
         // the issuer: the CRL cannot call back into `certificate_exists` while
         // we are on the stack, so the redundant existence check is skipped.
@@ -450,6 +530,7 @@ impl CertificateContract {
 
     /// Suspend a certificate (temporarily disable with reason)
     pub fn suspend_certificate(env: Env, id: String, reason: String) {
+        Self::assert_not_paused(&env);
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -475,6 +556,7 @@ impl CertificateContract {
 
     /// Reinstate a suspended certificate
     pub fn reinstate_certificate(env: Env, id: String, _reason: String) {
+        Self::assert_not_paused(&env);
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -499,6 +581,7 @@ impl CertificateContract {
 
     /// Freeze a certificate
     pub fn freeze_certificate(env: Env, id: String, reason: String) {
+        Self::assert_not_paused(&env);
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -537,6 +620,7 @@ impl CertificateContract {
 
     /// Unfreeze a certificate
     pub fn unfreeze_certificate(env: Env, id: String) {
+        Self::assert_not_paused(&env);
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -591,6 +675,7 @@ impl CertificateContract {
 
     /// Update certificate metadata (requires issuer auth)
     pub fn update_certificate_metadata(env: Env, id: String, new_metadata_uri: String) {
+        Self::assert_not_paused(&env);
         let mut cert: Certificate = env
             .storage()
             .persistent()
@@ -617,7 +702,16 @@ impl CertificateContract {
         .publish(&env);
     }
 
-    /// Reissue a certificate with new version (creates child certificate)
+    /// Upper bound, in bytes, on `CertificateVersion::build` (#1364). Keeps a
+    /// free-form label from bloating every stored certificate.
+    pub const MAX_BUILD_METADATA_LEN: u32 = 64;
+
+    /// Reissue a certificate with new version (creates child certificate).
+    ///
+    /// `new_build` sets the optional pre-release/build label stored in
+    /// `CertificateVersion::build` of the new certificate (e.g. `"rc.1"`); it
+    /// must be at most [`Self::MAX_BUILD_METADATA_LEN`] bytes. Pass `None` for
+    /// no label.
     #[allow(clippy::too_many_arguments)]
     pub fn reissue_certificate(
         env: Env,
@@ -627,8 +721,16 @@ impl CertificateContract {
         new_owner: Option<Address>,
         new_metadata_uri: String,
         new_expires_at: Option<u64>,
+        new_build: Option<String>,
     ) {
+        Self::assert_not_paused(&env);
         issuer.require_auth();
+
+        if let Some(build) = &new_build {
+            if build.len() > Self::MAX_BUILD_METADATA_LEN {
+                panic!("Build metadata exceeds maximum length");
+            }
+        }
 
         // Verify issuer is authorized
         if !env
@@ -666,7 +768,7 @@ impl CertificateContract {
             major: original_cert.version.major,
             minor: original_cert.version.minor + 1,
             patch: 0,
-            build: None,
+            build: new_build,
         };
 
         let new_cert = Certificate {
@@ -696,7 +798,7 @@ impl CertificateContract {
         original_cert.status = CertificateStatus::Revoked;
         original_cert.revocation_reason = Some(revocation_reason.clone());
         Self::set_persistent(&env, &DataKey::Certificate(old_id.clone()), &original_cert);
-        Self::mirror_revocation_to_crl(&env, &issuer, &old_id, &revocation_reason);
+        Self::mirror_revocation_to_crl(&env, &old_id);
 
         // Emit a distinct reissued event so indexers can tell a reissue apart
         // from a fresh issuance and observe the parent (old) certificate link.
@@ -731,6 +833,7 @@ impl CertificateContract {
         transfer_fee: u64,
         memo: Option<String>,
     ) {
+        Self::assert_not_paused(&env);
         from_owner.require_auth();
 
         // Get certificate
@@ -808,6 +911,7 @@ impl CertificateContract {
 
     /// Accept a pending certificate transfer
     pub fn accept_transfer(env: Env, transfer_id: String, to_owner: Address) {
+        Self::assert_not_paused(&env);
         to_owner.require_auth();
 
         let mut transfer: CertificateTransfer = env
@@ -852,6 +956,7 @@ impl CertificateContract {
 
     /// Complete a certificate transfer (requires original owner auth)
     pub fn complete_transfer(env: Env, transfer_id: String, from_owner: Address) {
+        Self::assert_not_paused(&env);
         from_owner.require_auth();
 
         let mut transfer: CertificateTransfer = env
@@ -958,6 +1063,7 @@ impl CertificateContract {
 
     /// Reject a pending certificate transfer
     pub fn reject_transfer(env: Env, transfer_id: String, to_owner: Address) {
+        Self::assert_not_paused(&env);
         to_owner.require_auth();
 
         let mut transfer: CertificateTransfer = env
@@ -991,6 +1097,7 @@ impl CertificateContract {
 
     /// Cancel a pending certificate transfer
     pub fn cancel_transfer(env: Env, transfer_id: String, from_owner: Address) {
+        Self::assert_not_paused(&env);
         from_owner.require_auth();
 
         let mut transfer: CertificateTransfer = env
@@ -1185,6 +1292,7 @@ impl CertificateContract {
         max_signers: u32,
         admin: Address,
     ) {
+        Self::assert_not_paused(&env);
         admin.require_auth();
         multisig_common::validate_signer_vector(&signers, threshold, max_signers);
         Self::set_persistent(
@@ -1206,6 +1314,7 @@ impl CertificateContract {
         new_signers: Option<Vec<Address>>,
         new_max_signers: Option<u32>,
     ) {
+        Self::assert_not_paused(&env);
         let admin: Address = env
             .storage()
             .persistent()
@@ -1238,6 +1347,7 @@ impl CertificateContract {
     }
 
     pub fn update_issuer_admin(env: Env, issuer: Address, new_admin: Address) {
+        Self::assert_not_paused(&env);
         let current_admin: Address = env
             .storage()
             .persistent()
@@ -1261,6 +1371,7 @@ impl CertificateContract {
         // other work: the fix for #569 was once committed at `impl`-block
         // level, outside this function, which stopped the crate compiling
         // (#612) and silently left proposals unauthenticated.
+        Self::assert_not_paused(&env);
         issuer.require_auth();
         let config: MultisigConfig = env
             .storage()
@@ -1301,6 +1412,7 @@ impl CertificateContract {
     }
 
     pub fn approve_request(env: Env, request_id: String, approver: Address) -> SignatureResult {
+        Self::assert_not_paused(&env);
         approver.require_auth();
         let mut request: PendingRequest = env
             .storage()
@@ -1367,6 +1479,7 @@ impl CertificateContract {
         rejector: Address,
         reason: Option<String>,
     ) -> SignatureResult {
+        Self::assert_not_paused(&env);
         rejector.require_auth();
         let mut request: PendingRequest = env
             .storage()
@@ -1421,6 +1534,7 @@ impl CertificateContract {
     }
 
     pub fn issue_approved_certificate(env: Env, request_id: String) -> bool {
+        Self::assert_not_paused(&env);
         let mut request: PendingRequest = env
             .storage()
             .persistent()
@@ -1524,6 +1638,7 @@ impl CertificateContract {
     }
 
     pub fn cancel_request(env: Env, request_id: String, requester: Address) -> bool {
+        Self::assert_not_paused(&env);
         requester.require_auth();
         let mut request: PendingRequest = env
             .storage()
@@ -1578,14 +1693,24 @@ impl CertificateContract {
             })
     }
 
-    /// Batch verify multiple certificates
+    /// Fixed part of `VerificationReport::total_cost`. Unitless score — see
+    /// [`VerificationReport::total_cost`]; **not** a fee (#1366).
+    pub const BATCH_VERIFY_BASE_SCORE: u64 = 100;
+    /// Per-ID part of `VerificationReport::total_cost`. Unitless score — see
+    /// [`VerificationReport::total_cost`]; **not** a fee (#1366).
+    pub const BATCH_VERIFY_SCORE_PER_ID: u64 = 50;
+
+    /// Batch verify multiple certificates.
+    ///
+    /// The returned `total_cost` is an abstract, unitless work score intended
+    /// only for client-side rate limiting / quota accounting. It is unrelated
+    /// to Soroban resource usage or the network fee the transaction pays and
+    /// must not be presented to users as a cost estimate (#1366).
     pub fn batch_verify_certificates(env: Env, ids: Vec<String>) -> VerificationReport {
         const MAX_BATCH_SIZE: u32 = 100;
         if ids.len() > MAX_BATCH_SIZE {
             panic!("Exceeded max batch size");
         }
-        const BASE_VERIFICATION_COST: u64 = 100;
-        const COST_PER_CERTIFICATE: u64 = 50;
 
         let mut results = Vec::<VerificationResult>::new(&env);
         let mut successful: u32 = 0;
@@ -1622,7 +1747,9 @@ impl CertificateContract {
             }
         }
 
-        let total_cost = BASE_VERIFICATION_COST + (COST_PER_CERTIFICATE * ids.len() as u64);
+        // Abstract work score, not a fee — see `VerificationReport::total_cost`.
+        let total_cost =
+            Self::BATCH_VERIFY_BASE_SCORE + (Self::BATCH_VERIFY_SCORE_PER_ID * ids.len() as u64);
 
         VerificationReport {
             total: ids.len(),
@@ -1635,6 +1762,7 @@ impl CertificateContract {
 
     /// Set certificate expiry (only admin can call)
     pub fn set_certificate_expiry(env: Env, id: String, expiry_time: u64, admin: Address) {
+        Self::assert_not_paused(&env);
         let stored_admin: Address = env
             .storage()
             .persistent()

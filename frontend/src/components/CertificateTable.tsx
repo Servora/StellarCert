@@ -102,7 +102,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
 
     // State for selection
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const [selectAll, setSelectAll] = useState(false);
+    const selectAll = certificates.length > 0 && certificates.every(c => selectedIds.has(c.id));
 
     // State for filtered export
     const [exportingFiltered, setExportingFiltered] = useState(false);
@@ -179,7 +179,6 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
         } else {
             setSelectedIds(new Set(certificates.map(c => c.id)));
         }
-        setSelectAll(!selectAll);
     };
 
     const handleSelect = (id: string) => {
@@ -190,7 +189,6 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             newSelected.add(id);
         }
         setSelectedIds(newSelected);
-        setSelectAll(newSelected.size === certificates.length);
     };
 
     // Handle bulk export
@@ -291,7 +289,6 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             setShowRevokeModal(false);
             setRevokeReason('');
             setSelectedIds(new Set());
-            setSelectAll(false);
         } catch (err) {
             console.error('Revoke failed:', err);
             setActionError('Failed to revoke certificates');

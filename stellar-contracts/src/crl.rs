@@ -52,6 +52,18 @@ pub struct CRLInfo {
     pub merkle_root: String,
 }
 
+/// Result of [`CRLContract::verify_certificate`] (#1367).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CertificateVerifyResult {
+    /// True when the certificate is not on the CRL.
+    pub is_valid: bool,
+    /// Ledger timestamp the check was performed at.
+    pub checked_at: u64,
+    /// True when the CRL is past its `next_update` and should be refreshed.
+    pub is_crl_stale: bool,
+}
+
 /// Emitted by [`CRLContract::revoke_certificate`] once the revocation has been
 /// stored and the CRL head refreshed.
 ///
@@ -352,14 +364,23 @@ impl CRLContract {
         page_of_revocations
     }
 
-    pub fn verify_certificate(env: Env, certificate_id: String) -> (bool, u64) {
+    /// Check revocation status and surface CRL staleness (#1367).
+    ///
+    /// `is_valid` is true when the certificate is **not** on the CRL.
+    /// `is_crl_stale` is true when the ledger time is at or past `next_update`,
+    /// so clients can refuse to trust the result until the CRL is refreshed.
+    pub fn verify_certificate(env: Env, certificate_id: String) -> CertificateVerifyResult {
         let crl_info = Self::get_crl_info_internal(&env);
         let is_revoked = env
             .storage()
             .persistent()
             .has(&DataKey::Revocation(certificate_id));
-
-        (is_revoked, crl_info.crl_number)
+        let now = env.ledger().timestamp();
+        CertificateVerifyResult {
+            is_valid: !is_revoked,
+            checked_at: now,
+            is_crl_stale: now >= crl_info.next_update,
+        }
     }
 
     pub fn get_merkle_root(env: Env) -> String {
@@ -403,6 +424,7 @@ impl CRLContract {
         Self::set_instance(&env, &DataKey::Admin, &admin);
     }
 
+    /// Returns true when the CRL is past its `next_update` and should be refreshed (#1367).
     pub fn needs_update(env: Env) -> bool {
         env.ledger().timestamp() >= Self::get_crl_info_internal(&env).next_update
     }

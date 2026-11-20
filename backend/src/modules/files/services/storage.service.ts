@@ -84,7 +84,9 @@ export class StorageService implements OnModuleInit {
         missingConfig.push('STORAGE_BUCKET');
       }
       if (this.regionMissingForEndpoint) {
-        missingConfig.push('STORAGE_REGION (required when STORAGE_ENDPOINT is set)');
+        missingConfig.push(
+          'STORAGE_REGION (required when STORAGE_ENDPOINT is set)',
+        );
       }
 
       if (this.isStorageRequired) {

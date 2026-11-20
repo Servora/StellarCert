@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
-  HealthIndicator,
   HealthIndicatorResult,
-  HealthCheckError,
+  HealthIndicatorService,
 } from '@nestjs/terminus';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -16,18 +15,18 @@ import { LoggingService } from '../../../common/logging/logging.service';
  * or any custom dependency that needs health checking.
  */
 @Injectable()
-export class ExternalServiceHealthIndicator extends HealthIndicator {
+export class ExternalServiceHealthIndicator {
   constructor(
     private httpService: HttpService,
     private readonly logger: LoggingService,
-  ) {
-    super();
-  }
+    private readonly healthIndicatorService: HealthIndicatorService,
+  ) {}
 
   /**
    * Check external service health
    */
   async isHealthy(): Promise<HealthIndicatorResult> {
+    const indicator = this.healthIndicatorService.check('external_service');
     try {
       const serviceUrl =
         process.env.EXTERNAL_SERVICE_URL || 'http://external-service:3000';
@@ -40,7 +39,7 @@ export class ExternalServiceHealthIndicator extends HealthIndicator {
       if (response.status === 200) {
         this.logger.debug('External service health check passed');
 
-        return this.getStatus('external_service', true, {
+        return indicator.up({
           message: 'External service is healthy',
           url: serviceUrl,
         });
@@ -49,12 +48,9 @@ export class ExternalServiceHealthIndicator extends HealthIndicator {
       throw new Error(`Unexpected status code: ${response.status}`);
     } catch (error) {
       this.logger.error('External service health check failed', error);
-      throw new HealthCheckError(
-        'External service check failed',
-        this.getStatus('external_service', false, {
-          message: error.message || 'External service is unavailable',
-        }),
-      );
+      return indicator.down({
+        message: error.message || 'External service is unavailable',
+      });
     }
   }
 }
@@ -63,32 +59,29 @@ export class ExternalServiceHealthIndicator extends HealthIndicator {
  * Example: Redis/Cache Health Indicator
  */
 @Injectable()
-export class CacheHealthIndicator extends HealthIndicator {
+export class CacheHealthIndicator {
   constructor(
     private cacheService: any,
     private readonly logger: LoggingService,
-  ) {
-    super();
-  }
+    private readonly healthIndicatorService: HealthIndicatorService,
+  ) {}
 
   async isHealthy(): Promise<HealthIndicatorResult> {
+    const indicator = this.healthIndicatorService.check('cache');
     try {
       // Attempt to ping cache
       await this.cacheService.ping();
 
       this.logger.debug('Cache health check passed');
 
-      return this.getStatus('cache', true, {
+      return indicator.up({
         message: 'Cache is healthy',
       });
     } catch (error) {
       this.logger.error('Cache health check failed', error);
-      throw new HealthCheckError(
-        'Cache check failed',
-        this.getStatus('cache', false, {
-          message: error.message || 'Cache is unavailable',
-        }),
-      );
+      return indicator.down({
+        message: error.message || 'Cache is unavailable',
+      });
     }
   }
 }
@@ -97,15 +90,15 @@ export class CacheHealthIndicator extends HealthIndicator {
  * Example: Message Queue Health Indicator
  */
 @Injectable()
-export class MessageQueueHealthIndicator extends HealthIndicator {
+export class MessageQueueHealthIndicator {
   constructor(
     private queueService: any,
     private readonly logger: LoggingService,
-  ) {
-    super();
-  }
+    private readonly healthIndicatorService: HealthIndicatorService,
+  ) {}
 
   async isHealthy(): Promise<HealthIndicatorResult> {
+    const indicator = this.healthIndicatorService.check('message_queue');
     try {
       // Check queue connection
       const isConnected = await this.queueService.isConnected();
@@ -116,17 +109,14 @@ export class MessageQueueHealthIndicator extends HealthIndicator {
 
       this.logger.debug('Message queue health check passed');
 
-      return this.getStatus('message_queue', true, {
+      return indicator.up({
         message: 'Message queue is healthy',
       });
     } catch (error) {
       this.logger.error('Message queue health check failed', error);
-      throw new HealthCheckError(
-        'Message queue check failed',
-        this.getStatus('message_queue', false, {
-          message: error.message || 'Message queue is unavailable',
-        }),
-      );
+      return indicator.down({
+        message: error.message || 'Message queue is unavailable',
+      });
     }
   }
 }
@@ -135,10 +125,16 @@ export class MessageQueueHealthIndicator extends HealthIndicator {
  * Example: Memory/Resource Health Indicator
  */
 @Injectable()
-export class MemoryHealthIndicator extends HealthIndicator {
+export class MemoryHealthIndicator {
   private readonly maxMemoryUsage = 0.9; // 90%
 
+  constructor(
+    private readonly logger: LoggingService,
+    private readonly healthIndicatorService: HealthIndicatorService,
+  ) {}
+
   isHealthy(): HealthIndicatorResult {
+    const indicator = this.healthIndicatorService.check('memory');
     try {
       const memUsage = process.memoryUsage();
       const heapUsedPercent = memUsage.heapUsed / memUsage.heapTotal;
@@ -151,7 +147,7 @@ export class MemoryHealthIndicator extends HealthIndicator {
 
       this.logger.debug('Memory health check passed');
 
-      return this.getStatus('memory', true, {
+      return indicator.up({
         message: 'Memory usage is healthy',
         heapUsedPercent: `${(heapUsedPercent * 100).toFixed(2)}%`,
         heapUsed: `${(memUsage.heapUsed / 1024 / 1024).toFixed(2)}MB`,
@@ -159,16 +155,9 @@ export class MemoryHealthIndicator extends HealthIndicator {
       });
     } catch (error) {
       this.logger.error('Memory health check failed', error);
-      throw new HealthCheckError(
-        'Memory check failed',
-        this.getStatus('memory', false, {
-          message: error.message || 'Memory usage is too high',
-        }),
-      );
+      return indicator.down({
+        message: error.message || 'Memory usage is too high',
+      });
     }
-  }
-
-  constructor(private readonly logger: LoggingService) {
-    super();
   }
 }

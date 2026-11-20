@@ -49,8 +49,12 @@ describe('assertSafePattern', () => {
     expect(() => assertSafePattern('code', '^(a|a)*b$')).toThrow(
       /overlapping alternatives inside a repeated group and is not allowed/,
     );
-    expect(() => assertSafePattern('code', '(')).toThrow(/not a valid regular expression/);
-    expect(assertSafePattern('code', '^CERT-\\d{4}$').test('CERT-1234')).toBe(true);
+    expect(() => assertSafePattern('code', '(')).toThrow(
+      /not a valid regular expression/,
+    );
+    expect(assertSafePattern('code', '^CERT-\\d{4}$').test('CERT-1234')).toBe(
+      true,
+    );
   });
 });
 
@@ -71,13 +75,17 @@ describe('testPatternWithTimeout', () => {
     const evil = new RegExp('^(a+)+$'); // built directly, bypassing assertSafePattern
     const started = Date.now();
 
-    expect(() => testPatternWithTimeout(evil, `${'a'.repeat(40)}!`, 50)).toThrow(PatternTimeoutError);
+    expect(() =>
+      testPatternWithTimeout(evil, `${'a'.repeat(40)}!`, 50),
+    ).toThrow(PatternTimeoutError);
     expect(Date.now() - started).toBeLessThan(2000);
   });
 
   it('keeps working after a timeout', () => {
     const evil = new RegExp('^(a+)+$');
-    expect(() => testPatternWithTimeout(evil, `${'a'.repeat(40)}!`, 50)).toThrow(PatternTimeoutError);
+    expect(() =>
+      testPatternWithTimeout(evil, `${'a'.repeat(40)}!`, 50),
+    ).toThrow(PatternTimeoutError);
     expect(testPatternWithTimeout(/^a+$/, 'aaa')).toBe(true);
   });
 });

@@ -29,7 +29,11 @@ function readQuantifier(
   if (ch === '{') {
     const match = /^\{(\d+)(?:(,)(\d*))?\}/.exec(pattern.slice(index));
     if (!match) return null;
-    const max = match[2] ? (match[3] ? Number(match[3]) : Infinity) : Number(match[1]);
+    const max = match[2]
+      ? match[3]
+        ? Number(match[3])
+        : Infinity
+      : Number(match[1]);
     return { repeating: max > 1, length: match[0].length, max };
   }
   return null;
@@ -170,21 +174,27 @@ export function findUnsafePatternReason(pattern: string): string | null {
 
   for (const group of findGroups(pattern)) {
     if (!group.repeated) continue;
-    if (hasRepeatingQuantifier(group.content)) return 'contains nested quantifiers';
+    if (hasRepeatingQuantifier(group.content))
+      return 'contains nested quantifiers';
     const alternatives = splitAlternatives(group.content);
     if (alternatives.length > 1 && alternativesOverlap(alternatives)) {
       return 'contains overlapping alternatives inside a repeated group';
     }
   }
 
-  if (/(\.[*+]|\\[wWdDsS][*+]|\[(?:[^\]\\]|\\.)+\][*+]|[A-Za-z0-9][*+])\1/.test(pattern)) {
+  if (
+    /(\.[*+]|\\[wWdDsS][*+]|\[(?:[^\]\\]|\\.)+\][*+]|[A-Za-z0-9][*+])\1/.test(
+      pattern,
+    )
+  ) {
     return 'repeats the same unbounded element twice in a row';
   }
 
   const bound = /\{\d*,?(\d+)\}/g;
   let match: RegExpExecArray | null;
   while ((match = bound.exec(pattern)) !== null) {
-    if (Number(match[1]) > MAX_REPEAT_BOUND) return 'contains a very large repetition count';
+    if (Number(match[1]) > MAX_REPEAT_BOUND)
+      return 'contains a very large repetition count';
   }
   return null;
 }
@@ -208,9 +218,13 @@ export function testPatternWithTimeout(
   context.re = safe;
   context.value = value;
   try {
-    return vm.runInContext('re.test(value)', sandbox, { timeout: timeoutMs }) as boolean;
+    return vm.runInContext('re.test(value)', sandbox, {
+      timeout: timeoutMs,
+    }) as boolean;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
+    if (
+      (error as NodeJS.ErrnoException)?.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT'
+    ) {
       throw new PatternTimeoutError(timeoutMs);
     }
     throw error;

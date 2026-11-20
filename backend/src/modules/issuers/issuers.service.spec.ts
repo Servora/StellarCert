@@ -35,7 +35,11 @@ describe('IssuersService.listIssuers', () => {
   });
 
   it('pushes filters into SQL, not into JavaScript', async () => {
-    await service.listIssuers({ isActive: true, search: 'acme', tier: 'paid' as never });
+    await service.listIssuers({
+      isActive: true,
+      search: 'acme',
+      tier: 'paid' as never,
+    });
 
     expect(qb.andWhere).toHaveBeenCalledWith('issuer.isActive = :isActive', {
       isActive: true,
@@ -44,7 +48,9 @@ describe('IssuersService.listIssuers', () => {
       '(issuer.name ILIKE :search OR issuer.stellarPublicKey ILIKE :search)',
       { search: '%acme%' },
     );
-    expect(qb.andWhere).toHaveBeenCalledWith('issuer.tier = :tier', { tier: 'paid' });
+    expect(qb.andWhere).toHaveBeenCalledWith('issuer.tier = :tier', {
+      tier: 'paid',
+    });
   });
 
   it('never takes more than the maximum page size, even when called directly', async () => {

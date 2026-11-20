@@ -26,7 +26,9 @@ describe('WebhooksService.testDeliverySync', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     subscriptions.findOne.mockResolvedValue(subscription);
-    logs.save.mockImplementation((row) => Promise.resolve({ id: 'log-1', ...row }));
+    logs.save.mockImplementation((row) =>
+      Promise.resolve({ id: 'log-1', ...row }),
+    );
     validate.mockResolvedValue({ valid: true });
     service = new WebhooksService(
       subscriptions as never,
@@ -66,7 +68,10 @@ describe('WebhooksService.testDeliverySync', () => {
 
     const [url, payload, config] = post.mock.calls[0];
     expect(url).toBe('https://example.com/hook');
-    expect(payload).toMatchObject({ event: 'webhook.test', data: { test: true } });
+    expect(payload).toMatchObject({
+      event: 'webhook.test',
+      data: { test: true },
+    });
     const header = config.headers['X-StellarCert-Signature'] as string;
     const timestamp = Number(/^t=(\d+),v1=/.exec(header)![1]);
     expect(header).toBe(webhookSignatureHeader('s3cret', payload, timestamp));
@@ -144,9 +149,9 @@ describe('WebhooksService.testDeliverySync', () => {
   it("is limited to the issuer's own subscriptions", async () => {
     subscriptions.findOne.mockResolvedValue(null);
 
-    await expect(service.testDeliverySync('sub-1', 'someone-else')).rejects.toThrow(
-      'Webhook subscription not found',
-    );
+    await expect(
+      service.testDeliverySync('sub-1', 'someone-else'),
+    ).rejects.toThrow('Webhook subscription not found');
     expect(post).not.toHaveBeenCalled();
   });
 });

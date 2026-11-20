@@ -48,7 +48,9 @@ describe('StorageService region handling', () => {
       STORAGE_ENDPOINT: 'http://minio:9000',
       STORAGE_REGION: 'eu-central-1',
     });
-    expect(await (service as any).s3Client.config.region()).toBe('eu-central-1');
+    expect(await (service as any).s3Client.config.region()).toBe(
+      'eu-central-1',
+    );
   });
 
   it('does not build a client for a custom endpoint without a region, and says why', () => {
@@ -57,7 +59,9 @@ describe('StorageService region handling', () => {
 
     service.onModuleInit();
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('STORAGE_REGION (required when STORAGE_ENDPOINT is set)'),
+      expect.stringContaining(
+        'STORAGE_REGION (required when STORAGE_ENDPOINT is set)',
+      ),
     );
   });
 

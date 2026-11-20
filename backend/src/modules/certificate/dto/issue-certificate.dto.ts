@@ -127,11 +127,11 @@ export class IssueCertificateDto {
   courseName?: string;
 
   @ApiPropertyOptional({
-    description: 'Template UUID to use when generating the certificate',
-    format: 'uuid',
+    description:
+      'Template to use when generating the certificate: a custom template UUID, or one of the built-in template ids GET /templates returns ("default", "academic", "professional"). Not yet persisted or rendered for single-certificate issuance.',
   })
   @IsOptional()
-  @IsUUID()
+  @IsString()
   templateId?: string;
 }
 

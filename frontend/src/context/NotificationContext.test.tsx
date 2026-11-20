@@ -1,95 +1,107 @@
-import React from 'react';
-import { act } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NotificationProvider, useNotifications } from './NotificationContext';
-import { useAuth } from './AuthContext';
-import { apiClient } from '../api/endpoints';
-import { tokenStorage, notifyTokenRefreshed } from '../api/tokens';
-import { io } from 'socket.io-client';
-import { createTestQueryClient, renderWithProviders } from '../test/renderWithProviders';
+import React from "react";
+import { act } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NotificationProvider, useNotifications } from "./NotificationContext";
+import { useAuth } from "./AuthContext";
+import { apiClient } from "../api/endpoints";
+import { tokenStorage, notifyTokenRefreshed } from "../api/tokens";
+import { io } from "socket.io-client";
+import {
+  createTestQueryClient,
+  renderWithProviders,
+} from "../test/renderWithProviders";
 
 const socket = {
-    on: vi.fn(),
-    disconnect: vi.fn(),
+  on: vi.fn(),
+  disconnect: vi.fn(),
 };
 
-vi.mock('./AuthContext', () => ({
-    useAuth: vi.fn(),
+vi.mock("./AuthContext", () => ({
+  useAuth: vi.fn(),
 }));
 
-vi.mock('../api', () => ({
-    API_URL: 'http://localhost:3000',
+vi.mock("../api", () => ({
+  API_URL: "http://localhost:3000",
 }));
 
 // The notification query calls apiClient through the endpoints module, so the
 // fetch itself is mocked there rather than on the barrel.
-vi.mock('../api/endpoints', () => ({
-    apiClient: vi.fn(),
+vi.mock("../api/endpoints", () => ({
+  apiClient: vi.fn(),
 }));
 
-vi.mock('socket.io-client', () => ({
-    io: vi.fn(() => socket),
+vi.mock("socket.io-client", () => ({
+  io: vi.fn(() => socket),
 }));
 
 const Consumer = () => {
-    const { unreadCount } = useNotifications();
-    return <span data-testid="unread-count">{unreadCount}</span>;
+  const { unreadCount } = useNotifications();
+  return <span data-testid="unread-count">{unreadCount}</span>;
 };
 
-describe('NotificationProvider authentication lifecycle', () => {
-    beforeEach(() => {
-        localStorage.clear();
-        vi.clearAllMocks();
-        vi.mocked(useAuth).mockReturnValue({ isAuthenticated: false } as ReturnType<typeof useAuth>);
-        vi.mocked(apiClient).mockResolvedValue([]);
+describe("NotificationProvider authentication lifecycle", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    vi.mocked(useAuth).mockReturnValue({ isAuthenticated: false } as ReturnType<
+      typeof useAuth
+    >);
+    vi.mocked(apiClient).mockResolvedValue({ data: [] });
+  });
+
+  it("starts fetching and connecting after an in-app login", async () => {
+    const view = renderWithProviders(
+      <NotificationProvider>
+        <Consumer />
+      </NotificationProvider>,
+      { queryClient: createTestQueryClient() },
+    );
+
+    expect(apiClient).not.toHaveBeenCalled();
+
+    tokenStorage.setAccessToken("fresh-token");
+    vi.mocked(useAuth).mockReturnValue({ isAuthenticated: true } as ReturnType<
+      typeof useAuth
+    >);
+    await act(async () => {
+      view.rerender(
+        <NotificationProvider>
+          <Consumer />
+        </NotificationProvider>,
+      );
     });
 
-    it('starts fetching and connecting after an in-app login', async () => {
-        const view = renderWithProviders(
-            <NotificationProvider>
-                <Consumer />
-            </NotificationProvider>,
-            { queryClient: createTestQueryClient() },
-        );
+    expect(apiClient).toHaveBeenCalledWith("/notifications");
+    expect(socket.on).toHaveBeenCalledWith(
+      "newNotification",
+      expect.any(Function),
+    );
+  });
 
-        expect(apiClient).not.toHaveBeenCalled();
+  it("reconnects the socket with the new token when token is refreshed", async () => {
+    tokenStorage.setAccessToken("initial-token");
+    vi.mocked(useAuth).mockReturnValue({ isAuthenticated: true } as ReturnType<
+      typeof useAuth
+    >);
 
-        tokenStorage.setAccessToken('fresh-token');
-        vi.mocked(useAuth).mockReturnValue({ isAuthenticated: true } as ReturnType<typeof useAuth>);
-        await act(async () => {
-            view.rerender(
-                <NotificationProvider>
-                    <Consumer />
-                </NotificationProvider>,
-            );
-        });
+    renderWithProviders(
+      <NotificationProvider>
+        <Consumer />
+      </NotificationProvider>,
+      { queryClient: createTestQueryClient() },
+    );
 
-        expect(apiClient).toHaveBeenCalledWith('/notifications');
-        expect(socket.on).toHaveBeenCalledWith('newNotification', expect.any(Function));
+    expect(io).toHaveBeenCalledWith("http://localhost:3000", {
+      auth: { token: "initial-token" },
     });
 
-    it('reconnects the socket with the new token when token is refreshed', async () => {
-        tokenStorage.setAccessToken('initial-token');
-        vi.mocked(useAuth).mockReturnValue({ isAuthenticated: true } as ReturnType<typeof useAuth>);
-
-        renderWithProviders(
-            <NotificationProvider>
-                <Consumer />
-            </NotificationProvider>,
-            { queryClient: createTestQueryClient() },
-        );
-
-        expect(io).toHaveBeenCalledWith('http://localhost:3000', {
-            auth: { token: 'initial-token' },
-        });
-
-        await act(async () => {
-            notifyTokenRefreshed('refreshed-token');
-        });
-
-        expect(socket.disconnect).toHaveBeenCalled();
-        expect(io).toHaveBeenLastCalledWith('http://localhost:3000', {
-            auth: { token: 'refreshed-token' },
-        });
+    await act(async () => {
+      notifyTokenRefreshed("refreshed-token");
     });
+
+    expect(socket.disconnect).toHaveBeenCalled();
+    expect(io).toHaveBeenLastCalledWith("http://localhost:3000", {
+      auth: { token: "refreshed-token" },
+    });
+  });
 });

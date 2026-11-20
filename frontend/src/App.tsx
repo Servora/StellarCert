@@ -2,6 +2,7 @@ import { Routes, Route, useLocation } from "react-router-dom";
 import { Suspense, lazy, useEffect, useState } from "react";
 import { Shield, Award, Search, ShieldAlert } from "lucide-react";
 import Navbar from "./components/Header";
+import { SkipToContent, MainLandmark } from "./components/AccessibilityHelpers";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ProtectedRoute from "./guard/ProtectedRoute";
 import { NotificationProvider } from "./context/NotificationContext";
@@ -71,10 +72,11 @@ function App() {
           You are offline. Retrying automatically when the connection returns.
         </div>
       )}
+      <SkipToContent />
       <AuthProvider>
         <NotificationProvider>
           <Navbar />
-          <div className="container mx-auto px-4 py-8">
+          <MainLandmark className="container mx-auto px-4 py-8">
             {/*
               Route-level error boundary. Every page below is a `React.lazy`
               chunk, so a chunk that fails to load (unresolvable module — the
@@ -165,7 +167,7 @@ function App() {
                 </Routes>
               </Suspense>
             </ErrorBoundary>
-          </div>
+          </MainLandmark>
 
           {/* Feature Overview Section */}
           {showFeatureOverview && (

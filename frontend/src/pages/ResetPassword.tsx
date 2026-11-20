@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { authApi } from "../api";
 import { getErrorMessage } from "../api/types";
+import { PasswordStrengthMeter } from "../components/SessionAndPasswordHelpers";
 
 const ResetPassword = () => {
   const [searchParams] = useSearchParams();
@@ -84,6 +85,7 @@ const ResetPassword = () => {
               className="w-full px-3 py-2 border rounded-md"
               required
             />
+            <PasswordStrengthMeter password={password} />
           </div>
           <div>
             <label

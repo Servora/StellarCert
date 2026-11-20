@@ -2,16 +2,15 @@
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": ".",
   "testEnvironment": "node",
-  "testRegex": ".e2e-spec.ts$",
+  "testRegex": "(.e2e-spec.ts|.integration-spec.ts)$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },
-  "transformIgnorePatterns": [
-    "node_modules/(?!(@noble|@stellar|uint8array-extras|@nestjs/swagger)/)"
-  ],
+  "transformIgnorePatterns": ["/node_modules/"],
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/../src/$1"
   },
-  "testTimeout": 30000,
+  "testTimeout": 60000,
+  "maxWorkers": 1,
   "setupFiles": ["<rootDir>/setup-e2e.ts"]
 }

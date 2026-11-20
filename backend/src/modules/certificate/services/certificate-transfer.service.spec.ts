@@ -538,7 +538,11 @@ describe('CertificateTransferService', () => {
       return queuedService.approveTransfer(
         'transfer-1',
         '123456',
-        { id: 'user-owner', role: UserRole.USER, email: 'newowner@example.com' },
+        {
+          id: 'user-owner',
+          role: UserRole.USER,
+          email: 'newowner@example.com',
+        },
         '127.0.0.1',
       );
     };
@@ -563,7 +567,9 @@ describe('CertificateTransferService', () => {
     it('queues the confirmation-code email instead of sending it once', async () => {
       await initiate();
 
-      expect(emailQueueService.queueTransferConfirmationCode).toHaveBeenCalledWith(
+      expect(
+        emailQueueService.queueTransferConfirmationCode,
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           to: 'newowner@example.com',
           certificateId: 'cert-1',
@@ -576,7 +582,9 @@ describe('CertificateTransferService', () => {
     it('queues the completion email too', async () => {
       await approve();
 
-      expect(emailQueueService.queueTransferCompletedNotice).toHaveBeenCalledWith({
+      expect(
+        emailQueueService.queueTransferCompletedNotice,
+      ).toHaveBeenCalledWith({
         to: 'newowner@example.com',
         recipientName: 'New Owner',
         certificateTitle: 'Blockchain Certified Developer',
@@ -592,7 +600,9 @@ describe('CertificateTransferService', () => {
 
       await expect(initiate()).resolves.toBeDefined();
 
-      expect(emailService.sendTransferConfirmationCode).toHaveBeenCalledTimes(1);
+      expect(emailService.sendTransferConfirmationCode).toHaveBeenCalledTimes(
+        1,
+      );
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Could not queue transfer confirmation email'),
       );

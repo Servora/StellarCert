@@ -185,5 +185,86 @@ describe('CertificateStatsService', () => {
         { issuerId: 'issuer-2', issuerName: 'Unknown', certificateCount: 1 },
       ]);
     });
+
+    it('filters getTotalStats counts by issuedAt only, not by the raw startDate/endDate (regression)', async () => {
+      const trendQB = buildTrendQueryBuilder();
+      const topIssuersQB = buildTopIssuersQueryBuilder([]);
+
+      mockCertificateRepo.createQueryBuilder
+        .mockReturnValueOnce(trendQB)
+        .mockReturnValueOnce(topIssuersQB);
+
+      // buildDateFilter() also returns raw `startDate`/`endDate` Date values
+      // (used by getIssuanceTrend's fallback defaults), which are not actual
+      // Certificate columns. Spreading them straight into a TypeORM `where`
+      // throws EntityPropertyNotFoundError - the real cause of the
+      // GET /certificates/stats?startDate=...&endDate=... 500. Only
+      // `issuedAt` may reach the `where`.
+      await service.getStatistics({
+        startDate: '2026-11-14',
+        endDate: '2026-11-20',
+      });
+
+      for (const [{ where }] of mockCertificateRepo.count.mock.calls) {
+        expect(where).not.toHaveProperty('startDate');
+        expect(where).not.toHaveProperty('endDate');
+        expect(where).toHaveProperty('issuedAt');
+      }
+    });
+
+    it('includes the entire end date in the range, not just its UTC midnight (regression)', async () => {
+      const trendQB = buildTrendQueryBuilder();
+      const topIssuersQB = buildTopIssuersQueryBuilder([]);
+
+      mockCertificateRepo.createQueryBuilder
+        .mockReturnValueOnce(trendQB)
+        .mockReturnValueOnce(topIssuersQB);
+
+      // A date-only `endDate` like "2026-11-20" parses to that day's UTC
+      // midnight. A certificate issued later the same day (e.g. 18:00 UTC)
+      // must still fall inside the range - the real cause of the dashboard
+      // showing 0 certificates right after issuing one today.
+      await service.getStatistics({
+        startDate: '2026-11-14',
+        endDate: '2026-11-20',
+      });
+
+      const [{ where }] = mockCertificateRepo.count.mock.calls[0];
+      const { issuedAt } = where;
+      expect(issuedAt._value[1].toISOString()).toBe('2026-11-20T23:59:59.999Z');
+    });
+  });
+
+  describe('clearStatsCache', () => {
+    it('deletes only cert-stats-prefixed keys from each Keyv store (regression)', async () => {
+      // cache-manager v7's Cache has no `.store` (the v4/v5 shape) - it
+      // exposes `.stores`, an array of Keyv instances iterable via
+      // `.iterator()`. The old `.store.keys` check silently no-opped
+      // against every real cache-manager v7 instance, so the dashboard
+      // kept serving stale totals for up to 5 minutes after every
+      // issue/revoke.
+      const entries: [string, unknown][] = [
+        ['cert-stats:start-2026-11-14:end-2026-11-20', { total: 0 }],
+        ['cert-stats:public-summary', { total: 0 }],
+        ['other-key', 'unrelated'],
+      ];
+      const fakeStore = {
+        iterator: () => entries[Symbol.iterator](),
+      };
+      (service as any).cacheManager = {
+        ...mockCacheManager,
+        stores: [fakeStore],
+      };
+
+      await service.clearStatsCache();
+
+      expect(mockCacheManager.del).toHaveBeenCalledWith(
+        'cert-stats:start-2026-11-14:end-2026-11-20',
+      );
+      expect(mockCacheManager.del).toHaveBeenCalledWith(
+        'cert-stats:public-summary',
+      );
+      expect(mockCacheManager.del).not.toHaveBeenCalledWith('other-key');
+    });
   });
 });

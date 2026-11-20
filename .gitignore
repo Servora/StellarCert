@@ -59,3 +59,7 @@ typed-doc/
 
 # Load-test run artifacts (baseline.json stays tracked)
 load-test/results/
+
+# Playwright e2e run artifacts
+frontend/test-results/
+frontend/playwright-report/

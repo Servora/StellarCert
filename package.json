@@ -26,6 +26,8 @@
     "test": "npm run test:backend && npm run test:frontend",
     "test:backend": "cd backend && npm test",
     "test:frontend": "cd frontend && npm test",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "test:e2e:stack": "docker compose up -d --build --wait && npm run test:e2e; status=$?; docker compose down -v; exit $status",
     "test:load": "node load-test/load-test.mjs",
     "test:contracts": "cd stellar-contracts && cargo test",
     "lint": "cd backend && npx eslint \"{src,apps,libs,test}/**/*.ts\" --fix --max-warnings 0 && cd ../frontend && npx eslint . --report-unused-disable-directives --max-warnings 0",
@@ -42,6 +44,7 @@
     "prepare": "husky || true"
   },
   "devDependencies": {
+    "@playwright/test": "^1.47.2",
     "concurrently": "^8.2.2",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.1",

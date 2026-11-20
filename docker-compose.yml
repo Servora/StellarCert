@@ -209,6 +209,29 @@ services:
     profiles:
       - monitoring
 
+  # Playwright end-to-end smoke suite (issue -> verify -> transfer).
+  # Runs only under the "e2e" profile so a plain `docker compose up` is unchanged.
+  # It waits for the backend and frontend health checks, then executes the suite
+  # against the live services over the compose network.
+  e2e:
+    build:
+      context: ./e2e
+      dockerfile: Dockerfile
+    container_name: stellarcert_e2e
+    environment:
+      E2E_BASE_URL: http://frontend:5173
+      E2E_API_URL: http://backend:3000/api/v1
+      CI: ${CI:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    networks:
+      - stellarcert_network
+    profiles:
+      - e2e
+
 networks:
   stellarcert_network:
     driver: bridge

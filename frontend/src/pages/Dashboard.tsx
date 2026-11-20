@@ -15,13 +15,16 @@ const RoleDashboard = createRoleDashboard({
 const Dashboard = () => {
   const { user } = useAuth();
 
-  // Issuer is the fallback for any role without a dedicated dashboard
-  // (issuer, auditor, user, or not yet loaded), matching the previous
-  // runtime-if behaviour.
+  // UserRole.USER is the default role every public sign-up gets and is
+  // treated as recipient-like everywhere else in the app (see
+  // CertificateWallet.tsx's isRecipientUser check), so it belongs on the
+  // recipient dashboard, not the issuer one. Issuer remains the fallback
+  // for roles with no dedicated dashboard (issuer, auditor, or not yet
+  // loaded).
   const role =
     user?.role === UserRole.ADMIN
       ? "admin"
-      : user?.role === UserRole.RECIPIENT
+      : user?.role === UserRole.RECIPIENT || user?.role === UserRole.USER
         ? "recipient"
         : user?.role === UserRole.VERIFIER
           ? "verifier"

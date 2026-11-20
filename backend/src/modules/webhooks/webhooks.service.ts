@@ -184,9 +184,7 @@ export class WebhooksService {
       }
     }
 
-    this.logger.log(
-      `Queued ${queued}/${subs.length} webhooks for ${event}`,
-    );
+    this.logger.log(`Queued ${queued}/${subs.length} webhooks for ${event}`);
   }
 
   /**

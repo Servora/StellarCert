@@ -110,7 +110,10 @@ describe('UsersController profile pictures', () => {
     });
 
     it('deletes nothing for a first upload', async () => {
-      usersService.getProfile.mockResolvedValue({ id: 'u1', profilePicture: null });
+      usersService.getProfile.mockResolvedValue({
+        id: 'u1',
+        profilePicture: null,
+      });
 
       await controller.uploadProfilePicture('u1', png());
 
@@ -142,9 +145,9 @@ describe('UsersController profile pictures', () => {
       usersService.getProfile.mockResolvedValue({ ...user });
       storageService.uploadFile.mockRejectedValue(new Error('upload failed'));
 
-      await expect(controller.uploadProfilePicture('u1', png())).rejects.toThrow(
-        'upload failed',
-      );
+      await expect(
+        controller.uploadProfilePicture('u1', png()),
+      ).rejects.toThrow('upload failed');
       expect(usersService.updateProfile).not.toHaveBeenCalled();
       expect(storageService.deleteFile).not.toHaveBeenCalled();
     });

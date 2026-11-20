@@ -6,9 +6,7 @@
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },
-  "transformIgnorePatterns": [
-    "node_modules/(?!(@noble|@stellar|uint8array-extras|@nestjs/swagger)/)"
-  ],
+  "transformIgnorePatterns": ["/node_modules/"],
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/../src/$1"
   },

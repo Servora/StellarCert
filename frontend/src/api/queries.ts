@@ -360,9 +360,8 @@ export const useIssuerActivityQuery = (page = 1, limit = 10) =>
 export const useNotificationsQuery = (enabled: boolean) =>
   useQuery({
     queryKey: queryKeys.notifications.list(),
-    // The endpoint is paginated ({ data, total, page, limit }); every
-    // consumer of this query (badge count, dropdown list, the socket push
-    // handler) expects a plain Notification[], so unwrap it here.
+    // The endpoint is paginated ({ data, total, page, limit }); every consumer
+    // (badge count, dropdown, live socket updates) expects a bare array.
     queryFn: async () => {
       const response = await apiClient<{ data: Notification[] }>(
         "/notifications",

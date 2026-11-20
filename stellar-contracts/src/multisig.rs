@@ -1,3 +1,4 @@
+use crate::multisig_common;
 use soroban_sdk::{contract, Address, Env, IntoVal, String, Symbol, Val, Vec};
 
 use crate::{
@@ -49,14 +50,7 @@ impl MultisigCertificateContract {
         admin.require_auth();
 
         // Validate parameters
-        #[allow(clippy::unnecessary_cast)]
-        if threshold == 0
-            || signers.is_empty()
-            || threshold > signers.len() as u32
-            || max_signers < threshold
-        {
-            panic!("Invalid multisig parameters");
-        }
+        multisig_common::validate_signer_vector(&signers, threshold, max_signers);
 
         // Check if already initialized
         if env
@@ -115,14 +109,7 @@ impl MultisigCertificateContract {
         }
 
         // Validate updated configuration
-        #[allow(clippy::unnecessary_cast)]
-        if config.threshold == 0
-            || config.signers.is_empty()
-            || config.threshold > config.signers.len() as u32
-            || config.max_signers < config.threshold
-        {
-            panic!("Invalid updated multisig parameters");
-        }
+        multisig_common::validate_signer_vector(&config.signers, config.threshold, config.max_signers);
 
         Self::set_instance(&env, &DataKey::MultisigConfig(issuer), &config);
     }

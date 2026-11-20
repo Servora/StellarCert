@@ -23,6 +23,11 @@ import { NotificationType } from '../../notifications/entities/notification.enti
 import { LoggingService } from '../../../common/logging/logging.service';
 import { UserRole } from '../../../common/constants/roles';
 import { CryptoUtils } from '../../../common/utils/crypto.utils';
+import {
+  InMemoryRateLimitStore,
+  RATE_LIMIT_STORE,
+  type RateLimitStore,
+} from '../../../common/guards/ip-rate-limit.guard';
 
 /**
  * Length of the secret code that authorises a transfer.
@@ -40,6 +45,9 @@ export const CONFIRMATION_CODE_LENGTH = 12;
  * cancelled and initiated again.
  */
 export const MAX_CONFIRMATION_CODE_ATTEMPTS = 5;
+
+export const DEFAULT_CONFIRMATION_CODE_RATE_LIMIT_MAX = 5;
+export const DEFAULT_CONFIRMATION_CODE_RATE_LIMIT_WINDOW_MS = 60_000;
 
 export interface TransferResponseDTO {
   id: string;

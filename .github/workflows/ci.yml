@@ -313,6 +313,42 @@ jobs:
             -v "$PWD/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v "$PWD/nginx/ssl:/etc/nginx/ssl:ro" \
             nginx:alpine nginx -t
+      # Building an image proves nothing about whether it boots. Start the
+      # real stack and require the backend to report healthy, so a broken
+      # entrypoint, missing runtime file, or crash-looping container fails CI.
+      - name: Start stack with docker compose
+        run: |
+          mkdir -p nginx/ssl
+          if [ ! -f nginx/ssl/cert.pem ]; then
+            openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+              -keyout nginx/ssl/key.pem -out nginx/ssl/cert.pem -subj "/CN=localhost"
+          fi
+          docker compose up -d --build
+      - name: Wait for backend health
+        run: |
+          for i in $(seq 1 60); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' \
+              "$(docker compose ps -q backend)" 2>/dev/null || echo "starting")
+            if [ "$status" = "healthy" ]; then
+              echo "Backend is healthy"
+              exit 0
+            fi
+            if [ "$status" = "unhealthy" ] || [ "$(docker compose ps -q backend | xargs -r docker inspect -f '{{.State.Status}}')" = "exited" ]; then
+              echo "Backend failed to start"
+              docker compose logs backend
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "Backend never reported healthy"
+          docker compose logs backend
+          exit 1
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose logs
+      - name: Tear down stack
+        if: always()
+        run: docker compose down -v
 
   # No job previously exercised the real user journey across the stack
   # (issue -> verify -> transfer). Bring up the full docker compose stack and

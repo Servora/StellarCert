@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Interval } from '@nestjs/schedule';
@@ -19,6 +19,13 @@ import {
 import { WebhooksService } from '../../webhooks/webhooks.service';
 import { WebhookEvent } from '../../webhooks/entities/webhook-subscription.entity';
 import { LoggingService } from '../../../common/logging/logging.service';
+import { User } from '../../users/entities/user.entity';
+import { NotificationsService } from '../../notifications/notifications.service';
+import { NotificationType } from '../../notifications/entities/notification.entity';
+import { EmailService } from '../../email/email.service';
+import { EmailQueueService } from '../../email/email-queue.service';
+import { SendRevocationNoticeDto } from '../../email/dto/send-revocation-notice.dto';
+import { SendCertificateIssuedDto } from '../../email/dto/send-certificate-issued.dto';
 
 const CURSOR_NAME = 'soroban-contract-events';
 const PAGE_LIMIT = 100;
@@ -66,6 +73,15 @@ export class ContractEventIndexerService {
     private readonly webhooksService: WebhooksService,
     private readonly configService: ConfigService,
     private readonly logger: LoggingService,
+    @Optional()
+    @InjectRepository(User)
+    private readonly userRepository?: Repository<User>,
+    @Optional()
+    private readonly notificationsService?: NotificationsService,
+    @Optional()
+    private readonly emailService?: EmailService,
+    @Optional()
+    private readonly emailQueueService?: EmailQueueService,
   ) {}
 
   isEnabled(): boolean {
@@ -271,6 +287,87 @@ export class ContractEventIndexerService {
     return this.certificateRepository.findOne({ where: { id } });
   }
 
+  /**
+   * Resolve the recipient user account ID for in-app notifications.
+   * If not stored directly on the certificate, looks up the user account by recipientEmail.
+   */
+  private async resolveRecipientUserId(
+    cert: Certificate,
+  ): Promise<string | undefined> {
+    if (cert.recipientId) return cert.recipientId;
+    if (this.userRepository && cert.recipientEmail) {
+      try {
+        const user = await this.userRepository.findOne({
+          where: { email: cert.recipientEmail },
+          select: { id: true },
+        });
+        return user?.id;
+      } catch (err: unknown) {
+        this.logger.warn(
+          `Failed to resolve recipient user ID for ${cert.recipientEmail}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Deliver an in-app notification to a user.
+   * Swallows errors so notification failures never abort chain sync.
+   */
+  private async sendNotification(
+    userId: string,
+    type: NotificationType,
+    title: string,
+    message: string,
+  ): Promise<void> {
+    if (!this.notificationsService) return;
+    try {
+      await this.notificationsService.createNotification(
+        userId,
+        type,
+        title,
+        message,
+      );
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Failed to send notification to ${userId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Deliver a transactional email. Goes through BullMQ when available for retries,
+   * falling back to direct delivery via EmailService.
+   * Swallows errors so email failures never abort chain sync.
+   */
+  private async deliverEmail(
+    description: string,
+    recipient: string,
+    viaQueue: ((queue: EmailQueueService) => Promise<void>) | null,
+    direct: ((email: EmailService) => Promise<void>) | null,
+  ): Promise<void> {
+    if (this.emailQueueService && viaQueue) {
+      try {
+        await viaQueue(this.emailQueueService);
+        return;
+      } catch (queueErr: unknown) {
+        this.logger.warn(
+          `Could not queue ${description} to ${recipient}: ${queueErr instanceof Error ? queueErr.message : String(queueErr)}; sending directly`,
+        );
+      }
+    }
+    if (this.emailService && direct) {
+      try {
+        await direct(this.emailService);
+      } catch (emailErr: unknown) {
+        this.logger.warn(
+          `Failed to send ${description} to ${recipient}: ${emailErr instanceof Error ? emailErr.message : String(emailErr)}`,
+        );
+      }
+    }
+  }
+
   private async applyIssued(id: string): Promise<void> {
     const cert = await this.findByOnChainId(id);
     if (!cert || cert.status !== CertificateStatus.PENDING) return;
@@ -281,6 +378,40 @@ export class ContractEventIndexerService {
       status: cert.status,
       source: 'chain',
     });
+
+    const recipientUserId = await this.resolveRecipientUserId(cert);
+    if (cert.issuerId) {
+      await this.sendNotification(
+        cert.issuerId,
+        NotificationType.SUCCESS,
+        'Certificate Issued',
+        `Certificate "${cert.title}" has been confirmed on-chain.`,
+      );
+    }
+    if (recipientUserId && recipientUserId !== cert.issuerId) {
+      await this.sendNotification(
+        recipientUserId,
+        NotificationType.SUCCESS,
+        'Certificate Issued',
+        `Certificate "${cert.title}" has been issued to you.`,
+      );
+    }
+
+    if (cert.recipientEmail) {
+      const issuedDto: SendCertificateIssuedDto = {
+        to: cert.recipientEmail,
+        certificateId: cert.certificateId || cert.id,
+        recipientName: cert.recipientName || 'Recipient',
+        certificateName: cert.title,
+        issuerName: cert.issuerName || 'Issuer',
+      };
+      await this.deliverEmail(
+        'certificate issued email',
+        cert.recipientEmail,
+        (queue) => queue.queueCertificateIssued(issuedDto),
+        (email) => email.sendCertificateIssued(issuedDto),
+      );
+    }
   }
 
   private async applyRevoked(
@@ -306,6 +437,42 @@ export class ContractEventIndexerService {
         source: 'chain',
       },
     );
+
+    const recipientUserId = await this.resolveRecipientUserId(cert);
+    const reasonText = reason ? ` Reason: ${reason}` : '';
+    if (cert.issuerId) {
+      await this.sendNotification(
+        cert.issuerId,
+        NotificationType.ERROR,
+        'Certificate Revoked',
+        `Certificate "${cert.title}" has been revoked on-chain.${reasonText}`,
+      );
+    }
+    if (recipientUserId && recipientUserId !== cert.issuerId) {
+      await this.sendNotification(
+        recipientUserId,
+        NotificationType.ERROR,
+        'Certificate Revoked',
+        `Certificate "${cert.title}" has been revoked.${reasonText}`,
+      );
+    }
+
+    if (cert.recipientEmail) {
+      const revocationDto: SendRevocationNoticeDto = {
+        to: cert.recipientEmail,
+        recipientName: cert.recipientName || 'Recipient',
+        certificateId: cert.certificateId || cert.id,
+        certificateName: cert.title,
+        reason: reason || cert.revocationReason || 'Revoked on-chain',
+        revocationDate: (cert.revokedAt || new Date()).toISOString(),
+      };
+      await this.deliverEmail(
+        'revocation notice email',
+        cert.recipientEmail,
+        (queue) => queue.queueRevocationNotice(revocationDto),
+        (email) => email.sendRevocationNotice(revocationDto),
+      );
+    }
   }
 
   private async applyFrozen(id: string, reason?: string): Promise<void> {
@@ -326,6 +493,25 @@ export class ContractEventIndexerService {
       frozenAt,
       source: 'chain',
     });
+
+    const recipientUserId = await this.resolveRecipientUserId(cert);
+    const reasonText = reason ? ` Reason: ${reason}` : '';
+    if (cert.issuerId) {
+      await this.sendNotification(
+        cert.issuerId,
+        NotificationType.INFO,
+        'Certificate Frozen',
+        `Certificate "${cert.title}" has been frozen on-chain.${reasonText}`,
+      );
+    }
+    if (recipientUserId && recipientUserId !== cert.issuerId) {
+      await this.sendNotification(
+        recipientUserId,
+        NotificationType.INFO,
+        'Certificate Frozen',
+        `Certificate "${cert.title}" has been frozen.${reasonText}`,
+      );
+    }
   }
 
   private async applyUnfrozen(id: string): Promise<void> {
@@ -340,6 +526,24 @@ export class ContractEventIndexerService {
       cert.issuerId,
       { id: cert.id, status: cert.status, unfrozenAt, source: 'chain' },
     );
+
+    const recipientUserId = await this.resolveRecipientUserId(cert);
+    if (cert.issuerId) {
+      await this.sendNotification(
+        cert.issuerId,
+        NotificationType.SUCCESS,
+        'Certificate Unfrozen',
+        `Certificate "${cert.title}" has been unfrozen on-chain.`,
+      );
+    }
+    if (recipientUserId && recipientUserId !== cert.issuerId) {
+      await this.sendNotification(
+        recipientUserId,
+        NotificationType.SUCCESS,
+        'Certificate Unfrozen',
+        `Certificate "${cert.title}" has been unfrozen.`,
+      );
+    }
   }
 
   private async applyTransferDone(

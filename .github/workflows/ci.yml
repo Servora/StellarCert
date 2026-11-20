@@ -110,8 +110,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Node 18 is EOL; supported lines are 20 (LTS), 22, and 26.
-        node-version: [20, 22, 26]
+        # Node 26 only: NestJS v12 (@nestjs/* family) ships pure ESM with no
+        # CJS build, so Jest's require(esm) support is the only way to load
+        # it from this project's CommonJS test files - and that support needs
+        # Node >=24.9 (vm.SourceTextModule.prototype.hasAsyncGraph). Node 20/22
+        # can't run this test suite at all once NestJS is on v12, and
+        # production's backend/Dockerfile is already pinned to node:26-alpine,
+        # so 20/22 were testing a configuration nothing actually runs.
+        node-version: [26]
     defaults:
       run:
         working-directory: backend
@@ -201,7 +207,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          # Node 26 only - see the `backend` job's matrix comment: NestJS v12
+          # is pure ESM and Jest's require(esm) support needs Node >=24.9.
+          node-version: 26
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
@@ -271,7 +279,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          # Node 26 only - see the `backend` job's matrix comment: NestJS v12
+          # is pure ESM and Jest's require(esm) support needs Node >=24.9.
+          node-version: 26
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies

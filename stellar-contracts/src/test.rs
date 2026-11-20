@@ -263,6 +263,7 @@ fn test_reissue_certificate() {
         &None, // Keep same owner
         &new_metadata,
         &None,
+        &None, // No build metadata
     );
 
     // Verify new certificate

@@ -351,6 +351,7 @@ fn reissue_certificate_emits_reissued_event_with_parent_link() {
         &Some(new_owner.clone()),
         &metadata_uri,
         &None,
+        &None,
     );
 
     assert_events(

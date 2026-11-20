@@ -109,7 +109,11 @@ impl MultisigCertificateContract {
         }
 
         // Validate updated configuration
-        multisig_common::validate_signer_vector(&config.signers, config.threshold, config.max_signers);
+        multisig_common::validate_signer_vector(
+            &config.signers,
+            config.threshold,
+            config.max_signers,
+        );
 
         Self::set_instance(&env, &DataKey::MultisigConfig(issuer), &config);
     }

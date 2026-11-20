@@ -31,8 +31,8 @@ compile_error!(
 );
 use soroban_sdk::{contract, Address, BytesN, Env, IntoVal, String, Symbol, Val, Vec};
 
-mod types;
 mod multisig_common;
+mod types;
 // Explicit re-exports replace `pub use types::*` to avoid ambiguous_glob_reexports
 pub use types::{
     CertPaginatedResult, Certificate, CertificateFrozenEvent, CertificateIssuedEvent,
@@ -1228,7 +1228,11 @@ impl CertificateContract {
         if let Some(max_signers) = new_max_signers {
             config.max_signers = max_signers;
         }
-        multisig_common::validate_signer_vector(&config.signers, config.threshold, config.max_signers);
+        multisig_common::validate_signer_vector(
+            &config.signers,
+            config.threshold,
+            config.max_signers,
+        );
 
         Self::set_persistent(&env, &DataKey::MultisigConfig(issuer), &config);
     }

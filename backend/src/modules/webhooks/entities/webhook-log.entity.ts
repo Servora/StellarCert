@@ -41,6 +41,12 @@ export class WebhookLog {
   @Column({ default: false })
   isSuccess: boolean;
 
+  @Column({ default: false })
+  isDeadLetter: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  deadLetterReason?: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 }

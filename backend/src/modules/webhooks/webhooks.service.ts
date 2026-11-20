@@ -168,6 +168,26 @@ export class WebhooksService {
     await this.subscriptionRepository.remove(subscription);
   }
 
+  // ROTATE SECRET
+  async rotateSecret(
+    id: string,
+    issuerId: string,
+  ): Promise<CreatedWebhookSubscription> {
+    const subscription = await this.findOneWithSecret(id, issuerId);
+    const secret = crypto.randomBytes(32).toString('hex');
+    const secretHash = crypto.createHash('sha256').update(secret).digest('hex');
+
+    subscription.secret = secret;
+    subscription.secretHash = secretHash;
+    const saved = await this.subscriptionRepository.save(subscription);
+
+    return {
+      ...saved,
+      secret,
+      hasSecret: true,
+    };
+  }
+
   // BROADCAST EVENT
   async triggerEvent(event: WebhookEvent, issuerId: string, payload: any) {
     const subs = await this.subscriptionRepository

@@ -8,7 +8,13 @@ describe('WebhooksService delivery is best-effort', () => {
   const qb: Record<string, jest.Mock> = {};
   for (const m of ['where', 'andWhere']) qb[m] = jest.fn(() => qb);
   qb.getMany = getMany;
-  const subscriptions = { createQueryBuilder: jest.fn(() => qb) };
+  const findOne = jest.fn();
+  const saveSubscription = jest.fn();
+  const subscriptions = {
+    createQueryBuilder: jest.fn(() => qb),
+    findOne,
+    save: saveSubscription,
+  };
 
   let service: WebhooksService;
   const sub = (id: string) => ({ id }) as never;
@@ -18,6 +24,8 @@ describe('WebhooksService delivery is best-effort', () => {
     subscriptions.createQueryBuilder.mockImplementation(() => qb);
     qb.where.mockImplementation(() => qb);
     qb.andWhere.mockImplementation(() => qb);
+    findOne.mockReset();
+    saveSubscription.mockReset();
     queue.add.mockResolvedValue({ id: 'job' });
     service = new WebhooksService(
       subscriptions as never,
@@ -76,5 +84,32 @@ describe('WebhooksService delivery is best-effort', () => {
     expect(logger.log).toHaveBeenCalledWith(
       expect.stringContaining('Queued 2/3 webhooks'),
     );
+  });
+
+  it('rotates a subscription secret in place and preserves its delivery history', async () => {
+    const subscription = {
+      id: 's1',
+      issuerId: 'issuer-1',
+      secret: 'old-secret',
+      secretHash: 'old-hash',
+      logs: [{ id: 'log-1' }],
+    };
+    findOne.mockResolvedValue(subscription);
+    saveSubscription.mockImplementation(async (saved) => saved);
+
+    const result = await service.rotateSecret('s1', 'issuer-1');
+
+    expect(findOne).toHaveBeenCalledWith({
+      where: { id: 's1', issuerId: 'issuer-1' },
+    });
+    expect(saveSubscription).toHaveBeenCalledWith(subscription);
+    expect(result).toMatchObject({
+      id: 's1',
+      issuerId: 'issuer-1',
+      logs: [{ id: 'log-1' }],
+      hasSecret: true,
+    });
+    expect(result.secret).not.toBe('old-secret');
+    expect(result.secretHash).not.toBe('old-hash');
   });
 });

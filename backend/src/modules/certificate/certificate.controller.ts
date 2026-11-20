@@ -581,6 +581,7 @@ export class CertificateController {
       ipAddress,
       userAgent,
     );
+    await this.statsService.clearStatsCache();
     return this.mapper.toResponse(cert);
   }
 
@@ -613,7 +614,7 @@ export class CertificateController {
   ): Promise<unknown> {
     const ipAddress = getClientIp(req);
     const userAgent = req.headers['user-agent'] ?? 'unknown';
-    return this.certificateService.revokeWithUser(
+    const result = await this.certificateService.revokeWithUser(
       id,
       dto,
       user.id,
@@ -621,6 +622,8 @@ export class CertificateController {
       userAgent,
       user.role,
     );
+    await this.statsService.clearStatsCache();
+    return result;
   }
 
   // ─── Delete ───────────────────────────────────────────────────────────────────
@@ -676,12 +679,14 @@ export class CertificateController {
     @CurrentUser('id') issuerId?: string,
     @CurrentUser('role') userRole?: string,
   ) {
-    return this.certificateService.bulkRevoke(
+    const result = await this.certificateService.bulkRevoke(
       certificateIds,
       reason,
       issuerId,
       userRole,
     );
+    await this.statsService.clearStatsCache();
+    return result;
   }
 
   @Post('export')

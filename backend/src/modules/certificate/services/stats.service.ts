@@ -70,7 +70,13 @@ export class CertificateStatsService {
   }
 
   private async getTotalStats(dateFilter: any, issuerFilter: any) {
-    const where = { ...dateFilter, ...issuerFilter };
+    // dateFilter also carries raw `startDate`/`endDate` Date values for
+    // getIssuanceTrend's fallback defaults - only `issuedAt` is an actual
+    // Certificate column, so it's the only one that belongs in a `where`.
+    const where: any = { ...issuerFilter };
+    if (dateFilter.issuedAt) {
+      where.issuedAt = dateFilter.issuedAt;
+    }
 
     const [total, active, revoked, expired] = await Promise.all([
       this.certificateRepo.count({ where }),
@@ -209,10 +215,17 @@ export class CertificateStatsService {
 
   private buildDateFilter(query: StatsQueryDto) {
     if (query.startDate && query.endDate) {
+      const startDate = new Date(query.startDate);
+      // query.endDate is a date-only string (e.g. "2026-11-20"), which
+      // Date parses as that day's UTC midnight. Used as-is, Between()
+      // would exclude every certificate issued later that same day -
+      // the range must run through the end of the end date.
+      const endDate = new Date(query.endDate);
+      endDate.setUTCHours(23, 59, 59, 999);
       return {
-        startDate: new Date(query.startDate),
-        endDate: new Date(query.endDate),
-        issuedAt: Between(new Date(query.startDate), new Date(query.endDate)),
+        startDate,
+        endDate,
+        issuedAt: Between(startDate, endDate),
       };
     }
     return {};
@@ -227,15 +240,21 @@ export class CertificateStatsService {
   }
 
   async clearStatsCache(): Promise<void> {
-    // Clear all stats-related cache entries
-    const store = (this.cacheManager as any).store;
-    if (store && store.keys) {
-      const keys = await store.keys();
-      const statsKeys = keys.filter((key: string) =>
-        key.startsWith('cert-stats'),
-      );
+    // Clear all stats-related cache entries. cache-manager v7's Cache has no
+    // `.store` (that was the v4/v5 shape) - it exposes `.stores`, an array
+    // of Keyv instances, each iterable via `.iterator()`.
+    const stores = (this.cacheManager as any).stores;
+    if (stores) {
+      const statsKeys = new Set<string>();
+      for (const store of stores) {
+        for await (const [key] of store.iterator()) {
+          if (typeof key === 'string' && key.startsWith('cert-stats')) {
+            statsKeys.add(key);
+          }
+        }
+      }
       await Promise.all(
-        statsKeys.map((key: string) => this.cacheManager.del(key)),
+        Array.from(statsKeys).map((key) => this.cacheManager.del(key)),
       );
     }
   }

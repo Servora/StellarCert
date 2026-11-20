@@ -40,6 +40,13 @@ RUN npm run build
 # Production stage - serve static files with nginx
 FROM nginx:alpine AS production
 
+# Release metadata, supplied by the release workflow at build time
+ARG VERSION=dev
+ARG REVISION=unknown
+LABEL org.opencontainers.image.title="frontend" \
+      org.opencontainers.image.version=$VERSION \
+      org.opencontainers.image.revision=$REVISION
+
 # Copy built files from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
 
@@ -47,5 +54,9 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
+
+# Lets orchestrators and deploy jobs verify the release is serving
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -qO- http://127.0.0.1/ >/dev/null || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

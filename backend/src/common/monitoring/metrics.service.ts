@@ -88,8 +88,8 @@ export class MetricsService {
   /**
    * Baseline alerting: this service exposes the raw metrics that the
    * alert rules in monitoring/alert.rules.yml consume, e.g.
-   * HighHttpErrorRate (http_errors_total / http_requests_total),
-   * JobQueueBacklog and JobFailures. Keep metric names in sync with
+   * BackendHighErrorRate (http_errors_total / http_requests_total) and
+   * BackendAuthenticationFailureSpike. Keep metric names in sync with
    * those rules and the starter dashboard in monitoring/grafana/.
    */
 

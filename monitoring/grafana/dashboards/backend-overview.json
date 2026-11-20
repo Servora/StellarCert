@@ -115,38 +115,6 @@
       ],
       "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
       "options": {}
-    },
-    {
-      "id": 7,
-      "title": "Job Queue Waiting",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max(job_queue_waiting_count)",
-          "legendFormat": "waiting"
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "options": {}
-    },
-    {
-      "id": 8,
-      "title": "Background Job Failures",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(increase(job_failures_total[15m]))",
-          "legendFormat": "failures (15m)"
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "options": {}
     }
   ],
   "refresh": "30s",

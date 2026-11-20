@@ -50,28 +50,6 @@ groups:
           summary: "Authentication failure spike on StellarCert backend"
           description: "Failed authentication attempts are significantly outpacing successful ones, which may indicate brute-force activity."
 
-      - alert: BackendJobFailures
-        expr: |
-          sum(increase(job_failures_total[15m])) > 0
-        for: 5m
-        labels:
-          severity: warning
-          service: stellarcert_backend
-        annotations:
-          summary: "Background job failures on StellarCert backend"
-          description: "One or more background jobs have failed in the last 15 minutes."
-
-      - alert: BackendQueueBacklog
-        expr: |
-          max(job_queue_waiting_count) > 100
-        for: 10m
-        labels:
-          severity: warning
-          service: stellarcert_backend
-        annotations:
-          summary: "Job queue backlog growing on StellarCert backend"
-          description: "More than 100 jobs have been waiting in the queue for 10 minutes (current value: {{ $value }})."
-
       - alert: BackendTargetDown
         expr: up{job="stellarcert_backend"} == 0
         for: 2m

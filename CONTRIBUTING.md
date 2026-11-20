@@ -99,6 +99,13 @@ Testing and CI
 - The repository contains backend e2e tests (`backend/test`) and a CI workflow `.github/workflows/ci.yml`.
 - Consider adding frontend tests for `IssuerProfile` to cover API integration and rendering.
 
+Security scanning
+
+- The `security-audit` job in `.github/workflows/ci.yml` runs `npm audit` only. It detects known-vulnerable dependency versions but does not analyze the application's own code.
+- Static analysis for the TypeScript and Rust code is performed by CodeQL via `.github/workflows/codeql.yml`. Findings appear under the repository's "Security" tab → "Code scanning alerts".
+- GitHub secret scanning and push protection should be enabled for the repository (Settings → Code security and analysis → "Secret scanning" and "Push protection"). Do not commit JWT secrets, Stellar secret keys, webhook HMAC secrets, or other credentials; use environment variables or a secrets manager instead.
+- Run `npm run security:audit` locally before opening a PR that changes dependencies.
+
 Branch and PR
 
 - I created branch `feat/issuerprofile-real-stats` which includes the change to respect `VITE_USE_DUMMY_DATA`.

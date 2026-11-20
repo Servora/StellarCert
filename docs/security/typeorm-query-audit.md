@@ -10,6 +10,7 @@
 - **Current Pinned Version:** `typeorm@0.3.31` (`^0.3.31` in `backend/package.json`).
 - **Lockfile Resolution:** Both `backend/package-lock.json` and root `package-lock.json` resolve to `0.3.31`.
 - **npm audit Status:** `npm audit` confirms `typeorm` itself has 0 vulnerabilities.
+- **Static Analysis Coverage:** `npm audit` only detects known-vulnerable dependency versions and does not inspect application code. Application-level query construction is covered by the CodeQL workflow (`.github/workflows/codeql.yml`), which analyzes the TypeScript and Rust sources on every push, pull request, and on a weekly schedule. Secret scanning and push protection should be enabled in the repository settings (Settings → Code security → Secret scanning / Push protection) to prevent committed JWT signing keys, Stellar secret keys, webhook HMAC secrets, and other credentials from entering the repository.
 
 ## 3. Query Builder Predicate Audit
 
@@ -37,3 +38,5 @@ A complete audit of all 30+ `createQueryBuilder` / `leftJoinAndSelect` call site
 - [x] Zero raw string concatenation or template literal interpolation used in `.where()`, `.andWhere()`, or `.orWhere()`.
 - [x] Dynamic `.orderBy()` field inputs strictly validated against whitelist arrays.
 - [x] Dedicated unit tests added to prevent regressions in `certificate-search.service.spec.ts`.
+- [x] CodeQL SAST workflow covers TypeScript and Rust application code.
+- [ ] GitHub secret scanning and push protection enabled in repository settings.

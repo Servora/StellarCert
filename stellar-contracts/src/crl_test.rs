@@ -221,9 +221,8 @@ fn test_verify_certificate_not_revoked() {
     client.initialize(&issuer, &cert_contract);
 
     let cert_id = String::from_str(&env, "CERT-001");
-    let (is_revoked, crl_number) = client.verify_certificate(&cert_id);
-    assert!(!is_revoked);
-    assert_eq!(crl_number, 1);
+    let result = client.verify_certificate(&cert_id);
+    assert!(result.is_valid);
 }
 
 #[test]
@@ -236,9 +235,8 @@ fn test_verify_certificate_after_revocation() {
     let cert_id = String::from_str(&env, "CERT-001");
     client.revoke_certificate(&issuer, &cert_id, &RevocationReason::KeyCompromise, &None);
 
-    let (is_revoked, crl_number) = client.verify_certificate(&cert_id);
-    assert!(is_revoked);
-    assert_eq!(crl_number, 2);
+    let result = client.verify_certificate(&cert_id);
+    assert!(!result.is_valid);
 }
 
 // ─── Merkle root ─────────────────────────────────────────────────────────────

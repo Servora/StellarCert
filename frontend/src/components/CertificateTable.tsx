@@ -824,7 +824,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                             onChange={(e) => setFreezeDuration(Number(e.target.value))}
                             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
                         />
-                        <p className="text-xs text-gray-500 mt-1">Maximum 90 days. Leave empty for indefinite.</p>
+                        <p className="text-xs text-gray-500 mt-1">Maximum 90 days.</p>
                     </div>
                 </div>
                 <ActionError message={actionError} className="mt-4" />

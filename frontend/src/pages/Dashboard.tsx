@@ -13,20 +13,28 @@ const RoleDashboard = createRoleDashboard({
 });
 
 const Dashboard = () => {
-  const { user } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
+
+  // #1317: `/` and `/dashboard` render for anonymous visitors too (they
+  // show the public feature-overview section below this route), so this
+  // must not render a role dashboard - or fire its authenticated API
+  // calls - before auth has resolved or when there is no session. Nothing
+  // here means the marketing section is the only visible content.
+  if (isLoading || !isAuthenticated || !user) {
+    return null;
+  }
 
   // UserRole.USER is the default role every public sign-up gets and is
   // treated as recipient-like everywhere else in the app (see
   // CertificateWallet.tsx's isRecipientUser check), so it belongs on the
   // recipient dashboard, not the issuer one. Issuer remains the fallback
-  // for roles with no dedicated dashboard (issuer, auditor, or not yet
-  // loaded).
+  // for roles with no dedicated dashboard (issuer or auditor).
   const role =
-    user?.role === UserRole.ADMIN
+    user.role === UserRole.ADMIN
       ? "admin"
-      : user?.role === UserRole.RECIPIENT || user?.role === UserRole.USER
+      : user.role === UserRole.RECIPIENT || user.role === UserRole.USER
         ? "recipient"
-        : user?.role === UserRole.VERIFIER
+        : user.role === UserRole.VERIFIER
           ? "verifier"
           : "issuer";
 

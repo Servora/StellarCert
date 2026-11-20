@@ -79,6 +79,8 @@ describe("Dashboard role views", () => {
   it("renders the recipient wallet dashboard for recipient users", async () => {
     mocks.useAuthMock.mockReturnValue({
       user: { id: "recipient-1", role: "recipient" },
+      isAuthenticated: true,
+      isLoading: false,
     });
 
     renderWithProviders(<Dashboard />, {
@@ -97,6 +99,8 @@ describe("Dashboard role views", () => {
   it("renders the verifier dashboard for verifier users", async () => {
     mocks.useAuthMock.mockReturnValue({
       user: { id: "verifier-1", role: "verifier" },
+      isAuthenticated: true,
+      isLoading: false,
     });
 
     renderWithProviders(<Dashboard />, {
@@ -127,6 +131,8 @@ describe("Dashboard role views", () => {
     // access to.
     mocks.useAuthMock.mockReturnValue({
       user: { id: "recipient-1", role: "user" },
+      isAuthenticated: true,
+      isLoading: false,
     });
 
     renderWithProviders(<Dashboard />, {
@@ -145,6 +151,8 @@ describe("Dashboard role views", () => {
   it("renders admin analytics for admin users", async () => {
     mocks.useAuthMock.mockReturnValue({
       user: { id: "admin-1", role: "admin" },
+      isAuthenticated: true,
+      isLoading: false,
     });
 
     renderWithProviders(<Dashboard />, {
@@ -154,5 +162,39 @@ describe("Dashboard role views", () => {
     expect(
       await screen.findByText(/Admin analytics mock/i),
     ).toBeInTheDocument();
+  });
+
+  it("renders nothing for an anonymous visitor instead of the issuer dashboard (#1317)", () => {
+    // `/` and `/dashboard` render for anonymous visitors too (the public
+    // feature-overview section below this route). Dashboard must not
+    // attempt a role view - or fire its authenticated API calls - when
+    // there is no session.
+    mocks.useAuthMock.mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+    });
+
+    const { container } = renderWithProviders(<Dashboard />, {
+      queryClient: createTestQueryClient(),
+    });
+
+    expect(container).toBeEmptyDOMElement();
+    expect(mocks.getDashboardSummaryMock).not.toHaveBeenCalled();
+    expect(mocks.getUserCertificatesMock).not.toHaveBeenCalled();
+  });
+
+  it("renders nothing while auth is still resolving", () => {
+    mocks.useAuthMock.mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: true,
+    });
+
+    const { container } = renderWithProviders(<Dashboard />, {
+      queryClient: createTestQueryClient(),
+    });
+
+    expect(container).toBeEmptyDOMElement();
   });
 });

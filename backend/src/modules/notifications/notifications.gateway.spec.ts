@@ -7,7 +7,10 @@ function makeSocket(id = 'socket-1') {
   return {
     id,
     data: {} as Record<string, unknown>,
-    handshake: { auth: { token: 'access-token' }, headers: {} as Record<string, string> },
+    handshake: {
+      auth: { token: 'access-token' },
+      headers: {} as Record<string, string>,
+    },
     join: jest.fn().mockResolvedValue(undefined),
     emit: jest.fn(),
     disconnect: jest.fn(),
@@ -25,11 +28,19 @@ describe('NotificationsGateway session re-validation', () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     jwt.verifyAccessToken.mockResolvedValue({ sub: 'user-1' });
-    users.findOneById.mockResolvedValue({ id: 'user-1', status: UserStatus.ACTIVE });
+    users.findOneById.mockResolvedValue({
+      id: 'user-1',
+      status: UserStatus.ACTIVE,
+    });
     config.get.mockImplementation((key: string) =>
       key === 'WS_AUTH_REVALIDATE_INTERVAL_MS' ? String(INTERVAL) : undefined,
     );
-    gateway = new NotificationsGateway(jwt as never, users as never, config as never, logger as never);
+    gateway = new NotificationsGateway(
+      jwt as never,
+      users as never,
+      config as never,
+      logger as never,
+    );
   });
 
   afterEach(() => {
@@ -59,11 +70,15 @@ describe('NotificationsGateway session re-validation', () => {
 
   it('disconnects a socket whose token was revoked (logout) after the handshake', async () => {
     const socket = await connect();
-    jwt.verifyAccessToken.mockRejectedValue(new Error('Invalid access token: Token has been revoked'));
+    jwt.verifyAccessToken.mockRejectedValue(
+      new Error('Invalid access token: Token has been revoked'),
+    );
 
     await jest.advanceTimersByTimeAsync(INTERVAL);
 
-    expect(socket.emit).toHaveBeenCalledWith('sessionRevoked', { reason: 'session_revoked' });
+    expect(socket.emit).toHaveBeenCalledWith('sessionRevoked', {
+      reason: 'session_revoked',
+    });
     expect(socket.disconnect).toHaveBeenCalledWith(true);
   });
 
@@ -80,9 +95,14 @@ describe('NotificationsGateway session re-validation', () => {
 
       await jest.advanceTimersByTimeAsync(INTERVAL);
 
-      expect(socket.emit).toHaveBeenCalledWith('sessionRevoked', { reason: 'session_revoked' });
+      expect(socket.emit).toHaveBeenCalledWith('sessionRevoked', {
+        reason: 'session_revoked',
+      });
       expect(socket.disconnect).toHaveBeenCalledWith(true);
-      users.findOneById.mockResolvedValue({ id: 'user-1', status: UserStatus.ACTIVE });
+      users.findOneById.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+      });
     }
   });
 
@@ -111,7 +131,9 @@ describe('NotificationsGateway session re-validation', () => {
 
     await jest.advanceTimersByTimeAsync(INTERVAL);
     expect(socket.disconnect).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('db down'));
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('db down'),
+    );
 
     await jest.advanceTimersByTimeAsync(INTERVAL);
     expect(users.findOneById).toHaveBeenCalledTimes(2);
@@ -120,7 +142,12 @@ describe('NotificationsGateway session re-validation', () => {
 
   it('uses a one-minute default interval and ignores an invalid configured one', async () => {
     config.get.mockReturnValue('not-a-number');
-    gateway = new NotificationsGateway(jwt as never, users as never, config as never, logger as never);
+    gateway = new NotificationsGateway(
+      jwt as never,
+      users as never,
+      config as never,
+      logger as never,
+    );
     await connect();
 
     await jest.advanceTimersByTimeAsync(59_000);

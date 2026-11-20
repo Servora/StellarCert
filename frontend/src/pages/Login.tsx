@@ -4,6 +4,7 @@ import { LogIn, UserPlus, Shield, Eye, EyeOff, MailCheck } from "lucide-react";
 import { authApi } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { getSafeRedirectPath } from "../utils/redirect";
+import { PasswordStrengthMeter } from "../components/SessionAndPasswordHelpers";
 
 type LoadingPhase = "idle" | "registering" | "logging-in";
 
@@ -298,6 +299,7 @@ const Login = () => {
                 )}
               </button>
             </div>
+            {!isLogin && <PasswordStrengthMeter password={formData.password} />}
           </div>
           {!isLogin && (
             <div>

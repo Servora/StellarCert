@@ -20,6 +20,8 @@ import type { Certificate, CertificateExportFilters, ActivityItem } from '../api
 import Modal from './Modal';
 import { useDebounce } from '../hooks/useDebounce';
 import { assertValidCsvExport, InvalidExportError } from '../utils/exportBlob';
+import { CopyableValue } from './AccessibilityHelpers';
+import { useRowPending, runBulkAction } from '../hooks/useRowActions';
 import {
     useBulkRevokeCertificatesMutation,
     useCertificateHistoryQuery,
@@ -118,10 +120,12 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     const [revokeReason, setRevokeReason] = useState('');
     const [revokingCertIds, setRevokingCertIds] = useState<string[]>([]);
 
-    // Transfer modal state
+    // Transfer modal state. `transferTargetIds` holds one id for a row-triggered
+    // transfer or every selected id for a bulk transfer (#1339): the same new
+    // owner receives all of them.
     const [showTransferModal, setShowTransferModal] = useState(false);
+    const [transferTargetIds, setTransferTargetIds] = useState<string[]>([]);
     const [transferData, setTransferData] = useState({
-        certificateId: '',
         newOwnerEmail: '',
         newOwnerName: '',
         reason: ''
@@ -139,15 +143,22 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
 
     // Failure/feedback state. `loadError` is separate from the certificate list
     // so a failed load can render as a failure with a retry rather than as an
-    // empty result set. `pendingAction` drives the in-flight (disabled) state of
-    // the buttons that fire a mutation, so a double click cannot double-submit.
+    // empty result set. `bulkAction`/`isRowPending` drive the in-flight
+    // (disabled) state of the buttons that fire a mutation, so a double click
+    // cannot double-submit.
     const [actionError, setActionError] = useState<string | null>(null);
     // `loadError` is separate from the certificate list so a failed load can
     // render as a failure with a retry rather than as an empty result set. The
     // query owns the failure, so the message is derived from it rather than
     // copied into state that could drift out of sync with the query.
     const loadError = certificatesQuery.isError ? 'Failed to fetch certificates' : null;
-    const [pendingAction, setPendingAction] = useState<string | null>(null);
+    // Table-level (toolbar) actions: export, export-all, and any bulk action
+    // that applies to the whole selection at once.
+    const [bulkAction, setBulkAction] = useState<string | null>(null);
+    // Row-level actions (freeze/unfreeze/revoke/transfer triggered from a
+    // single row): tracked per certificate id, so one row's in-flight
+    // mutation no longer disables every other row's buttons (#1345).
+    const { run: runRowAction, isRowPending, pendingAction: rowPendingAction } = useRowPending();
 
     // Certificate detail modal state. Holds the row's certificate rather than
     // just its id: the table already has every field the detail view shows, so
@@ -194,7 +205,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     // Handle bulk export
     const handleBulkExport = async () => {
         setActionError(null);
-        setPendingAction('export');
+        setBulkAction('export');
         try {
             const filters: CertificateExportFilters = {
                 search: search || undefined,
@@ -224,7 +235,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             setActionError(message);
             onError?.(message);
         } finally {
-            setPendingAction(null);
+            setBulkAction(null);
         }
     };
 
@@ -232,7 +243,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     const handleBulkExportAll = async () => {
         setExportingFiltered(true);
         setActionError(null);
-        setPendingAction('export-all');
+        setBulkAction('export-all');
         try {
             const filters: CertificateExportFilters = {
                 search: search || undefined,
@@ -260,7 +271,29 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             onError?.(message);
         } finally {
             setExportingFiltered(false);
-            setPendingAction(null);
+            setBulkAction(null);
+        }
+    };
+
+    // Handle bulk unfreeze (#1339): best-effort per certificate, so one
+    // already-active or already-revoked certificate in the selection doesn't
+    // block the rest.
+    const handleBulkUnfreeze = async () => {
+        setActionError(null);
+        setBulkAction('unfreeze');
+        try {
+            const ids = Array.from(selectedIds);
+            const result = await runBulkAction(ids, (id) => unfreezeMutation.mutateAsync(id));
+            if (result.failed.length === 0) {
+                onSuccess?.(`Unfroze ${result.succeeded.length} certificate${result.succeeded.length === 1 ? '' : 's'}`);
+            } else {
+                const message = `Unfroze ${result.succeeded.length} of ${ids.length} certificates; ${result.failed.length} failed`;
+                setActionError(message);
+                onError?.(message);
+            }
+            setSelectedIds(new Set());
+        } finally {
+            setBulkAction(null);
         }
     };
 
@@ -277,24 +310,37 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
         setActionError(null);
     };
 
+    // Revoking a single row still goes through this same modal (#1345: tracked
+    // per-row so other rows stay enabled); revoking the current selection is a
+    // table-level action instead.
+    const isBulkRevoke = revokingCertIds.length > 1;
+
+    const doRevoke = async () => {
+        await revokeMutation.mutateAsync({
+            certificateIds: revokingCertIds,
+            reason: revokeReason,
+        });
+        onSuccess?.('Certificates revoked successfully');
+        setShowRevokeModal(false);
+        setRevokeReason('');
+        setSelectedIds(new Set());
+    };
+
     const confirmRevoke = async () => {
         setActionError(null);
-        setPendingAction('revoke');
         try {
-            await revokeMutation.mutateAsync({
-                certificateIds: revokingCertIds,
-                reason: revokeReason,
-            });
-            onSuccess?.('Certificates revoked successfully');
-            setShowRevokeModal(false);
-            setRevokeReason('');
-            setSelectedIds(new Set());
+            if (isBulkRevoke) {
+                setBulkAction('revoke');
+                await doRevoke();
+            } else {
+                await runRowAction(revokingCertIds[0], 'revoke', doRevoke);
+            }
         } catch (err) {
             console.error('Revoke failed:', err);
             setActionError('Failed to revoke certificates');
             onError?.('Failed to revoke certificates');
         } finally {
-            setPendingAction(null);
+            setBulkAction(null);
         }
     };
 
@@ -314,13 +360,14 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
     const confirmFreeze = async () => {
         if (!freezingCertId) return;
         setActionError(null);
-        setPendingAction('freeze');
         try {
-            const durationDays = Math.max(1, Number.isFinite(freezeDuration) ? Math.trunc(freezeDuration) : 1);
-            await freezeMutation.mutateAsync({
-                certificateId: freezingCertId,
-                reason: freezeReason,
-                durationDays,
+            await runRowAction(freezingCertId, 'freeze', async () => {
+                const durationDays = Math.max(1, Number.isFinite(freezeDuration) ? Math.trunc(freezeDuration) : 1);
+                await freezeMutation.mutateAsync({
+                    certificateId: freezingCertId,
+                    reason: freezeReason,
+                    durationDays,
+                });
             });
             onSuccess?.('Certificate frozen successfully');
             setShowFreezeModal(false);
@@ -331,56 +378,73 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             console.error('Freeze failed:', err);
             setActionError('Failed to freeze certificate');
             onError?.('Failed to freeze certificate');
-        } finally {
-            setPendingAction(null);
         }
     };
 
     // Handle unfreeze
     const handleUnfreeze = async (certId: string) => {
         setActionError(null);
-        setPendingAction(`unfreeze:${certId}`);
         try {
-            await unfreezeMutation.mutateAsync(certId);
+            await runRowAction(certId, 'unfreeze', () => unfreezeMutation.mutateAsync(certId));
             onSuccess?.('Certificate unfrozen successfully');
         } catch (err) {
             console.error('Unfreeze failed:', err);
             setActionError('Failed to unfreeze certificate');
             onError?.('Failed to unfreeze certificate');
-        } finally {
-            setPendingAction(null);
         }
     };
 
-    // Handle transfer
+    // Handle transfer (single row)
     const handleTransfer = (cert: Certificate) => {
-        setTransferData({
-            certificateId: cert.id,
-            newOwnerEmail: '',
-            newOwnerName: '',
-            reason: ''
-        });
+        setTransferTargetIds([cert.id]);
+        setTransferData({ newOwnerEmail: '', newOwnerName: '', reason: '' });
+        setShowTransferModal(true);
+    };
+
+    // Handle bulk transfer (#1339): the current selection, one new owner for all.
+    const handleBulkTransfer = () => {
+        setTransferTargetIds(Array.from(selectedIds));
+        setTransferData({ newOwnerEmail: '', newOwnerName: '', reason: '' });
         setShowTransferModal(true);
     };
 
     const closeTransferModal = () => {
         setShowTransferModal(false);
+        setTransferTargetIds([]);
         setActionError(null);
     };
 
+    const isBulkTransfer = transferTargetIds.length > 1;
+
     const confirmTransfer = async () => {
         setActionError(null);
-        setPendingAction('transfer');
         try {
-            await transferMutation.mutateAsync(transferData);
-            onSuccess?.('Transfer initiated successfully. New owner must approve.');
-            setShowTransferModal(false);
+            if (isBulkTransfer) {
+                setBulkAction('transfer');
+                const result = await runBulkAction(transferTargetIds, (certificateId) =>
+                    transferMutation.mutateAsync({ certificateId, ...transferData }),
+                );
+                if (result.failed.length === 0) {
+                    onSuccess?.(`Transfer initiated for ${result.succeeded.length} certificate${result.succeeded.length === 1 ? '' : 's'}. New owner must approve.`);
+                    setShowTransferModal(false);
+                } else {
+                    const message = `Initiated ${result.succeeded.length} of ${transferTargetIds.length} transfers; ${result.failed.length} failed`;
+                    setActionError(message);
+                    onError?.(message);
+                }
+            } else {
+                await runRowAction(transferTargetIds[0], 'transfer', () =>
+                    transferMutation.mutateAsync({ certificateId: transferTargetIds[0], ...transferData }),
+                );
+                onSuccess?.('Transfer initiated successfully. New owner must approve.');
+                setShowTransferModal(false);
+            }
         } catch (err) {
             console.error('Transfer failed:', err);
             setActionError('Failed to initiate transfer');
             onError?.('Failed to initiate transfer');
         } finally {
-            setPendingAction(null);
+            setBulkAction(null);
         }
     };
 
@@ -515,7 +579,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                 <div className="flex gap-2 mt-4">
                     <button
                         onClick={handleBulkExport}
-                        disabled={selectedIds.size === 0 || pendingAction !== null}
+                        disabled={selectedIds.size === 0 || bulkAction !== null}
                         className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-800 dark:text-gray-200 dark:border-slate-600 dark:hover:bg-slate-700"
                     >
                         <Download className="w-4 h-4 mr-2" />
@@ -523,15 +587,31 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                     </button>
                     <button
                         onClick={handleBulkExportAll}
-                        disabled={exportingFiltered || filteredCount === 0 || pendingAction !== null}
+                        disabled={exportingFiltered || filteredCount === 0 || bulkAction !== null}
                         className="inline-flex items-center px-3 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-300 rounded-md hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-600 dark:hover:bg-blue-900/30"
                     >
                         <Download className="w-4 h-4 mr-2" />
                         {exportingFiltered ? 'Exporting...' : `Export All (${filteredCount})`}
                     </button>
                     <button
+                        onClick={handleBulkUnfreeze}
+                        disabled={selectedIds.size === 0 || bulkAction !== null}
+                        className="inline-flex items-center px-3 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-green-900/20 dark:text-green-300 dark:border-green-600 dark:hover:bg-green-900/30"
+                    >
+                        <Check className="w-4 h-4 mr-2" />
+                        {bulkAction === 'unfreeze' ? 'Unfreezing...' : `Unfreeze (${selectedIds.size})`}
+                    </button>
+                    <button
+                        onClick={handleBulkTransfer}
+                        disabled={selectedIds.size === 0 || bulkAction !== null}
+                        className="inline-flex items-center px-3 py-2 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-300 rounded-md hover:bg-purple-100 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-600 dark:hover:bg-purple-900/30"
+                    >
+                        <Send className="w-4 h-4 mr-2" />
+                        Transfer ({selectedIds.size})
+                    </button>
+                    <button
                         onClick={handleBulkRevoke}
-                        disabled={selectedIds.size === 0 || pendingAction !== null}
+                        disabled={selectedIds.size === 0 || bulkAction !== null}
                         className="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <XCircle className="w-4 h-4 mr-2" />
@@ -686,7 +766,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                                     onClick={() => handleFreeze(cert.id)}
                                                     className="p-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                                                     title="Freeze Certificate"
-                                                    disabled={cert.status === 'frozen' || cert.status === 'revoked' || pendingAction !== null}
+                                                    disabled={cert.status === 'frozen' || cert.status === 'revoked' || isRowPending(cert.id)}
                                                 >
                                                     <Snowflake className="w-5 h-5" />
                                                 </button>
@@ -695,7 +775,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                                         onClick={() => handleUnfreeze(cert.id)}
                                                         className="p-1 text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
                                                         title="Unfreeze Certificate"
-                                                        disabled={pendingAction !== null}
+                                                        disabled={isRowPending(cert.id)}
                                                     >
                                                         <Check className="w-5 h-5" />
                                                     </button>
@@ -704,7 +784,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                                     onClick={() => { setRevokingCertIds([cert.id]); setShowRevokeModal(true); }}
                                                     className="p-1 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                                                     title="Revoke Certificate"
-                                                    disabled={cert.status === 'revoked' || pendingAction !== null}
+                                                    disabled={cert.status === 'revoked' || isRowPending(cert.id)}
                                                 >
                                                     <XCircle className="w-5 h-5" />
                                                 </button>
@@ -712,7 +792,7 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                                                     onClick={() => handleTransfer(cert)}
                                                     className="p-1 text-purple-600 hover:text-purple-800 dark:text-purple-400 dark:hover:text-purple-300"
                                                     title="Transfer Certificate"
-                                                    disabled={cert.status !== 'active' || pendingAction !== null}
+                                                    disabled={cert.status !== 'active' || isRowPending(cert.id)}
                                                 >
                                                     <Send className="w-5 h-5" />
                                                 </button>
@@ -839,10 +919,10 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                     <button
                         type="button"
                         onClick={confirmFreeze}
-                        disabled={!freezeReason || pendingAction === 'freeze'}
+                        disabled={!freezeReason || (!!freezingCertId && rowPendingAction(freezingCertId) === 'freeze')}
                         className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                     >
-                        {pendingAction === 'freeze' ? 'Freezing…' : 'Freeze'}
+                        {freezingCertId && rowPendingAction(freezingCertId) === 'freeze' ? 'Freezing…' : 'Freeze'}
                     </button>
                 </div>
             </Modal>
@@ -887,10 +967,10 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                     <button
                         type="button"
                         onClick={confirmRevoke}
-                        disabled={pendingAction === 'revoke'}
+                        disabled={isBulkRevoke ? bulkAction === 'revoke' : rowPendingAction(revokingCertIds[0] ?? '') === 'revoke'}
                         className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
                     >
-                        {pendingAction === 'revoke' ? 'Revoking…' : 'Revoke'}
+                        {(isBulkRevoke ? bulkAction === 'revoke' : rowPendingAction(revokingCertIds[0] ?? '') === 'revoke') ? 'Revoking…' : 'Revoke'}
                     </button>
                 </div>
             </Modal>
@@ -905,10 +985,14 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
             >
                 <div className="flex items-center gap-2 mb-4">
                     <Send className="w-6 h-6 text-purple-600" />
-                    <h3 id="transfer-certificate-title" className="text-lg font-semibold dark:text-white">Initiate Transfer</h3>
+                    <h3 id="transfer-certificate-title" className="text-lg font-semibold dark:text-white">
+                        Initiate Transfer{isBulkTransfer ? ` (${transferTargetIds.length} certificates)` : ''}
+                    </h3>
                 </div>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                    Transfer ownership of this certificate to a new recipient. The new owner will need to approve the transfer.
+                    {isBulkTransfer
+                        ? `Transfer ownership of ${transferTargetIds.length} certificates to a new recipient. The new owner will need to approve each transfer.`
+                        : 'Transfer ownership of this certificate to a new recipient. The new owner will need to approve the transfer.'}
                 </p>
                 <div className="space-y-4">
                     <div>
@@ -965,10 +1049,14 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                     <button
                         type="button"
                         onClick={confirmTransfer}
-                        disabled={!transferData.newOwnerEmail || !transferData.newOwnerName || pendingAction === 'transfer'}
+                        disabled={
+                            !transferData.newOwnerEmail ||
+                            !transferData.newOwnerName ||
+                            (isBulkTransfer ? bulkAction === 'transfer' : rowPendingAction(transferTargetIds[0] ?? '') === 'transfer')
+                        }
                         className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
                     >
-                        {pendingAction === 'transfer' ? 'Initiating…' : 'Initiate Transfer'}
+                        {(isBulkTransfer ? bulkAction === 'transfer' : rowPendingAction(transferTargetIds[0] ?? '') === 'transfer') ? 'Initiating…' : 'Initiate Transfer'}
                     </button>
                 </div>
             </Modal>
@@ -1068,8 +1156,8 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                     <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <div>
                             <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Serial Number</dt>
-                            <dd className="mt-1 font-mono text-sm text-gray-900 dark:text-white break-all">
-                                {viewingCertificate.serialNumber}
+                            <dd className="mt-1 text-sm text-gray-900 dark:text-white">
+                                <CopyableValue value={viewingCertificate.serialNumber} label="serial number" />
                             </dd>
                         </div>
                         <div>
@@ -1126,16 +1214,16 @@ const CertificateTable = ({ onError, onSuccess }: CertificateTableProps) => {
                         {viewingCertificate.txHash && (
                             <div className="sm:col-span-2">
                                 <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">Transaction Hash</dt>
-                                <dd className="mt-1 font-mono text-xs text-gray-900 dark:text-white break-all">
-                                    {viewingCertificate.txHash}
+                                <dd className="mt-1 text-xs text-gray-900 dark:text-white">
+                                    <CopyableValue value={viewingCertificate.txHash} label="transaction hash" />
                                 </dd>
                             </div>
                         )}
                         {viewingCertificate.cid && (
                             <div className="sm:col-span-2">
                                 <dt className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">IPFS CID</dt>
-                                <dd className="mt-1 font-mono text-xs text-gray-900 dark:text-white break-all">
-                                    {viewingCertificate.cid}
+                                <dd className="mt-1 text-xs text-gray-900 dark:text-white">
+                                    <CopyableValue value={viewingCertificate.cid} label="IPFS CID" />
                                 </dd>
                             </div>
                         )}

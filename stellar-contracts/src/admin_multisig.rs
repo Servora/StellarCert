@@ -4,6 +4,11 @@ use soroban_sdk::{
 
 use crate::Pagination;
 
+/// Hard cap on admin-multisig signer set size (#1369).
+/// Bound by Soroban per-transaction auth-entry limits so
+/// `init_admin_multisig` cannot require unbounded `require_auth` calls.
+pub const MAX_ADMIN_MULTISIG_SIGNERS: u32 = 20;
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AdminAction {
@@ -591,6 +596,10 @@ impl AdminMultisigContract {
         #[allow(clippy::unnecessary_cast)]
         if signers.is_empty() || threshold == 0 || threshold > signers.len() as u32 {
             panic!("Invalid admin multisig configuration");
+        }
+        // #1369 — refuse oversized signer sets (auth-entry / resource budget).
+        if signers.len() > MAX_ADMIN_MULTISIG_SIGNERS {
+            panic!("Admin multisig signer set exceeds MAX_ADMIN_MULTISIG_SIGNERS");
         }
 
         let mut i = 0;

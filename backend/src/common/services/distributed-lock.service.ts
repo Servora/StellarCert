@@ -74,7 +74,8 @@ export class DistributedLockService {
     options: LockHeartbeatOptions = {},
   ): () => void {
     const ttlMs = options.ttlMs ?? DEFAULT_LOCK_TTL_MS;
-    const intervalMs = options.intervalMs ?? Math.max(1000, Math.floor(ttlMs / 3));
+    const intervalMs =
+      options.intervalMs ?? Math.max(1000, Math.floor(ttlMs / 3));
     let stopped = false;
     let inFlight = false;
 

@@ -1,4 +1,7 @@
-import { truncateWebhookResponse, webhookSignatureHeader } from './webhook-signature.util';
+import {
+  truncateWebhookResponse,
+  webhookSignatureHeader,
+} from './webhook-signature.util';
 import * as crypto from 'crypto';
 
 describe('webhook signature util', () => {

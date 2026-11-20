@@ -186,7 +186,9 @@ export class ContractEventIndexerService {
 
   private catchUpWebhooksPerSecond(): number {
     const configured = Number(
-      this.configService.get('CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND'),
+      this.configService.get(
+        'CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND',
+      ),
     );
     return Number.isFinite(configured) && configured > 0
       ? configured
@@ -274,11 +276,11 @@ export class ContractEventIndexerService {
     if (!cert || cert.status !== CertificateStatus.PENDING) return;
     cert.status = CertificateStatus.ACTIVE;
     await this.certificateRepository.save(cert);
-    await this.dispatchWebhook(
-      WebhookEvent.CERTIFICATE_ISSUED,
-      cert.issuerId,
-      { id: cert.id, status: cert.status, source: 'chain' },
-    );
+    await this.dispatchWebhook(WebhookEvent.CERTIFICATE_ISSUED, cert.issuerId, {
+      id: cert.id,
+      status: cert.status,
+      source: 'chain',
+    });
   }
 
   private async applyRevoked(
@@ -317,17 +319,13 @@ export class ContractEventIndexerService {
       frozenAt,
     };
     await this.certificateRepository.save(cert);
-    await this.dispatchWebhook(
-      WebhookEvent.CERTIFICATE_FROZEN,
-      cert.issuerId,
-      {
-        id: cert.id,
-        status: cert.status,
-        ...(reason ? { freezeReason: reason } : {}),
-        frozenAt,
-        source: 'chain',
-      },
-    );
+    await this.dispatchWebhook(WebhookEvent.CERTIFICATE_FROZEN, cert.issuerId, {
+      id: cert.id,
+      status: cert.status,
+      ...(reason ? { freezeReason: reason } : {}),
+      frozenAt,
+      source: 'chain',
+    });
   }
 
   private async applyUnfrozen(id: string): Promise<void> {

@@ -154,6 +154,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: production
+      # Vite bakes import.meta.env.VITE_API_URL at build time (#1370).
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api/v1}
     image: ${STELLARCERT_FRONTEND_IMAGE:-stellarcert-frontend:local}
     container_name: stellarcert_frontend_prod
     ports:

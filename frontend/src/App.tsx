@@ -1,5 +1,5 @@
 import { Routes, Route, useLocation } from "react-router-dom";
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { Shield, Award, Search, ShieldAlert } from "lucide-react";
 import Navbar from "./components/Header";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -44,8 +44,33 @@ function App() {
   const showFeatureOverview =
     location.pathname === "/" || location.pathname === "/dashboard";
 
+  // #1333: surface transport failures globally instead of leaving silent
+  // retries looking like a broken app.
+  const [isOffline, setIsOffline] = useState(
+    typeof navigator === "undefined" ? false : !navigator.onLine,
+  );
+
+  useEffect(() => {
+    const goOffline = () => setIsOffline(true);
+    const goOnline = () => setIsOffline(false);
+    window.addEventListener("offline", goOffline);
+    window.addEventListener("online", goOnline);
+    return () => {
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("online", goOnline);
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 transition-colors duration-250">
+      {isOffline && (
+        <div
+          role="status"
+          className="bg-amber-500 text-white text-center text-sm py-2"
+        >
+          You are offline. Retrying automatically when the connection returns.
+        </div>
+      )}
       <AuthProvider>
         <NotificationProvider>
           <Navbar />
@@ -65,6 +90,8 @@ function App() {
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/login" element={<Login />} />
+                  {/* #1331: /verify is public. Keep the exemption here in the
+                      route table, where it is actually enforced. */}
                   <Route path="/verify" element={<VerifyCertificate />} />
                   {/*
                     Legacy path form. QR codes and PDFs printed before

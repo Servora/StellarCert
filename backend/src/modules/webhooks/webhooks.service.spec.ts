@@ -95,7 +95,7 @@ describe('WebhooksService delivery is best-effort', () => {
       logs: [{ id: 'log-1' }],
     };
     findOne.mockResolvedValue(subscription);
-    saveSubscription.mockImplementation(async (saved) => saved);
+    saveSubscription.mockImplementation((saved) => Promise.resolve(saved));
 
     const result = await service.rotateSecret('s1', 'issuer-1');
 
@@ -110,6 +110,8 @@ describe('WebhooksService delivery is best-effort', () => {
       hasSecret: true,
     });
     expect(result.secret).not.toBe('old-secret');
-    expect(result.secretHash).not.toBe('old-hash');
+    // secretHash is an internal integrity value, not the HMAC key - it must
+    // never reach the API response, same as on create (#719).
+    expect(result).not.toHaveProperty('secretHash');
   });
 });

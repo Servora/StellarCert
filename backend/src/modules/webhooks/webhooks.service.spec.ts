@@ -43,7 +43,9 @@ describe('WebhooksService delivery is best-effort', () => {
   });
 
   it('does not throw when the queue (Redis) is unavailable, and logs the drop', async () => {
-    queue.add.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:6379'));
+    queue.add.mockRejectedValue(
+      new Error('connect ECONNREFUSED 127.0.0.1:6379'),
+    );
 
     await expect(
       service.triggerEventForSubscription(

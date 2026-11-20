@@ -282,7 +282,9 @@ describe('ContractEventIndexerService', () => {
 
     it('honours the configured catch-up rate', async () => {
       configService.get.mockImplementation((key: string) =>
-        key === 'CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND' ? '4' : undefined,
+        key === 'CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND'
+          ? '4'
+          : undefined,
       );
       sorobanService.getContractEvents
         .mockResolvedValueOnce(page(0, 100))
@@ -295,7 +297,9 @@ describe('ContractEventIndexerService', () => {
 
     it('ignores an invalid configured rate and uses the default', async () => {
       configService.get.mockImplementation((key: string) =>
-        key === 'CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND' ? '0' : undefined,
+        key === 'CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND'
+          ? '0'
+          : undefined,
       );
       sorobanService.getContractEvents
         .mockResolvedValueOnce(page(0, 100))

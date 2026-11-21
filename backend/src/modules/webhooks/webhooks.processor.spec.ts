@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios from 'axios';
+import * as dns from 'dns';
 import { WebhooksProcessor } from './webhooks.processor';
 import { WebhookSubscription } from './entities/webhook-subscription.entity';
 import { WebhookLog } from './entities/webhook-log.entity';
@@ -92,6 +93,7 @@ describe('WebhooksProcessor', () => {
       expect.objectContaining({
         maxRedirects: 0,
         timeout: 10000,
+        lookup: expect.any(Function),
       }),
     );
 
@@ -104,5 +106,42 @@ describe('WebhooksProcessor', () => {
 
     const savedLog = mockLogRepository.save.mock.calls[0][0];
     expect(savedLog.response.length).toBeLessThanOrEqual(2048);
+  });
+
+  it('pins the DNS lookup to the IP resolved during validation', async () => {
+    const job = {
+      data: {
+        subscriptionId: '123e4567-e89b-12d3-a456-426614174000',
+        event: 'certificate.issued',
+        payload: { test: 'data' },
+      },
+    };
+
+    mockSubscriptionRepository.findOne.mockResolvedValue({
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      url: 'https://example.com/webhook',
+      secret: 'secret123',
+      isActive: true,
+      events: ['certificate.issued'],
+    });
+    mockedAxios.post.mockResolvedValue({ status: 200, data: {} });
+
+    await processor.handleDelivery(job as any);
+
+    const config = mockedAxios.post.mock.calls[0][2] as any;
+    expect(typeof config.lookup).toBe('function');
+
+    // The pinned lookup must answer with the validated address and never re-resolve
+    const lookupSpy = jest.spyOn(dns, 'lookup');
+    const result = await new Promise<{ address: string; family: number }>(
+      (resolve, reject) => {
+        config.lookup('example.com', {}, (err: any, address: string, family: number) =>
+          err ? reject(err) : resolve({ address, family }),
+        );
+      },
+    );
+    expect(result.address).toBeDefined();
+    expect(lookupSpy).not.toHaveBeenCalled();
+    lookupSpy.mockRestore();
   });
 });

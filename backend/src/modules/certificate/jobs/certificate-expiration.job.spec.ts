@@ -223,11 +223,15 @@ describe('CertificateExpirationJob', () => {
     });
 
     it('pages through more than one batch of candidates', async () => {
-      const page1 = [
-        { id: '1', certificateId: 'CERT-1', stellarSequenceNumber: '50' },
-      ] as Certificate[];
+      // A full-size (SEQUENCE_BATCH_SIZE) first page is what makes the job
+      // fetch a second page at all - a short page is treated as the last one.
+      const page1: Certificate[] = Array.from({ length: 500 }, (_, i) => ({
+        id: String(i + 1).padStart(4, '0'),
+        certificateId: `CERT-${i + 1}`,
+        stellarSequenceNumber: '50',
+      })) as Certificate[];
       const page2 = [
-        { id: '2', certificateId: 'CERT-2', stellarSequenceNumber: '60' },
+        { id: '0501', certificateId: 'CERT-501', stellarSequenceNumber: '60' },
       ] as Certificate[];
       const qb = buildSequenceQueryBuilder([page1, page2]);
       certificateRepository.createQueryBuilder.mockReturnValue(qb);
@@ -235,13 +239,13 @@ describe('CertificateExpirationJob', () => {
 
       await job.checkExpiredCertificates();
 
-      expect(qb.getMany).toHaveBeenCalledTimes(3); // page1, page2, empty page
+      expect(qb.getMany).toHaveBeenCalledTimes(2); // full page1, then short page2
       expect(certificateRepository.update).toHaveBeenCalledWith(
-        { id: '1', status: CertificateStatus.ACTIVE },
+        { id: '0001', status: CertificateStatus.ACTIVE },
         { status: CertificateStatus.EXPIRED },
       );
       expect(certificateRepository.update).toHaveBeenCalledWith(
-        { id: '2', status: CertificateStatus.ACTIVE },
+        { id: '0501', status: CertificateStatus.ACTIVE },
         { status: CertificateStatus.EXPIRED },
       );
     });

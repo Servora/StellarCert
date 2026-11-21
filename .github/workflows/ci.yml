@@ -152,7 +152,10 @@ jobs:
         working-directory: backend
     services:
       postgres:
-        image: postgres:15-alpine
+        # #1374: pinned to the exact same patch version as docker-compose.yml
+        # and docker-compose.dev.yml (POSTGRES_IMAGE there) - service
+        # containers here can't read the repo's .env, so it's hardcoded.
+        image: postgres:15.19-alpine
         env:
           POSTGRES_USER: stellarwave_user
           POSTGRES_PASSWORD: stellarwave_password
@@ -165,7 +168,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       redis:
-        image: redis:7-alpine
+        # #1374: see the matching note on the postgres image above.
+        image: redis:7.4.11-alpine
         ports:
           - 6379:6379
         options: >-
@@ -235,7 +239,10 @@ jobs:
         working-directory: backend
     services:
       postgres:
-        image: postgres:15-alpine
+        # #1374: pinned to the exact same patch version as docker-compose.yml
+        # and docker-compose.dev.yml (POSTGRES_IMAGE there) - service
+        # containers here can't read the repo's .env, so it's hardcoded.
+        image: postgres:15.19-alpine
         env:
           POSTGRES_USER: stellarwave_user
           POSTGRES_PASSWORD: stellarwave_password

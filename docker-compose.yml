@@ -6,7 +6,10 @@ services:
   # The port is published on the loopback interface only so a developer can still
   # connect from the host without exposing the database to the network.
   postgres:
-    image: postgres:15.19-alpine
+    # #1374: pinned here, in docker-compose.dev.yml and in ci.yml via the
+    # same POSTGRES_IMAGE/.env default so dev, CI and this (prod-equivalent)
+    # stack never drift onto different patch versions.
+    image: ${POSTGRES_IMAGE:-postgres:15.19-alpine}
     container_name: stellarcert_db
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set in .env}
@@ -32,7 +35,8 @@ services:
   # server argument (never as a plain command-line flag in the image default) and
   # the healthcheck authenticates with REDISCLI_AUTH so it works with auth on.
   redis:
-    image: redis:7.4.11-alpine
+    # #1374: see the matching note on the postgres image above.
+    image: ${REDIS_IMAGE:-redis:7.4.11-alpine}
     container_name: stellarcert_redis
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}

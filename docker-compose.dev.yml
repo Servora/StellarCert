@@ -27,7 +27,9 @@
 services:
   # PostgreSQL Database
   postgres:
-    image: postgres:15-alpine
+    # #1374: same image, same pin as docker-compose.yml (via POSTGRES_IMAGE
+    # in .env) so dev never drifts onto a different Postgres patch version.
+    image: ${POSTGRES_IMAGE:-postgres:15.19-alpine}
     container_name: stellarcert_db
     environment:
       POSTGRES_DB: stellarwave
@@ -48,7 +50,8 @@ services:
 
   # Redis (used by BullMQ job queues)
   redis:
-    image: redis:7-alpine
+    # #1374: see the matching note on the postgres image above.
+    image: ${REDIS_IMAGE:-redis:7.4.11-alpine}
     container_name: stellarcert_redis
     ports:
       - "6379:6379"

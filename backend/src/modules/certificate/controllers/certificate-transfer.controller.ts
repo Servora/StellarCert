@@ -50,7 +50,7 @@ export class CertificateTransferController {
   }
 
   @Post('approve')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, IpRateLimitGuard)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({ summary: 'Approve a certificate transfer' })
   @ApiResponse({ status: 200, description: 'Transfer approved successfully' })

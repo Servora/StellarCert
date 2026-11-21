@@ -28,10 +28,10 @@ export class JwtManagementService {
       'JWT_ACCESS_EXPIRES_IN',
     ) || '15m') as any;
     const secret = this.configService.get<string>('JWT_ACCESS_SECRET');
-    return this.nestJwtService.signAsync(
-      { ...payload, jti: uuidv4() } as any,
-      { expiresIn, secret },
-    );
+    return this.nestJwtService.signAsync({ ...payload, jti: uuidv4() } as any, {
+      expiresIn,
+      secret,
+    });
   }
 
   /**
@@ -42,10 +42,10 @@ export class JwtManagementService {
       'JWT_REFRESH_EXPIRES_IN',
     ) || '7d') as any;
     const secret = this.configService.get<string>('JWT_REFRESH_SECRET');
-    return this.nestJwtService.signAsync(
-      { ...payload, jti: uuidv4() } as any,
-      { expiresIn, secret },
-    );
+    return this.nestJwtService.signAsync({ ...payload, jti: uuidv4() } as any, {
+      expiresIn,
+      secret,
+    });
   }
 
   /**
@@ -59,6 +59,20 @@ export class JwtManagementService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * The cache-key identifier for a token: its `jti` when present, otherwise
+   * a SHA-256 hash of the token. Every cache key derived from a token - the
+   * blacklist and the 2FA attempt counter alike - must go through this, not
+   * fall back to the raw token, or a legacy/undecodable token ends up
+   * stored (and logged, via cache key logging) as a full bearer value again.
+   */
+  private async tokenCacheId(token: string): Promise<string> {
+    const jti = this.extractJti(token);
+    if (jti) return jti;
+    const { createHash } = await import('crypto');
+    return createHash('sha256').update(token).digest('hex');
   }
 
   /**
@@ -103,24 +117,18 @@ export class JwtManagementService {
    * Blacklist a token, keyed by its `jti` claim.
    */
   async blacklistToken(token: string, expiresIn?: number): Promise<void> {
-    // Decode to obtain jti and exp
-    let jti: string | null = null;
+    const jti = await this.tokenCacheId(token);
+
+    // Decode again for exp; decode() never throws (returns null on failure),
+    // so this can't actually hit the catch - kept for the default anyway.
     let tokenExp: number = Math.floor(Date.now() / 1000) + 3600;
     try {
       const decoded = this.nestJwtService.decode(token);
-      jti = decoded?.jti ?? null;
       if (decoded?.exp) {
         tokenExp = decoded.exp;
       }
     } catch {
-      // fall through – use defaults
-    }
-
-    if (!jti) {
-      // No jti present (e.g. legacy token); fall back to a hash of the token
-      // so the cache key is still bounded and the raw bearer is not stored.
-      const { createHash } = await import('crypto');
-      jti = createHash('sha256').update(token).digest('hex');
+      // fall through – use default
     }
 
     // Calculate remaining time until token naturally expires
@@ -142,16 +150,9 @@ export class JwtManagementService {
    * Check if a token is blacklisted (looks up by `jti`).
    */
   async isTokenBlacklisted(token: string): Promise<boolean> {
-    let jti = this.extractJti(token);
+    const jti = await this.tokenCacheId(token);
 
-    if (!jti) {
-      const { createHash } = await import('crypto');
-      jti = createHash('sha256').update(token).digest('hex');
-    }
-
-    const blacklisted = await this.cacheManager.get(
-      `blacklisted_token:${jti}`,
-    );
+    const blacklisted = await this.cacheManager.get(`blacklisted_token:${jti}`);
     return !!blacklisted;
   }
 
@@ -219,7 +220,7 @@ export class JwtManagementService {
     token: string,
     maxAttempts = 3,
   ): Promise<{ attempts: number; invalidated: boolean }> {
-    const jti = this.extractJti(token) ?? token;
+    const jti = await this.tokenCacheId(token);
     const key = `2fa_attempts:${jti}`;
     const current = (await this.cacheManager.get<number>(key)) || 0;
     const attempts = current + 1;
@@ -239,7 +240,7 @@ export class JwtManagementService {
    * Cache is keyed by the token's `jti`.
    */
   async clear2faAttempts(token: string): Promise<void> {
-    const jti = this.extractJti(token) ?? token;
+    const jti = await this.tokenCacheId(token);
     const key = `2fa_attempts:${jti}`;
     await this.cacheManager.del(key);
   }

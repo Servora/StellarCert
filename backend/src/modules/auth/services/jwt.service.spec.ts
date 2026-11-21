@@ -51,7 +51,7 @@ describe('generateAccessToken', () => {
       email: 'a@b.com',
       role: 'USER',
     });
-    const decoded = nestJwt.decode(token) as any;
+    const decoded = nestJwt.decode(token);
     expect(decoded).toHaveProperty('jti');
     expect(uuidValidate(decoded.jti)).toBe(true);
     expect(uuidVersion(decoded.jti)).toBe(4);
@@ -62,8 +62,8 @@ describe('generateAccessToken', () => {
     const payload = { sub: 'u1', email: 'a@b.com', role: 'USER' };
     const t1 = await svc.generateAccessToken(payload);
     const t2 = await svc.generateAccessToken(payload);
-    const j1 = (nestJwt.decode(t1) as any).jti;
-    const j2 = (nestJwt.decode(t2) as any).jti;
+    const j1 = nestJwt.decode(t1).jti;
+    const j2 = nestJwt.decode(t2).jti;
     expect(j1).not.toEqual(j2);
   });
 });
@@ -76,7 +76,7 @@ describe('generateRefreshToken', () => {
       email: 'a@b.com',
       role: 'USER',
     });
-    const decoded = nestJwt.decode(token) as any;
+    const decoded = nestJwt.decode(token);
     expect(decoded).toHaveProperty('jti');
     expect(uuidValidate(decoded.jti)).toBe(true);
   });
@@ -95,16 +95,14 @@ describe('blacklistToken', () => {
       email: 'a@b.com',
       role: 'USER',
     });
-    const jti = (nestJwt.decode(token) as any).jti as string;
+    const jti = nestJwt.decode(token).jti as string;
 
     await svc.blacklistToken(token);
 
     // The cache key must be keyed by jti
     expect(cache.store.has(`blacklisted_token:${jti}`)).toBe(true);
     // The raw token must NOT be a cache key
-    const rawKeyExists = [...cache.store.keys()].some((k) =>
-      k.includes(token),
-    );
+    const rawKeyExists = [...cache.store.keys()].some((k) => k.includes(token));
     expect(rawKeyExists).toBe(false);
   });
 
@@ -181,16 +179,14 @@ describe('recordFailed2faAttempt', () => {
       email: 'a@b.com',
       role: 'USER',
     });
-    const jti = (nestJwt.decode(token) as any).jti as string;
+    const jti = nestJwt.decode(token).jti as string;
 
     const result = await svc.recordFailed2faAttempt(token, 3);
 
     expect(result).toEqual({ attempts: 1, invalidated: false });
     expect(cache.store.get(`2fa_attempts:${jti}`)).toBe(1);
     // Raw token must not appear as a cache key
-    const rawKeyExists = [...cache.store.keys()].some((k) =>
-      k.includes(token),
-    );
+    const rawKeyExists = [...cache.store.keys()].some((k) => k.includes(token));
     expect(rawKeyExists).toBe(false);
   });
 
@@ -202,7 +198,7 @@ describe('recordFailed2faAttempt', () => {
       email: 'a@b.com',
       role: 'USER',
     });
-    const jti = (nestJwt.decode(token) as any).jti as string;
+    const jti = nestJwt.decode(token).jti as string;
 
     // Two prior failures
     await svc.recordFailed2faAttempt(token, 3);
@@ -211,6 +207,26 @@ describe('recordFailed2faAttempt', () => {
 
     expect(result).toEqual({ attempts: 3, invalidated: true });
     expect(cache.store.has(`blacklisted_token:${jti}`)).toBe(true);
+  });
+
+  it('uses the same sha256 hash fallback as blacklistToken when the token has no jti (regression)', async () => {
+    const cache = makeCache();
+    const { svc, nestJwt } = buildService(cache);
+    const noJtiToken = await nestJwt.signAsync(
+      { sub: 'u3', email: 'c@d.com', role: 'USER' },
+      { secret: 'access-secret', expiresIn: '15m' },
+    );
+
+    await svc.recordFailed2faAttempt(noJtiToken, 3);
+
+    const { createHash } = await import('crypto');
+    const expectedKey = `2fa_attempts:${createHash('sha256').update(noJtiToken).digest('hex')}`;
+    expect(cache.store.has(expectedKey)).toBe(true);
+    // The raw token must never become a cache key, for a legacy token either.
+    const rawKeyExists = [...cache.store.keys()].some((k) =>
+      k.includes(noJtiToken),
+    );
+    expect(rawKeyExists).toBe(false);
   });
 });
 
@@ -226,12 +242,29 @@ describe('clear2faAttempts', () => {
       email: 'a@b.com',
       role: 'USER',
     });
-    const jti = (nestJwt.decode(token) as any).jti as string;
+    const jti = nestJwt.decode(token).jti as string;
 
     await svc.recordFailed2faAttempt(token, 3);
     expect(cache.store.has(`2fa_attempts:${jti}`)).toBe(true);
 
     await svc.clear2faAttempts(token);
     expect(cache.store.has(`2fa_attempts:${jti}`)).toBe(false);
+  });
+
+  it('clears the same sha256-hash-keyed counter recordFailed2faAttempt wrote for a jti-less token (regression)', async () => {
+    const cache = makeCache();
+    const { svc, nestJwt } = buildService(cache);
+    const noJtiToken = await nestJwt.signAsync(
+      { sub: 'u4', email: 'e@f.com', role: 'USER' },
+      { secret: 'access-secret', expiresIn: '15m' },
+    );
+
+    await svc.recordFailed2faAttempt(noJtiToken, 3);
+    const { createHash } = await import('crypto');
+    const expectedKey = `2fa_attempts:${createHash('sha256').update(noJtiToken).digest('hex')}`;
+    expect(cache.store.has(expectedKey)).toBe(true);
+
+    await svc.clear2faAttempts(noJtiToken);
+    expect(cache.store.has(expectedKey)).toBe(false);
   });
 });

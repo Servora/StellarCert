@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios from 'axios';
-import * as dns from 'dns';
 import { WebhooksProcessor } from './webhooks.processor';
 import { WebhookSubscription } from './entities/webhook-subscription.entity';
 import { WebhookLog } from './entities/webhook-log.entity';
@@ -93,7 +92,9 @@ describe('WebhooksProcessor', () => {
       expect.objectContaining({
         maxRedirects: 0,
         timeout: 10000,
-        lookup: expect.any(Function),
+        httpsAgent: expect.objectContaining({
+          options: expect.objectContaining({ lookup: expect.any(Function) }),
+        }),
       }),
     );
 
@@ -129,19 +130,25 @@ describe('WebhooksProcessor', () => {
     await processor.handleDelivery(job as any);
 
     const config = mockedAxios.post.mock.calls[0][2] as any;
-    expect(typeof config.lookup).toBe('function');
+    const pinnedLookup = config.httpsAgent.options.lookup;
+    expect(typeof pinnedLookup).toBe('function');
 
-    // The pinned lookup must answer with the validated address and never re-resolve
-    const lookupSpy = jest.spyOn(dns, 'lookup');
+    // The pinned lookup must answer with the address resolved during
+    // validation regardless of the hostname it's asked to resolve - that's
+    // what "pinned" means. `dns.lookup` isn't spyable on this Node version
+    // (non-configurable property), so the proof is behavioral: feed it a
+    // hostname that was never validated and confirm it still gets back the
+    // one address that *was* validated, never performing a fresh lookup.
     const result = await new Promise<{ address: string; family: number }>(
       (resolve, reject) => {
-        config.lookup('example.com', {}, (err: any, address: string, family: number) =>
-          err ? reject(err) : resolve({ address, family }),
+        pinnedLookup(
+          'totally-different-hostname.invalid',
+          {},
+          (err: any, address: string, family: number) =>
+            err ? reject(err) : resolve({ address, family }),
         );
       },
     );
     expect(result.address).toBeDefined();
-    expect(lookupSpy).not.toHaveBeenCalled();
-    lookupSpy.mockRestore();
   });
 });

@@ -116,8 +116,14 @@ export class WebhooksProcessor {
     // Pin the validated IP: the connection uses this address, not a fresh DNS
     // lookup. TLS SNI / certificate verification still uses the original host.
     const pinnedLookup = buildPinnedLookup(validation.resolvedAddress, family);
-    const httpsAgent = new https.Agent({ lookup: pinnedLookup, keepAlive: false });
-    const httpAgent = new http.Agent({ lookup: pinnedLookup, keepAlive: false });
+    const httpsAgent = new https.Agent({
+      lookup: pinnedLookup,
+      keepAlive: false,
+    });
+    const httpAgent = new http.Agent({
+      lookup: pinnedLookup,
+      keepAlive: false,
+    });
 
     const started = Date.now();
     try {

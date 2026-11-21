@@ -155,6 +155,7 @@ jobs:
         # #1374: pinned to the exact same patch version as docker-compose.yml
         # and docker-compose.dev.yml (POSTGRES_IMAGE there) - service
         # containers here can't read the repo's .env, so it's hardcoded.
+        # CANONICAL SOURCE: .env.example POSTGRES_IMAGE=postgres:15.19-alpine
         image: postgres:15.19-alpine
         env:
           POSTGRES_USER: stellarwave_user
@@ -169,6 +170,7 @@ jobs:
           --health-retries 10
       redis:
         # #1374: see the matching note on the postgres image above.
+        # CANONICAL SOURCE: .env.example REDIS_IMAGE=redis:7.4.11-alpine
         image: redis:7.4.11-alpine
         ports:
           - 6379:6379
@@ -242,6 +244,7 @@ jobs:
         # #1374: pinned to the exact same patch version as docker-compose.yml
         # and docker-compose.dev.yml (POSTGRES_IMAGE there) - service
         # containers here can't read the repo's .env, so it's hardcoded.
+        # CANONICAL SOURCE: .env.example POSTGRES_IMAGE=postgres:15.19-alpine
         image: postgres:15.19-alpine
         env:
           POSTGRES_USER: stellarwave_user

@@ -177,13 +177,23 @@ export class UserAuthService {
       role: user.role,
     };
 
-    const accessToken = this.jwtService.sign(payload, {
-      expiresIn: this.configService.get('JWT_ACCESS_EXPIRES_IN', '15m'),
-    });
+    // Each token needs its own jti (#1304): registration mints tokens
+    // through this service instead of JwtManagementService, so without
+    // this every freshly-registered user's token was exactly the
+    // raw-token-as-cache-key case that fix closed for login-issued tokens.
+    const accessToken = this.jwtService.sign(
+      { ...payload, jti: crypto.randomUUID() },
+      {
+        expiresIn: this.configService.get('JWT_ACCESS_EXPIRES_IN', '15m'),
+      },
+    );
 
-    const refreshToken = this.jwtService.sign(payload, {
-      expiresIn: '7d',
-    });
+    const refreshToken = this.jwtService.sign(
+      { ...payload, jti: crypto.randomUUID() },
+      {
+        expiresIn: '7d',
+      },
+    );
 
     // Store refresh token
     const refreshTokenExpires = new Date();

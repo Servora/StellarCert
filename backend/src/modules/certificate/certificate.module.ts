@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CacheModule } from '@nestjs/cache-manager';
 import { ConfigModule } from '@nestjs/config';
+import { RateLimitStoreModule } from '../../common/rate-limiting/rate-limit-store.module';
 import { BullModule } from '@nestjs/bull';
 import { BullBoardModule } from '@bull-board/nestjs';
 import { BullAdapter } from '@bull-board/api/bullAdapter';
@@ -69,6 +70,7 @@ import { CertificateExpirationJob } from './jobs/certificate-expiration.job';
       max: 100,
     }),
     ConfigModule,
+    RateLimitStoreModule,
     MetadataSchemaModule,
     forwardRef(() => AuthModule),
     WebhooksModule,

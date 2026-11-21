@@ -22,6 +22,7 @@ import {
   RejectTransferDto,
 } from '../dto/transfer-certificate.dto';
 import { JwtAuthGuard } from 'src/common';
+import { IpRateLimitGuard } from '../../../common/guards/ip-rate-limit.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '../../../common/constants/roles';
@@ -49,7 +50,7 @@ export class CertificateTransferController {
   }
 
   @Post('approve')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, IpRateLimitGuard)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({ summary: 'Approve a certificate transfer' })
   @ApiResponse({ status: 200, description: 'Transfer approved successfully' })

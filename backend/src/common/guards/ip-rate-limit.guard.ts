@@ -19,6 +19,8 @@ export interface RateLimitEntry {
 /** DI token a shared store implementation can be bound to (#726). */
 export const RATE_LIMIT_STORE = 'IP_RATE_LIMIT_STORE';
 
+export const DEFAULT_IP_RATE_LIMIT_MIRROR_MAX_ENTRIES = 10_000;
+
 /**
  * Authoritative request counter store.
  *
@@ -89,13 +91,15 @@ export class IpRateLimitGuard implements CanActivate {
   /**
    * Best-effort per-instance view of the counters, used only to answer the
    * synchronous monitoring endpoints. This is NOT the authoritative counter —
-   * that lives in {@link store}.
+   * that lives in {@link store}. Bounded via LRU eviction so a flood of
+   * unique IPs within a window cannot grow memory without bound.
    */
   private readonly mirror = new Map<string, RateLimitEntry>();
 
   private readonly store: RateLimitStore;
   private readonly windowMs: number;
   private readonly maxRequests: number;
+  private readonly maxMirrorEntries: number;
   private readonly trustedProxyIps: Set<string>;
 
   constructor(
@@ -114,6 +118,17 @@ export class IpRateLimitGuard implements CanActivate {
       100,
     );
 
+    const configuredMirrorCap = Number(
+      this.configService.get<number | string>(
+        'IP_RATE_LIMIT_MIRROR_MAX_ENTRIES',
+        DEFAULT_IP_RATE_LIMIT_MIRROR_MAX_ENTRIES,
+      ),
+    );
+    this.maxMirrorEntries =
+      Number.isFinite(configuredMirrorCap) && configuredMirrorCap > 0
+        ? Math.floor(configuredMirrorCap)
+        : DEFAULT_IP_RATE_LIMIT_MIRROR_MAX_ENTRIES;
+
     // Empty by default: forwarded headers are ignored until an operator states
     // which peers are allowed to set them.
     this.trustedProxyIps = parseTrustedProxyIps(
@@ -129,8 +144,7 @@ export class IpRateLimitGuard implements CanActivate {
     const entry = await this.store.consume(clientIp, this.windowMs, now);
 
     // Keep the monitoring mirror current and bounded.
-    this.mirror.set(clientIp, entry);
-    this.pruneMirror(now);
+    this.recordMirror(clientIp, entry, now);
 
     if (entry.count > this.maxRequests) {
       const resetInSeconds = Math.ceil((entry.resetTime - now) / 1000);
@@ -166,10 +180,40 @@ export class IpRateLimitGuard implements CanActivate {
     return resolveClientIp(request, this.trustedProxyIps);
   }
 
+  private recordMirror(ip: string, entry: RateLimitEntry, now: number): void {
+    // Refresh insertion order so Map acts as an LRU cache.
+    if (this.mirror.has(ip)) {
+      this.mirror.delete(ip);
+    }
+    this.mirror.set(ip, { ...entry });
+    this.pruneMirror(now);
+    this.evictMirrorToCap();
+  }
+
   private pruneMirror(now: number): void {
     for (const [ip, entry] of this.mirror.entries()) {
       if (now > entry.resetTime) this.mirror.delete(ip);
     }
+  }
+
+  private evictMirrorToCap(): void {
+    while (this.mirror.size > this.maxMirrorEntries) {
+      const oldestKey = this.mirror.keys().next().value;
+      if (oldestKey === undefined) break;
+      this.mirror.delete(oldestKey);
+    }
+  }
+
+  private touchMirror(ip: string, now: number): RateLimitEntry | undefined {
+    const entry = this.mirror.get(ip);
+    if (!entry) return undefined;
+    if (now > entry.resetTime) {
+      this.mirror.delete(ip);
+      return undefined;
+    }
+    this.mirror.delete(ip);
+    this.mirror.set(ip, entry);
+    return entry;
   }
 
   /**
@@ -187,12 +231,15 @@ export class IpRateLimitGuard implements CanActivate {
 
     const now = Date.now();
     if (now > entry.resetTime) {
+      this.mirror.delete(ip);
       return {
         count: 0,
         resetTime: entry.resetTime,
         remaining: this.maxRequests,
       };
     }
+
+    this.touchMirror(ip, now);
 
     return {
       count: entry.count,

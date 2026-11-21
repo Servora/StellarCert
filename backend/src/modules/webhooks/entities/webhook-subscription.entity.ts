@@ -61,6 +61,15 @@ export class WebhookSubscription {
   @Column({ default: true })
   isActive: boolean;
 
+  @Column({ default: 0 })
+  consecutiveFailures: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  pausedAt?: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  pausedReason?: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 

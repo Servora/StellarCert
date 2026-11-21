@@ -4,7 +4,10 @@ import { Repository } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Certificate } from '../entities/certificate.entity';
 import { CertificateStatus } from '../constants/certificate-status.enum';
-import { AuditService } from '../../audit/services/audit.service';
+import {
+  AuditService,
+  LogAuditParams,
+} from '../../audit/services/audit.service';
 import { AuditAction } from '../../audit/constants/audit-action.enum';
 import { AuditResourceType } from '../../audit/constants/audit-resource-type.enum';
 import { StellarService } from '../../stellar/services/stellar.service';
@@ -23,6 +26,24 @@ export class CertificateExpirationJob {
   ) {}
 
   /**
+   * Writes an audit entry and waits for it to finish.
+   *
+   * Audit writes must never take the job down with them, so failures are caught
+   * and logged here; awaiting keeps a rejection from escaping as an unhandled
+   * promise rejection while still ensuring the entry is persisted before the
+   * job moves on.
+   */
+  private async writeAuditLog(params: LogAuditParams): Promise<void> {
+    try {
+      await this.auditService.log(params);
+    } catch (error: unknown) {
+      this.logger.error(
+        `Failed to write audit log for ${params.action}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
    * Runs every hour to mark active certificates as expired.
    * Two expiration criteria are checked:
    *  1. Date-based: expiresAt <= now
@@ -33,7 +54,7 @@ export class CertificateExpirationJob {
   async checkExpiredCertificates(): Promise<void> {
     this.logger.log('Starting certificate expiration check');
 
-    void this.auditService.log({
+    await this.writeAuditLog({
       action: AuditAction.BACKGROUND_JOB_START,
       resourceType: AuditResourceType.SYSTEM,
       userId: 'system',
@@ -57,7 +78,7 @@ export class CertificateExpirationJob {
         certificate.status = CertificateStatus.EXPIRED;
         await this.certificateRepository.save(certificate);
 
-        void this.auditService.log({
+        await this.writeAuditLog({
           action: AuditAction.CERTIFICATE_EXPIRE,
           resourceType: AuditResourceType.CERTIFICATE,
           resourceId: certificate.id,
@@ -108,7 +129,7 @@ export class CertificateExpirationJob {
               certificate.status = CertificateStatus.EXPIRED;
               await this.certificateRepository.save(certificate);
 
-              void this.auditService.log({
+              await this.writeAuditLog({
                 action: AuditAction.CERTIFICATE_EXPIRE,
                 resourceType: AuditResourceType.CERTIFICATE,
                 resourceId: certificate.id,
@@ -145,7 +166,7 @@ export class CertificateExpirationJob {
       `Certificate expiration check complete. Marked ${markedExpired} certificates as expired.`,
     );
 
-    void this.auditService.log({
+    await this.writeAuditLog({
       action: AuditAction.BACKGROUND_JOB_COMPLETE,
       resourceType: AuditResourceType.SYSTEM,
       userId: 'system',

@@ -3,6 +3,7 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { JwtService as NestJwtService } from '@nestjs/jwt';
 import type { Cache } from 'cache-manager';
 import { ConfigService } from '@nestjs/config';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface JwtPayload {
   sub: string;
@@ -20,25 +21,44 @@ export class JwtManagementService {
   ) {}
 
   /**
-   * Generate access token
+   * Generate access token (includes a unique `jti` claim)
    */
   async generateAccessToken(payload: JwtPayload): Promise<string> {
     const expiresIn = (this.configService.get<string>(
       'JWT_ACCESS_EXPIRES_IN',
     ) || '15m') as any;
     const secret = this.configService.get<string>('JWT_ACCESS_SECRET');
-    return this.nestJwtService.signAsync(payload as any, { expiresIn, secret });
+    return this.nestJwtService.signAsync(
+      { ...payload, jti: uuidv4() } as any,
+      { expiresIn, secret },
+    );
   }
 
   /**
-   * Generate refresh token
+   * Generate refresh token (includes a unique `jti` claim)
    */
   async generateRefreshToken(payload: JwtPayload): Promise<string> {
     const expiresIn = (this.configService.get<string>(
       'JWT_REFRESH_EXPIRES_IN',
     ) || '7d') as any;
     const secret = this.configService.get<string>('JWT_REFRESH_SECRET');
-    return this.nestJwtService.signAsync(payload as any, { expiresIn, secret });
+    return this.nestJwtService.signAsync(
+      { ...payload, jti: uuidv4() } as any,
+      { expiresIn, secret },
+    );
+  }
+
+  /**
+   * Extract the `jti` claim from a token without full verification.
+   * Returns null when the token cannot be decoded or has no `jti`.
+   */
+  private extractJti(token: string): string | null {
+    try {
+      const decoded = this.nestJwtService.decode(token);
+      return decoded?.jti ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -80,17 +100,27 @@ export class JwtManagementService {
   }
 
   /**
-   * Blacklist a token
+   * Blacklist a token, keyed by its `jti` claim.
    */
   async blacklistToken(token: string, expiresIn?: number): Promise<void> {
-    // Get token expiration time to set appropriate cache expiration
-    let tokenExp: number;
+    // Decode to obtain jti and exp
+    let jti: string | null = null;
+    let tokenExp: number = Math.floor(Date.now() / 1000) + 3600;
     try {
       const decoded = this.nestJwtService.decode(token);
-      tokenExp = decoded.exp || 3600; // Default to 1 hour if no exp found
-    } catch (error) {
-      // If we can't decode the token, use a default expiration
-      tokenExp = 3600;
+      jti = decoded?.jti ?? null;
+      if (decoded?.exp) {
+        tokenExp = decoded.exp;
+      }
+    } catch {
+      // fall through – use defaults
+    }
+
+    if (!jti) {
+      // No jti present (e.g. legacy token); fall back to a hash of the token
+      // so the cache key is still bounded and the raw bearer is not stored.
+      const { createHash } = await import('crypto');
+      jti = createHash('sha256').update(token).digest('hex');
     }
 
     // Calculate remaining time until token naturally expires
@@ -100,20 +130,27 @@ export class JwtManagementService {
     // Use the provided expiration or the remaining time until natural expiration
     const cacheExpiry = expiresIn || remainingTime;
 
-    // Store the token in cache to mark it as blacklisted
+    // Store the jti in cache to mark it as blacklisted
     await this.cacheManager.set(
-      `blacklisted_token:${token}`,
+      `blacklisted_token:${jti}`,
       true,
       cacheExpiry * 1000,
     );
   }
 
   /**
-   * Check if a token is blacklisted
+   * Check if a token is blacklisted (looks up by `jti`).
    */
   async isTokenBlacklisted(token: string): Promise<boolean> {
+    let jti = this.extractJti(token);
+
+    if (!jti) {
+      const { createHash } = await import('crypto');
+      jti = createHash('sha256').update(token).digest('hex');
+    }
+
     const blacklisted = await this.cacheManager.get(
-      `blacklisted_token:${token}`,
+      `blacklisted_token:${jti}`,
     );
     return !!blacklisted;
   }
@@ -175,13 +212,15 @@ export class JwtManagementService {
 
   /**
    * Record a failed 2FA verification attempt for a pre-auth token.
+   * Cache is keyed by the token's `jti`.
    * If attempts reach or exceed maxAttempts, the token is invalidated (blacklisted).
    */
   async recordFailed2faAttempt(
     token: string,
     maxAttempts = 3,
   ): Promise<{ attempts: number; invalidated: boolean }> {
-    const key = `2fa_attempts:${token}`;
+    const jti = this.extractJti(token) ?? token;
+    const key = `2fa_attempts:${jti}`;
     const current = (await this.cacheManager.get<number>(key)) || 0;
     const attempts = current + 1;
     // Window of 5 minutes (matching pre-auth token expiration)
@@ -197,9 +236,11 @@ export class JwtManagementService {
 
   /**
    * Clear failed 2FA verification attempts for a pre-auth token.
+   * Cache is keyed by the token's `jti`.
    */
   async clear2faAttempts(token: string): Promise<void> {
-    const key = `2fa_attempts:${token}`;
+    const jti = this.extractJti(token) ?? token;
+    const key = `2fa_attempts:${jti}`;
     await this.cacheManager.del(key);
   }
 }

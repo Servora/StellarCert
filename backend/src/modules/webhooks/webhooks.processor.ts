@@ -1,6 +1,10 @@
 import { Process, Processor, OnQueueFailed } from '@nestjs/bull';
 import type { Job } from 'bull';
 import axios from 'axios';
+import * as http from 'http';
+import * as https from 'https';
+import { isIP } from 'net';
+import type { LookupFunction } from 'net';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Optional } from '@nestjs/common';
@@ -22,6 +26,21 @@ export function getMaxConsecutiveFailures(): number {
   return Number.isFinite(parsed) && parsed > 0
     ? parsed
     : DEFAULT_MAX_CONSECUTIVE_FAILURES;
+}
+
+/**
+ * Builds a DNS lookup function that always returns the pre-validated address,
+ * so the socket connects to the IP that passed SSRF validation regardless of
+ * any subsequent DNS answer for the hostname (DNS-rebinding defense).
+ */
+function buildPinnedLookup(address: string, family: 4 | 6): LookupFunction {
+  return ((_hostname: string, options: any, callback: any) => {
+    if (options && options.all) {
+      callback(null, [{ address, family }]);
+    } else {
+      callback(null, address, family);
+    }
+  }) as LookupFunction;
 }
 
 @Processor('webhooks')
@@ -61,7 +80,7 @@ export class WebhooksProcessor {
     );
 
     const validation = await validateWebhookUrl(subscription.url);
-    if (!validation.valid) {
+    if (!validation.valid || !validation.resolvedAddress) {
       this.logger.warn(
         `Webhook blocked by SSRF protection: ${validation.error}`,
       );
@@ -77,6 +96,29 @@ export class WebhooksProcessor {
       throw new Error(`SSRF blocked: ${validation.error}`);
     }
 
+    // Derive the address family from the validated IP itself (4 or 6).
+    const family = isIP(validation.resolvedAddress);
+    if (family !== 4 && family !== 6) {
+      const error = 'Resolved address is not a valid IP';
+      this.logger.warn(`Webhook blocked by SSRF protection: ${error}`);
+      await this.logRepository.save({
+        subscriptionId,
+        event,
+        payload,
+        statusCode: 0,
+        response: error,
+        attempt: attemptNumber,
+        isSuccess: false,
+      });
+      throw new Error(`SSRF blocked: ${error}`);
+    }
+
+    // Pin the validated IP: the connection uses this address, not a fresh DNS
+    // lookup. TLS SNI / certificate verification still uses the original host.
+    const pinnedLookup = buildPinnedLookup(validation.resolvedAddress, family);
+    const httpsAgent = new https.Agent({ lookup: pinnedLookup, keepAlive: false });
+    const httpAgent = new http.Agent({ lookup: pinnedLookup, keepAlive: false });
+
     const started = Date.now();
     try {
       const res = await axios.post(subscription.url, payload, {
@@ -88,6 +130,8 @@ export class WebhooksProcessor {
         },
         timeout: 10000,
         maxRedirects: 0,
+        httpsAgent,
+        httpAgent,
       });
 
       const responseBody =
@@ -139,6 +183,9 @@ export class WebhooksProcessor {
       );
 
       throw err;
+    } finally {
+      httpsAgent.destroy();
+      httpAgent.destroy();
     }
   }
 

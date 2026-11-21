@@ -130,6 +130,8 @@ function isReservedIP(ip: string): boolean {
 export interface SsrfValidationResult {
   valid: boolean;
   error?: string;
+  /** Vetted IP address the caller must connect to (pinned to defeat DNS rebinding). */
+  resolvedAddress?: string;
 }
 
 /**
@@ -186,11 +188,11 @@ export async function validateWebhookUrl(
         };
       }
     }
+
+    return { valid: true, resolvedAddress: resolvedAddresses[0] };
   } catch {
     return { valid: false, error: 'Unable to resolve hostname' };
   }
-
-  return { valid: true };
 }
 
 /**

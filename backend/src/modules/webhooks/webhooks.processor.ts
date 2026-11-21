@@ -46,7 +46,6 @@ export class WebhooksProcessor {
 
     const subscription = await this.subscriptionRepository.findOne({
       where: { id: subscriptionId },
-      relations: ['issuer'],
     });
 
     if (!subscription || !subscription.isActive) {
@@ -176,17 +175,20 @@ export class WebhooksProcessor {
 
     const subscription = await this.subscriptionRepository.findOne({
       where: { id: subscriptionId },
-      relations: ['issuer'],
     });
 
     if (!subscription) {
       return;
     }
 
-    subscription.consecutiveFailures = (subscription.consecutiveFailures ?? 0) + 1;
+    subscription.consecutiveFailures =
+      (subscription.consecutiveFailures ?? 0) + 1;
     const threshold = getMaxConsecutiveFailures();
 
-    if (subscription.consecutiveFailures >= threshold && subscription.isActive) {
+    if (
+      subscription.consecutiveFailures >= threshold &&
+      subscription.isActive
+    ) {
       subscription.isActive = false;
       subscription.pausedAt = new Date();
       subscription.pausedReason = `Auto-paused after ${subscription.consecutiveFailures} consecutive failed deliveries (${reason})`;
@@ -196,13 +198,12 @@ export class WebhooksProcessor {
         `Auto-paused webhook subscription ${subscription.id} for issuer ${subscription.issuerId} after ${subscription.consecutiveFailures} consecutive failures`,
       );
 
-      const recipientUserId =
-        (subscription.issuer as any)?.userId || subscription.issuerId;
-
-      if (this.notificationsService && recipientUserId) {
+      // `issuerId` is the owning user's id (see the entity's doc comment),
+      // so no further lookup through the loaded `issuer` relation is needed.
+      if (this.notificationsService && subscription.issuerId) {
         try {
           await this.notificationsService.createNotification(
-            recipientUserId,
+            subscription.issuerId,
             NotificationType.ERROR,
             'Webhook Subscription Auto-Paused',
             `Your webhook endpoint (${subscription.url}) was automatically paused after ${subscription.consecutiveFailures} consecutive delivery failures. Latest error: ${reason}`,

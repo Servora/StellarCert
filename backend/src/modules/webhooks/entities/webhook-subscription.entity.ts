@@ -8,7 +8,7 @@ import {
   JoinColumn,
   OneToMany,
 } from 'typeorm';
-import { Issuer } from '../../issuers/entities/issuer.entity';
+import { User } from '../../users/entities/user.entity';
 import { WebhookLog } from './webhook-log.entity';
 
 export enum WebhookEvent {
@@ -26,12 +26,18 @@ export class WebhookSubscription {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  /**
+   * Despite the name, this is the id of the `users` row that owns the
+   * subscription (the authenticated caller of POST /webhooks), not an
+   * `issuers` (API-key tenant) row - every write site already populates it
+   * from `@CurrentUser('id')`. The FK below matches that reality.
+   */
   @Column()
   issuerId: string;
 
-  @ManyToOne(() => Issuer)
+  @ManyToOne(() => User)
   @JoinColumn({ name: 'issuerId' })
-  issuer: Issuer;
+  issuer: User;
 
   @Column()
   url: string;

@@ -72,8 +72,9 @@ describe('WebhooksProcessor dead-letter and auto-pause', () => {
   it('creates a dead-letter log and auto-pauses subscription after threshold failures', async () => {
     const sub: Partial<WebhookSubscription> = {
       id: 'sub-1',
-      issuerId: 'issuer-1',
-      issuer: { id: 'issuer-1', userId: 'user-1' } as any,
+      // issuerId is the owning user's id (see the entity's doc comment) -
+      // no separate relation lookup is needed to notify them.
+      issuerId: 'user-1',
       url: 'https://example.com/hook',
       secret: 'secret',
       isActive: true,

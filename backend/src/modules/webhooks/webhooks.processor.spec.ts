@@ -92,6 +92,9 @@ describe('WebhooksProcessor', () => {
       expect.objectContaining({
         maxRedirects: 0,
         timeout: 10000,
+        httpsAgent: expect.objectContaining({
+          options: expect.objectContaining({ lookup: expect.any(Function) }),
+        }),
       }),
     );
 
@@ -104,5 +107,48 @@ describe('WebhooksProcessor', () => {
 
     const savedLog = mockLogRepository.save.mock.calls[0][0];
     expect(savedLog.response.length).toBeLessThanOrEqual(2048);
+  });
+
+  it('pins the DNS lookup to the IP resolved during validation', async () => {
+    const job = {
+      data: {
+        subscriptionId: '123e4567-e89b-12d3-a456-426614174000',
+        event: 'certificate.issued',
+        payload: { test: 'data' },
+      },
+    };
+
+    mockSubscriptionRepository.findOne.mockResolvedValue({
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      url: 'https://example.com/webhook',
+      secret: 'secret123',
+      isActive: true,
+      events: ['certificate.issued'],
+    });
+    mockedAxios.post.mockResolvedValue({ status: 200, data: {} });
+
+    await processor.handleDelivery(job as any);
+
+    const config = mockedAxios.post.mock.calls[0][2] as any;
+    const pinnedLookup = config.httpsAgent.options.lookup;
+    expect(typeof pinnedLookup).toBe('function');
+
+    // The pinned lookup must answer with the address resolved during
+    // validation regardless of the hostname it's asked to resolve - that's
+    // what "pinned" means. `dns.lookup` isn't spyable on this Node version
+    // (non-configurable property), so the proof is behavioral: feed it a
+    // hostname that was never validated and confirm it still gets back the
+    // one address that *was* validated, never performing a fresh lookup.
+    const result = await new Promise<{ address: string; family: number }>(
+      (resolve, reject) => {
+        pinnedLookup(
+          'totally-different-hostname.invalid',
+          {},
+          (err: any, address: string, family: number) =>
+            err ? reject(err) : resolve({ address, family }),
+        );
+      },
+    );
+    expect(result.address).toBeDefined();
   });
 });

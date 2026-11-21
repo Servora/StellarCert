@@ -13,7 +13,10 @@ import { NotificationType } from '../notifications/entities/notification.entity'
 
 jest.mock('axios');
 jest.mock('../../common/utils/ssrf.utils', () => ({
-  validateWebhookUrl: jest.fn().mockResolvedValue({ valid: true }),
+  validateWebhookUrl: jest.fn().mockResolvedValue({
+    valid: true,
+    resolvedAddress: '93.184.216.34',
+  }),
 }));
 
 describe('WebhooksProcessor dead-letter and auto-pause', () => {

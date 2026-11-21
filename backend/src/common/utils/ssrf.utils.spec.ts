@@ -51,6 +51,26 @@ beforeEach(() => {
 
 describe('SSRF Protection', () => {
   describe('validateWebhookUrl', () => {
+    describe('DNS rebinding protection', () => {
+      it('should return the validated resolved IP addresses', async () => {
+        mockDnsSuccess(['93.184.216.34']);
+        const result = await validateWebhookUrl(
+          'https://api.example.com/webhooks',
+        );
+        expect(result.valid).toBe(true);
+        expect(result.resolvedAddress).toBe('93.184.216.34');
+      });
+
+      it('should reject when any resolved address is private, even if others are public', async () => {
+        mockDnsSuccess(['93.184.216.34', '169.254.169.254']);
+        const result = await validateWebhookUrl(
+          'https://evil.example.com/webhook',
+        );
+        expect(result.valid).toBe(false);
+        expect(result.error).toContain('reserved/private');
+      });
+    });
+
     describe('should reject non-HTTPS URLs', () => {
       it('should reject http:// URLs', async () => {
         const result = await validateWebhookUrl('http://example.com/webhook');

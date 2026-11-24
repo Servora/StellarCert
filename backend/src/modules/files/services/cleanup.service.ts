@@ -3,9 +3,12 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { LoggingService } from '../../../common/logging/logging.service';
-import { DistributedLockService } from '../../../common/services/distributed-lock.service';
+import {
+  DistributedLockService,
+  cronLockKey,
+} from '../../../common/services/distributed-lock.service';
 
-const TEMP_FILE_CLEANUP_LOCK = 'stellar-cert:cron:temp-file-cleanup';
+const TEMP_FILE_CLEANUP_LOCK = cronLockKey('temp-file-cleanup');
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()

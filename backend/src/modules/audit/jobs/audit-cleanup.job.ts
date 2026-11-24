@@ -4,9 +4,12 @@ import { ConfigService } from '@nestjs/config';
 import { AuditService } from '../services';
 import { AuditAction, AuditResourceType } from '../constants';
 import { LoggingService } from '../../../common/logging/logging.service';
-import { DistributedLockService } from '../../../common/services/distributed-lock.service';
+import {
+  DistributedLockService,
+  cronLockKey,
+} from '../../../common/services/distributed-lock.service';
 
-const AUDIT_CLEANUP_LOCK = 'stellar-cert:cron:audit-cleanup';
+const AUDIT_CLEANUP_LOCK = cronLockKey('audit-cleanup');
 
 @Injectable()
 export class AuditCleanupJob {

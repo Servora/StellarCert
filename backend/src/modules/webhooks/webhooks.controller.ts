@@ -64,6 +64,15 @@ export class WebhooksController {
     return this.webhooksService.findAll(issuerId);
   }
 
+  @Get('failures')
+  @ApiOperation({
+    summary:
+      "List this issuer's webhook subscriptions that are currently failing",
+  })
+  async listFailing(@CurrentUser('id') issuerId: string) {
+    return this.webhooksService.listFailing(issuerId);
+  }
+
   @Post(':id/rotate-secret')
   @ApiOperation({ summary: 'Rotate a webhook subscription signing secret' })
   @ApiResponse({

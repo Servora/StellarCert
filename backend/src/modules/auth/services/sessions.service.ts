@@ -91,8 +91,9 @@ export class SessionsService {
   }
 
   /**
-   * Move a session onto the rotated refresh token. Tokens issued before
-   * sessions existed have no row, so one is created for them on first use.
+   * Move a session onto the rotated refresh token.
+   * Tokens issued before sessions existed have no row, so one is created
+   * for them on first use.
    */
   async rotate(
     userId: string,
@@ -101,73 +102,109 @@ export class SessionsService {
     meta: SessionMeta = {},
   ): Promise<void> {
     const session = await this.findByRefreshToken(oldRefreshToken);
+
     if (!session) {
       await this.createSession(userId, newRefreshToken, meta);
       return;
     }
+
     session.refreshTokenHash = hashRefreshToken(newRefreshToken);
     session.lastUsedAt = new Date();
-    if (meta.ipAddress) session.ipAddress = meta.ipAddress;
+
+    if (meta.ipAddress) {
+      session.ipAddress = meta.ipAddress;
+    }
+
     await this.sessions.save(session);
   }
 
-  /** Revoke the session behind a refresh token (logout). */
+  /** Revoke the session associated with a refresh token (logout). */
   async revokeByRefreshToken(rawRefreshToken: string): Promise<void> {
     await this.sessions.update(
       {
         refreshTokenHash: hashRefreshToken(rawRefreshToken),
         revokedAt: IsNull(),
       },
-      { revokedAt: new Date() },
+      {
+        revokedAt: new Date(),
+      },
     );
   }
 
+  /**
+   * Return all active sessions belonging to a user,
+   * optionally identifying the current session.
+   */
   async listForUser(
     userId: string,
     currentRefreshToken?: string,
   ): Promise<SessionView[]> {
     const currentHash = currentRefreshToken
       ? hashRefreshToken(currentRefreshToken)
-      : undefined;
-    const rows = await this.sessions.find({
-      where: { userId, revokedAt: IsNull() },
-      order: { lastUsedAt: 'DESC' },
+      : null;
+
+    const sessions = await this.sessions.find({
+      where: {
+        userId,
+        revokedAt: IsNull(),
+      },
+      order: {
+        lastUsedAt: 'DESC',
+      },
     });
-    return rows.map((s) => ({
-      id: s.id,
-      device: s.device,
-      ipAddress: s.ipAddress,
-      userAgent: s.userAgent,
-      createdAt: s.createdAt,
-      lastUsedAt: s.lastUsedAt,
-      current: s.refreshTokenHash === currentHash,
+
+    return sessions.map((session) => ({
+      id: session.id,
+      device: session.device,
+      ipAddress: session.ipAddress,
+      userAgent: session.userAgent,
+      createdAt: session.createdAt,
+      lastUsedAt: session.lastUsedAt,
+      current: currentHash !== null && session.refreshTokenHash === currentHash,
     }));
   }
 
+  /** Revoke a specific session belonging to a user. */
   async revokeSession(userId: string, sessionId: string): Promise<void> {
-    const session = await this.sessions.findOne({ where: { id: sessionId } });
-    if (!session || session.userId !== userId) {
+    const session = await this.sessions.findOne({
+      where: {
+        id: sessionId,
+        userId,
+      },
+    });
+
+    if (!session) {
       throw new NotFoundException('Session not found');
     }
-    if (!session.revokedAt) {
-      session.revokedAt = new Date();
-      await this.sessions.save(session);
+
+    if (session.revokedAt) {
+      return;
     }
+
+    session.revokedAt = new Date();
+    await this.sessions.save(session);
   }
 
   /**
-   * Revoke every session and bump tokenVersion, so outstanding access tokens
-   * are rejected by JwtAuthGuard and outstanding refresh tokens by
-   * AuthService.refreshTokens.
+   * Revoke every active session and increment tokenVersion,
+   * invalidating outstanding access and refresh tokens.
    */
   async revokeAll(userId: string): Promise<number> {
     const result = await this.sessions.update(
-      { userId, revokedAt: IsNull() },
-      { revokedAt: new Date() },
+      {
+        userId,
+        revokedAt: IsNull(),
+      },
+      {
+        revokedAt: new Date(),
+      },
     );
 
     await this.users.increment({ id: userId }, 'tokenVersion', 1);
-    await this.users.update(userId, { refreshToken: null });
+
+    await this.users.update(userId, {
+      refreshToken: null,
+    });
 
     return result.affected ?? 0;
   }

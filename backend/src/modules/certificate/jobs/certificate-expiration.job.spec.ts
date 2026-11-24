@@ -37,10 +37,12 @@ describe('CertificateExpirationJob', () => {
     expect(where.status).toBe(CertificateStatus.ACTIVE);
     expect(where.expiresAt).toBeDefined();
     expect(update).toEqual({ status: CertificateStatus.EXPIRED });
-    expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({
-      action: AuditAction.CERTIFICATE_EXPIRE,
-      metadata: expect.objectContaining({ reason: 'date_based', count: 2 }),
-    }));
+    expect(auditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditAction.CERTIFICATE_EXPIRE,
+        metadata: expect.objectContaining({ reason: 'date_based', count: 2 }),
+      }),
+    );
   });
 
   it('does not perform any issuer-sequence lookup or sequence-based expiration', async () => {
@@ -51,18 +53,24 @@ describe('CertificateExpirationJob', () => {
 
   it('does not create a certificate-expiration audit record when no rows expire', async () => {
     await job.checkExpiredCertificates();
-    expect(auditService.log).not.toHaveBeenCalledWith(expect.objectContaining({
-      action: AuditAction.CERTIFICATE_EXPIRE,
-    }));
+    expect(auditService.log).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditAction.CERTIFICATE_EXPIRE,
+      }),
+    );
   });
 
   it('records completion even when the date-based update fails', async () => {
     repository.update.mockRejectedValueOnce(new Error('database unavailable'));
     await expect(job.checkExpiredCertificates()).resolves.toBeUndefined();
-    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Bulk date-based expiration failed'));
-    expect(auditService.log).toHaveBeenCalledWith(expect.objectContaining({
-      action: AuditAction.BACKGROUND_JOB_COMPLETE,
-    }));
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Bulk date-based expiration failed'),
+    );
+    expect(auditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditAction.BACKGROUND_JOB_COMPLETE,
+      }),
+    );
   });
 
   it('does not allow audit persistence failures to fail the scheduled job', async () => {

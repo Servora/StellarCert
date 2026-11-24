@@ -49,22 +49,34 @@ import { RateLimitStoreModule } from './common/rate-limiting/rate-limit-store.mo
 
         const parsed = new URL(redisUrl);
         if (parsed.protocol !== 'redis:' && parsed.protocol !== 'rediss:') {
-          throw new Error('REDIS_URL must use the redis:// or rediss:// scheme');
+          throw new Error(
+            'REDIS_URL must use the redis:// or rediss:// scheme',
+          );
         }
 
-        const database = parsed.pathname.length > 1
-          ? Number(parsed.pathname.slice(1))
-          : undefined;
-        if (database !== undefined && (!Number.isInteger(database) || database < 0)) {
-          throw new Error('REDIS_URL database path must be a non-negative integer');
+        const database =
+          parsed.pathname.length > 1
+            ? Number(parsed.pathname.slice(1))
+            : undefined;
+        if (
+          database !== undefined &&
+          (!Number.isInteger(database) || database < 0)
+        ) {
+          throw new Error(
+            'REDIS_URL database path must be a non-negative integer',
+          );
         }
 
         return {
           redis: {
             host: parsed.hostname,
             port: parsed.port ? Number(parsed.port) : 6379,
-            ...(parsed.username ? { username: decodeURIComponent(parsed.username) } : {}),
-            ...(parsed.password ? { password: decodeURIComponent(parsed.password) } : {}),
+            ...(parsed.username
+              ? { username: decodeURIComponent(parsed.username) }
+              : {}),
+            ...(parsed.password
+              ? { password: decodeURIComponent(parsed.password) }
+              : {}),
             ...(database !== undefined ? { db: database } : {}),
             ...(parsed.protocol === 'rediss:' ? { tls: {} } : {}),
           },

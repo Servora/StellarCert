@@ -10,6 +10,17 @@ import { LoggingService } from '../../common/logging/logging.service';
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
+// example.com's real address is a public, non-reserved IP, so validation
+// passes either way - but a real DNS lookup makes this suite flaky under
+// network contention (sandboxed CI, parallel test workers). Mock the one
+// resolved address these tests need pinned, deterministically.
+jest.mock('../../common/utils/ssrf.utils', () => ({
+  validateWebhookUrl: jest.fn().mockResolvedValue({
+    valid: true,
+    resolvedAddress: '93.184.216.34',
+  }),
+}));
+
 describe('WebhooksProcessor', () => {
   let processor: WebhooksProcessor;
   let subscriptionRepository: Repository<WebhookSubscription>;

@@ -26,6 +26,9 @@ import { EmailService } from '../../email/email.service';
 import { EmailQueueService } from '../../email/email-queue.service';
 import { SendRevocationNoticeDto } from '../../email/dto/send-revocation-notice.dto';
 import { SendCertificateIssuedDto } from '../../email/dto/send-certificate-issued.dto';
+import { AuditService } from '../../audit/services/audit.service';
+import { AuditAction } from '../../audit/constants/audit-action.enum';
+import { AuditResourceType } from '../../audit/constants/audit-resource-type.enum';
 
 const CURSOR_NAME = 'soroban-contract-events';
 const PAGE_LIMIT = 100;
@@ -82,7 +85,35 @@ export class ContractEventIndexerService {
     private readonly emailService?: EmailService,
     @Optional()
     private readonly emailQueueService?: EmailQueueService,
+    @Optional()
+    private readonly auditService?: AuditService,
   ) {}
+
+  /** Audit only a state transition that this indexer actually persisted. */
+  private async auditOnChainChange(
+    action: AuditAction,
+    cert: Certificate,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+    txHash: string,
+    event: RawContractEvent,
+  ): Promise<void> {
+    if (!this.auditService) return;
+    await this.auditService.log({
+      action,
+      resourceType: AuditResourceType.CERTIFICATE,
+      resourceId: cert.id,
+      transactionHash: txHash,
+      changes: { before, after },
+      metadata: {
+        source: 'soroban_contract_event',
+        eventId: event.id,
+        ledger: event.ledger,
+        contractId: event.contractId,
+      },
+      status: 'success',
+    });
+  }
 
   isEnabled(): boolean {
     return (
@@ -243,6 +274,7 @@ export class ContractEventIndexerService {
             String(topics[2] ?? data?.certificate_id),
             `CRL revocation (reason code ${data?.reason ?? 'unknown'})`,
             event.txHash,
+            event,
           );
         }
         return;
@@ -251,24 +283,25 @@ export class ContractEventIndexerService {
       const id = topics[1] !== undefined ? String(topics[1]) : undefined;
       switch (name) {
         case 'issued':
-          if (id) await this.applyIssued(id);
+          if (id) await this.applyIssued(id, event);
           break;
         case 'revoked':
-          if (id) await this.applyRevoked(id, data?.reason, event.txHash);
+          if (id) await this.applyRevoked(id, data?.reason, event.txHash, event);
           break;
         case 'suspend':
         case 'frozen':
-          if (id) await this.applyFrozen(id, data?.reason);
+          if (id) await this.applyFrozen(id, data?.reason, event);
           break;
         case 'reinstat':
         case 'unfrozen':
-          if (id) await this.applyUnfrozen(id);
+          if (id) await this.applyUnfrozen(id, event);
           break;
         case 'transfer_done':
           if (data?.certificate_id) {
             await this.applyTransferDone(
               String(data.certificate_id),
               data.to_owner ? String(data.to_owner) : undefined,
+              event,
             );
           }
           break;
@@ -368,11 +401,17 @@ export class ContractEventIndexerService {
     }
   }
 
-  private async applyIssued(id: string): Promise<void> {
+  private async applyIssued(id: string, event: RawContractEvent): Promise<void> {
     const cert = await this.findByOnChainId(id);
     if (!cert || cert.status !== CertificateStatus.PENDING) return;
+    const previousStatus = cert.status;
     cert.status = CertificateStatus.ACTIVE;
     await this.certificateRepository.save(cert);
+    await this.auditOnChainChange(
+      AuditAction.CERTIFICATE_ISSUE, cert,
+      { status: previousStatus }, { status: cert.status },
+      event.txHash, event,
+    );
     await this.dispatchWebhook(WebhookEvent.CERTIFICATE_ISSUED, cert.issuerId, {
       id: cert.id,
       status: cert.status,
@@ -418,13 +457,21 @@ export class ContractEventIndexerService {
     id: string,
     reason: string | undefined,
     txHash: string,
+    event: RawContractEvent,
   ): Promise<void> {
     const cert = await this.findByOnChainId(id);
     if (!cert || cert.status === CertificateStatus.REVOKED) return;
+    const previousStatus = cert.status;
     cert.status = CertificateStatus.REVOKED;
     cert.revokedAt = new Date();
     if (reason) cert.revocationReason = reason;
     await this.certificateRepository.save(cert);
+    await this.auditOnChainChange(
+      AuditAction.CERTIFICATE_REVOKE, cert,
+      { status: previousStatus },
+      { status: cert.status, revocationReason: cert.revocationReason },
+      txHash, event,
+    );
     await this.dispatchWebhook(
       WebhookEvent.CERTIFICATE_REVOKED,
       cert.issuerId,
@@ -475,9 +522,10 @@ export class ContractEventIndexerService {
     }
   }
 
-  private async applyFrozen(id: string, reason?: string): Promise<void> {
+  private async applyFrozen(id: string, reason: string | undefined, event: RawContractEvent): Promise<void> {
     const cert = await this.findByOnChainId(id);
     if (!cert || cert.status !== CertificateStatus.ACTIVE) return;
+    const previousStatus = cert.status;
     cert.status = CertificateStatus.FROZEN;
     const frozenAt = new Date();
     cert.metadata = {
@@ -486,6 +534,11 @@ export class ContractEventIndexerService {
       frozenAt,
     };
     await this.certificateRepository.save(cert);
+    await this.auditOnChainChange(
+      AuditAction.CERTIFICATE_FREEZE, cert,
+      { status: previousStatus }, { status: cert.status, freezeReason: reason },
+      event.txHash, event,
+    );
     await this.dispatchWebhook(WebhookEvent.CERTIFICATE_FROZEN, cert.issuerId, {
       id: cert.id,
       status: cert.status,
@@ -514,13 +567,19 @@ export class ContractEventIndexerService {
     }
   }
 
-  private async applyUnfrozen(id: string): Promise<void> {
+  private async applyUnfrozen(id: string, event: RawContractEvent): Promise<void> {
     const cert = await this.findByOnChainId(id);
     if (!cert || cert.status !== CertificateStatus.FROZEN) return;
+    const previousStatus = cert.status;
     cert.status = CertificateStatus.ACTIVE;
     const unfrozenAt = new Date();
     cert.metadata = { ...(cert.metadata ?? {}), unfrozenAt };
     await this.certificateRepository.save(cert);
+    await this.auditOnChainChange(
+      AuditAction.CERTIFICATE_UNFREEZE, cert,
+      { status: previousStatus }, { status: cert.status },
+      event.txHash, event,
+    );
     await this.dispatchWebhook(
       WebhookEvent.CERTIFICATE_UNFROZEN,
       cert.issuerId,
@@ -548,14 +607,21 @@ export class ContractEventIndexerService {
 
   private async applyTransferDone(
     certificateId: string,
-    toOwner?: string,
+    toOwner: string | undefined,
+    event: RawContractEvent,
   ): Promise<void> {
     const cert = await this.findByOnChainId(certificateId);
     if (!cert) return;
 
     if (toOwner && cert.recipientStellarAddress !== toOwner) {
+      const previousOwner = cert.recipientStellarAddress;
       cert.recipientStellarAddress = toOwner;
       await this.certificateRepository.save(cert);
+      await this.auditOnChainChange(
+        AuditAction.CERTIFICATE_TRANSFER, cert,
+        { owner: previousOwner }, { owner: toOwner },
+        event.txHash, event,
+      );
     }
 
     await this.transferRepository.update(

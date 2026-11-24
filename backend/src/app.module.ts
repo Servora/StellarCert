@@ -43,24 +43,42 @@ import { RateLimitStoreModule } from './common/rate-limiting/rate-limit-store.mo
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const redisUrl = configService.get<string>('REDIS_URL');
-        if (redisUrl) {
-          // ioredis's RedisOptions has no `url` key: passing `{ url }` as an
-          // options object is silently ignored, leaving the client to connect
-          // to its default 127.0.0.1:6379 with no password instead of the
-          // configured host. Parse the URL into host/port/password explicitly.
-          const parsed = new URL(redisUrl);
-          return {
-            redis: {
-              host: parsed.hostname,
-              port: Number(parsed.port) || 6379,
-              password: parsed.password || undefined,
-            },
-          };
+        if (!redisUrl) {
+          return { redis: { host: 'localhost', port: 6379 } };
         }
+
+        const parsed = new URL(redisUrl);
+        if (parsed.protocol !== 'redis:' && parsed.protocol !== 'rediss:') {
+          throw new Error(
+            'REDIS_URL must use the redis:// or rediss:// scheme',
+          );
+        }
+
+        const database =
+          parsed.pathname.length > 1
+            ? Number(parsed.pathname.slice(1))
+            : undefined;
+        if (
+          database !== undefined &&
+          (!Number.isInteger(database) || database < 0)
+        ) {
+          throw new Error(
+            'REDIS_URL database path must be a non-negative integer',
+          );
+        }
+
         return {
           redis: {
-            host: 'localhost',
-            port: 6379,
+            host: parsed.hostname,
+            port: parsed.port ? Number(parsed.port) : 6379,
+            ...(parsed.username
+              ? { username: decodeURIComponent(parsed.username) }
+              : {}),
+            ...(parsed.password
+              ? { password: decodeURIComponent(parsed.password) }
+              : {}),
+            ...(database !== undefined ? { db: database } : {}),
+            ...(parsed.protocol === 'rediss:' ? { tls: {} } : {}),
           },
         };
       },

@@ -4,6 +4,7 @@ import { CertificateStatus } from '../constants/certificate-status.enum';
 import { WebhookEvent } from '../../webhooks/entities/webhook-subscription.entity';
 import { RawContractEvent } from '../../stellar/services/soroban.service';
 import { NotificationType } from '../../notifications/entities/notification.entity';
+import { AuditAction } from '../../audit/constants/audit-action.enum';
 
 const sym = (s: string) => nativeToScVal(s, { type: 'symbol' });
 const str = (s: string) => nativeToScVal(s, { type: 'string' });
@@ -54,6 +55,7 @@ describe('ContractEventIndexerService', () => {
     sendRevocationNotice: jest.fn().mockResolvedValue(undefined),
     sendCertificateIssued: jest.fn().mockResolvedValue(undefined),
   };
+  const auditService = { log: jest.fn().mockResolvedValue(null) };
   const emailQueueService = {
     queueRevocationNotice: jest.fn().mockResolvedValue(undefined),
     queueCertificateIssued: jest.fn().mockResolvedValue(undefined),
@@ -85,6 +87,7 @@ describe('ContractEventIndexerService', () => {
       notificationsService as any,
       emailService as any,
       emailQueueService as any,
+      auditService as any,
     );
   });
 
@@ -112,6 +115,71 @@ describe('ContractEventIndexerService', () => {
     );
     expect(certificateRepository.save).not.toHaveBeenCalled();
     expect(webhooksService.triggerEvent).not.toHaveBeenCalled();
+  });
+
+  it('writes an audit record for an actual on-chain revocation and includes its transaction hash', async () => {
+    await service.handleEvent(
+      event(
+        [sym('revoked'), str('cert-1')],
+        nativeToScVal({ reason: 'fraud' }),
+        {
+          txHash: 'tx-revoke-123',
+        },
+      ),
+    );
+
+    expect(auditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditAction.CERTIFICATE_REVOKE,
+        resourceId: 'cert-1',
+        transactionHash: 'tx-revoke-123',
+        changes: {
+          before: { status: CertificateStatus.ACTIVE },
+          after: expect.objectContaining({ status: CertificateStatus.REVOKED }),
+        },
+        metadata: expect.objectContaining({
+          source: 'soroban_contract_event',
+          eventId: 'evt-1',
+          ledger: 10,
+        }),
+      }),
+    );
+  });
+
+  it('does not let a failed audit write abort the state change or the webhook (regression)', async () => {
+    auditService.log.mockRejectedValueOnce(new Error('audit db unavailable'));
+
+    await expect(
+      service.handleEvent(
+        event(
+          [sym('revoked'), str('cert-1')],
+          nativeToScVal({ reason: 'fraud' }),
+        ),
+      ),
+    ).resolves.toBeUndefined();
+
+    // The state change and webhook dispatch - the actually important
+    // side effects - must still happen even though the audit write failed.
+    expect(cert.status).toBe(CertificateStatus.REVOKED);
+    expect(webhooksService.triggerEvent).toHaveBeenCalledWith(
+      WebhookEvent.CERTIFICATE_REVOKED,
+      'issuer-1',
+      expect.anything(),
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to write on-chain audit record'),
+    );
+  });
+
+  it('does not duplicate audit records when an already-applied revocation is replayed', async () => {
+    cert.status = CertificateStatus.REVOKED;
+    await service.handleEvent(
+      event(
+        [sym('revoked'), str('cert-1')],
+        nativeToScVal({ reason: 'replayed' }),
+      ),
+    );
+    expect(auditService.log).not.toHaveBeenCalled();
   });
 
   it('treats a CRL revocation as a revocation', async () => {

@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { LessThanOrEqual } from 'typeorm';
 import { CertificateExpirationJob } from './certificate-expiration.job';
 import { Certificate } from '../entities/certificate.entity';
 import { CertificateStatus } from '../constants/certificate-status.enum';

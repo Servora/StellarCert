@@ -23,7 +23,7 @@ Out of scope: third-party dependencies (report those upstream), Stellar network 
 
 Instead, send a report to:
 
-> **security@servora.dev** _(replace with your actual address before merging this file)_
+> **security@servora.dev**
 
 Include as much of the following as you can:
 

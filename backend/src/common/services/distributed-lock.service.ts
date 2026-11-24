@@ -11,6 +11,17 @@ import { RATE_LIMIT_QUEUE_NAME } from '../rate-limiting/rate-limit.service';
  */
 export const DEFAULT_LOCK_TTL_MS = 2 * 60 * 1000;
 
+/**
+ * Shared namespace for every cron/scheduled-job lock key (#1306). Each
+ * caller used to hand-write its own `stellar-cert:cron:<name>` string, so
+ * a naming collision between two unrelated jobs would make them serialize
+ * against each other for the full lock TTL with no indication why. Builds
+ * the one true key for a job name instead.
+ */
+export function cronLockKey(jobName: string): string {
+  return `stellar-cert:cron:${jobName}`;
+}
+
 export interface LockHeartbeatOptions {
   /** Lifetime set on every renewal. Defaults to {@link DEFAULT_LOCK_TTL_MS}. */
   ttlMs?: number;

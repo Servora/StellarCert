@@ -1,7 +1,23 @@
 import {
   DEFAULT_LOCK_TTL_MS,
   DistributedLockService,
+  cronLockKey,
 } from './distributed-lock.service';
+
+describe('cronLockKey (#1306)', () => {
+  it('builds the one shared namespace every cron job key uses', () => {
+    expect(cronLockKey('temp-file-cleanup')).toBe(
+      'stellar-cert:cron:temp-file-cleanup',
+    );
+    expect(cronLockKey('audit-cleanup')).toBe(
+      'stellar-cert:cron:audit-cleanup',
+    );
+  });
+
+  it('gives two different job names two different keys', () => {
+    expect(cronLockKey('job-a')).not.toEqual(cronLockKey('job-b'));
+  });
+});
 
 describe('DistributedLockService', () => {
   const client = { set: jest.fn(), eval: jest.fn() };

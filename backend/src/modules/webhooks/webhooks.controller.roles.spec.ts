@@ -52,3 +52,16 @@ describe('WebhooksController test endpoint', () => {
     );
   });
 });
+
+describe('WebhooksController failures endpoint (#1305)', () => {
+  it('delegates to the service, scoped to the calling issuer', async () => {
+    const summaries = [{ id: 's1', consecutiveFailures: 2 }];
+    const service = {
+      listFailing: jest.fn().mockResolvedValue(summaries),
+    };
+    const controller = new WebhooksController(service as never);
+
+    await expect(controller.listFailing('issuer-1')).resolves.toBe(summaries);
+    expect(service.listFailing).toHaveBeenCalledWith('issuer-1');
+  });
+});

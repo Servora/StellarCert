@@ -69,7 +69,7 @@ import { RateLimitStoreModule } from './common/rate-limiting/rate-limit-store.mo
             ...(parsed.protocol === 'rediss:' ? { tls: {} } : {}),
           },
         };
-      },,
+      },
     }),
     BullBoardModule.forRoot({
       route: '/admin/queues',

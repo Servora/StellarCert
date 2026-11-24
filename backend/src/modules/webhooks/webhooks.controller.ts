@@ -64,6 +64,29 @@ export class WebhooksController {
     return this.webhooksService.findAll(issuerId);
   }
 
+  @Get('failures')
+  @ApiOperation({
+    summary:
+      "List this issuer's webhook subscriptions that are currently failing",
+  })
+  async listFailing(@CurrentUser('id') issuerId: string) {
+    return this.webhooksService.listFailing(issuerId);
+  }
+
+  @Post(':id/rotate-secret')
+  @ApiOperation({ summary: 'Rotate a webhook subscription signing secret' })
+  @ApiResponse({
+    status: 201,
+    description:
+      'Secret rotated successfully. The new secret is returned once; delivery history is preserved.',
+  })
+  async rotateSecret(
+    @CurrentUser('id') issuerId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.webhooksService.rotateSecret(id, issuerId);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Remove a webhook subscription' })

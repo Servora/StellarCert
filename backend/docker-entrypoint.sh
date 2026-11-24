@@ -10,7 +10,10 @@
 set -e
 
 echo "[entrypoint] Running TypeORM migrations…"
-node node_modules/.bin/typeorm migration:run -t each -d dist/database/data-source.js
+if ! node node_modules/.bin/typeorm migration:run -t each -d dist/database/data-source.js; then
+  echo "[entrypoint] ERROR: TypeORM migrations failed. Aborting startup." >&2
+  exit 1
+fi
 echo "[entrypoint] Migrations complete."
 
 echo "[entrypoint] Starting application…"

@@ -6,7 +6,10 @@ services:
   # The port is published on the loopback interface only so a developer can still
   # connect from the host without exposing the database to the network.
   postgres:
-    image: postgres:15.19-alpine
+    # #1374: pinned here, in docker-compose.dev.yml and in ci.yml via the
+    # same POSTGRES_IMAGE/.env default so dev, CI and this (prod-equivalent)
+    # stack never drift onto different patch versions.
+    image: ${POSTGRES_IMAGE:-postgres:15.19-alpine}
     container_name: stellarcert_db
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set in .env}
@@ -32,7 +35,8 @@ services:
   # server argument (never as a plain command-line flag in the image default) and
   # the healthcheck authenticates with REDISCLI_AUTH so it works with auth on.
   redis:
-    image: redis:7.4.11-alpine
+    # #1374: see the matching note on the postgres image above.
+    image: ${REDIS_IMAGE:-redis:7.4.11-alpine}
     container_name: stellarcert_redis
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
@@ -56,6 +60,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: production
+    image: ${STELLARCERT_BACKEND_IMAGE:-stellarcert-backend:local}
     container_name: stellarcert_backend
     ports:
       - "3000:3000"
@@ -135,18 +140,28 @@ services:
       - stellarcert_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5173"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5173"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 20s
 
   # Frontend Service (Production - Static files)
+  #
+  # This container serves the SPA only. Its nginx.conf intentionally has no /api/
+  # proxy, so it MUST be reached through the reverse proxy below (the `nginx`
+  # service), which routes /api/ to the backend. Running frontend-prod on its own
+  # yields a UI that cannot reach the API. Bring up both together with:
+  #   docker compose --profile production up frontend-prod nginx
   frontend-prod:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       target: production
+      # Vite bakes import.meta.env.VITE_API_URL at build time (#1370).
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api/v1}
+    image: ${STELLARCERT_FRONTEND_IMAGE:-stellarcert-frontend:local}
     container_name: stellarcert_frontend_prod
     ports:
       - "8080:80"
@@ -166,6 +181,9 @@ services:
       - production
 
   # Nginx Reverse Proxy (Optional - for production)
+  #
+  # Required for the production profile: it serves the SPA from frontend-prod and
+  # proxies /api/ to the backend. frontend-prod has no /api/ route of its own.
   nginx:
     image: nginx:1.28.3-alpine
     container_name: stellarcert_nginx
@@ -195,6 +213,7 @@ services:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
       - prometheus_data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"

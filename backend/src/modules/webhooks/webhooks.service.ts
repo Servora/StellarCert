@@ -4,7 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { MoreThan, Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import * as crypto from 'crypto';
@@ -28,7 +28,9 @@ type SanitizedWebhookSubscription = Omit<
   'secret' | 'secretHash'
 > & { hasSecret: boolean };
 
-type CreatedWebhookSubscription = WebhookSubscription & { hasSecret: boolean };
+type CreatedWebhookSubscription = Omit<WebhookSubscription, 'secretHash'> & {
+  hasSecret: boolean;
+};
 
 /** Outcome of a synchronous test delivery. */
 export interface WebhookTestResult {
@@ -43,6 +45,20 @@ export interface WebhookTestResult {
   error?: string;
   /** The `WebhookLog` row recording this attempt. */
   logId?: string;
+}
+
+/** One of the issuer's subscriptions that is currently failing (#1305). */
+export interface WebhookFailureSummary {
+  id: string;
+  url: string;
+  isActive: boolean;
+  consecutiveFailures: number;
+  pausedAt: Date | null;
+  pausedReason: string | null;
+  /** When the most recent failed delivery attempt was recorded. */
+  lastFailureAt: Date | null;
+  /** The recorded response/error for that attempt, truncated like other logs. */
+  lastFailureReason: string | null;
 }
 
 const TEST_DELIVERY_TIMEOUT_MS = 5000;
@@ -115,9 +131,11 @@ export class WebhooksService {
     const saved = await this.subscriptionRepository.save(subscription);
 
     // Issue #719 – return the plaintext secret ONLY on create so the caller
-    // can store it; subsequent reads never include `secret`.
+    // can store it; subsequent reads never include `secret` or `secretHash`
+    // (the latter is an internal integrity-check value, not the HMAC key).
+    const { secretHash: _savedHash, ...rest } = saved;
     return {
-      ...saved,
+      ...rest,
       secret, // one-time reveal
       hasSecret: true,
     };
@@ -130,6 +148,48 @@ export class WebhooksService {
       order: { createdAt: 'DESC' },
     });
     return this.sanitizeMany(rows);
+  }
+
+  /**
+   * Subscriptions belonging to this issuer that are currently failing
+   * (#1305): either mid-way through the consecutive-failure count toward
+   * auto-pause, or already auto-paused. The only prior read path was
+   * `getLogs`, scoped to one subscription at a time, so a broken
+   * integration could go unnoticed until an issuer happened to check it.
+   */
+  async listFailing(issuerId: string): Promise<WebhookFailureSummary[]> {
+    const subscriptions = await this.subscriptionRepository.find({
+      where: [
+        { issuerId, consecutiveFailures: MoreThan(0) },
+        { issuerId, isActive: false },
+      ],
+      order: { consecutiveFailures: 'DESC' },
+    });
+
+    if (subscriptions.length === 0) {
+      return [];
+    }
+
+    return Promise.all(
+      subscriptions.map(async (sub) => {
+        const lastFailure = await this.logRepository.findOne({
+          where: { subscriptionId: sub.id, isSuccess: false },
+          order: { createdAt: 'DESC' },
+        });
+
+        return {
+          id: sub.id,
+          url: sub.url,
+          isActive: sub.isActive,
+          consecutiveFailures: sub.consecutiveFailures,
+          pausedAt: sub.pausedAt ?? null,
+          pausedReason: sub.pausedReason ?? null,
+          lastFailureAt: lastFailure?.createdAt ?? null,
+          lastFailureReason:
+            lastFailure?.deadLetterReason ?? lastFailure?.response ?? null,
+        };
+      }),
+    );
   }
 
   // FIND ONE
@@ -168,6 +228,30 @@ export class WebhooksService {
     await this.subscriptionRepository.remove(subscription);
   }
 
+  // ROTATE SECRET
+  async rotateSecret(
+    id: string,
+    issuerId: string,
+  ): Promise<CreatedWebhookSubscription> {
+    const subscription = await this.findOneWithSecret(id, issuerId);
+    const secret = crypto.randomBytes(32).toString('hex');
+    const secretHash = crypto.createHash('sha256').update(secret).digest('hex');
+
+    subscription.secret = secret;
+    subscription.secretHash = secretHash;
+    const saved = await this.subscriptionRepository.save(subscription);
+
+    // Same one-time-reveal rule as create (#719): the new plaintext secret
+    // goes out once here, but `secretHash` - an internal integrity value,
+    // not the HMAC key itself - must not leak into the API response either.
+    const { secretHash: _savedHash, ...rest } = saved;
+    return {
+      ...rest,
+      secret,
+      hasSecret: true,
+    };
+  }
+
   // BROADCAST EVENT
   async triggerEvent(event: WebhookEvent, issuerId: string, payload: any) {
     const subs = await this.subscriptionRepository
@@ -184,9 +268,7 @@ export class WebhooksService {
       }
     }
 
-    this.logger.log(
-      `Queued ${queued}/${subs.length} webhooks for ${event}`,
-    );
+    this.logger.log(`Queued ${queued}/${subs.length} webhooks for ${event}`);
   }
 
   /**

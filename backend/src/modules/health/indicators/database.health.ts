@@ -1,22 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import {
-  HealthIndicator,
   HealthIndicatorResult,
-  HealthCheckError,
+  HealthIndicatorService,
 } from '@nestjs/terminus';
 import { DataSource } from 'typeorm';
 import { LoggingService } from '../../../common/logging/logging.service';
 
 @Injectable()
-export class DatabaseHealthIndicator extends HealthIndicator {
+export class DatabaseHealthIndicator {
   constructor(
     private readonly dataSource: DataSource,
     private readonly logger: LoggingService,
-  ) {
-    super();
-  }
+    private readonly healthIndicatorService: HealthIndicatorService,
+  ) {}
 
   async isHealthy(): Promise<HealthIndicatorResult> {
+    const indicator = this.healthIndicatorService.check('database');
     try {
       const isConnected = this.dataSource.isInitialized;
 
@@ -32,17 +31,14 @@ export class DatabaseHealthIndicator extends HealthIndicator {
 
       this.logger.debug('Database health check passed');
 
-      return this.getStatus('database', true, {
+      return indicator.up({
         message: 'Database connection is healthy',
       });
     } catch (error) {
       this.logger.error('Database health check failed', error);
-      throw new HealthCheckError(
-        'Database check failed',
-        this.getStatus('database', false, {
-          message: error.message || 'Database is unavailable',
-        }),
-      );
+      return indicator.down({
+        message: error.message || 'Database is unavailable',
+      });
     }
   }
 }

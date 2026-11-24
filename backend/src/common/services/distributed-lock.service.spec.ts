@@ -1,4 +1,23 @@
-import { DEFAULT_LOCK_TTL_MS, DistributedLockService } from './distributed-lock.service';
+import {
+  DEFAULT_LOCK_TTL_MS,
+  DistributedLockService,
+  cronLockKey,
+} from './distributed-lock.service';
+
+describe('cronLockKey (#1306)', () => {
+  it('builds the one shared namespace every cron job key uses', () => {
+    expect(cronLockKey('temp-file-cleanup')).toBe(
+      'stellar-cert:cron:temp-file-cleanup',
+    );
+    expect(cronLockKey('audit-cleanup')).toBe(
+      'stellar-cert:cron:audit-cleanup',
+    );
+  });
+
+  it('gives two different job names two different keys', () => {
+    expect(cronLockKey('job-a')).not.toEqual(cronLockKey('job-b'));
+  });
+});
 
 describe('DistributedLockService', () => {
   const client = { set: jest.fn(), eval: jest.fn() };
@@ -21,7 +40,13 @@ describe('DistributedLockService', () => {
       const token = await service.acquire('lock:a');
 
       expect(token).toEqual(expect.any(String));
-      expect(client.set).toHaveBeenCalledWith('lock:a', token, 'PX', DEFAULT_LOCK_TTL_MS, 'NX');
+      expect(client.set).toHaveBeenCalledWith(
+        'lock:a',
+        token,
+        'PX',
+        DEFAULT_LOCK_TTL_MS,
+        'NX',
+      );
       expect(DEFAULT_LOCK_TTL_MS).toBeLessThan(30 * 60 * 1000);
     });
 
@@ -29,7 +54,13 @@ describe('DistributedLockService', () => {
       client.set.mockResolvedValue(null);
 
       expect(await service.acquire('lock:a', 5000)).toBeNull();
-      expect(client.set).toHaveBeenCalledWith('lock:a', expect.any(String), 'PX', 5000, 'NX');
+      expect(client.set).toHaveBeenCalledWith(
+        'lock:a',
+        expect.any(String),
+        'PX',
+        5000,
+        'NX',
+      );
     });
   });
 
@@ -56,7 +87,10 @@ describe('DistributedLockService', () => {
     it('renews on every interval until stopped', async () => {
       client.eval.mockResolvedValue(1);
 
-      const stop = service.startHeartbeat('lock:a', 'tok', { ttlMs: 30_000, intervalMs: 10_000 });
+      const stop = service.startHeartbeat('lock:a', 'tok', {
+        ttlMs: 30_000,
+        intervalMs: 10_000,
+      });
       await jest.advanceTimersByTimeAsync(10_000);
       await jest.advanceTimersByTimeAsync(10_000);
       expect(client.eval).toHaveBeenCalledTimes(2);
@@ -80,7 +114,11 @@ describe('DistributedLockService', () => {
       client.eval.mockResolvedValue(0);
       const onLost = jest.fn();
 
-      service.startHeartbeat('lock:a', 'tok', { ttlMs: 30_000, intervalMs: 10_000, onLost });
+      service.startHeartbeat('lock:a', 'tok', {
+        ttlMs: 30_000,
+        intervalMs: 10_000,
+        onLost,
+      });
       await jest.advanceTimersByTimeAsync(10_000);
       expect(onLost).toHaveBeenCalledTimes(1);
 
@@ -90,10 +128,16 @@ describe('DistributedLockService', () => {
     });
 
     it('keeps beating after a transient Redis error', async () => {
-      client.eval.mockRejectedValueOnce(new Error('connection reset')).mockResolvedValue(1);
+      client.eval
+        .mockRejectedValueOnce(new Error('connection reset'))
+        .mockResolvedValue(1);
       const onLost = jest.fn();
 
-      const stop = service.startHeartbeat('lock:a', 'tok', { ttlMs: 30_000, intervalMs: 10_000, onLost });
+      const stop = service.startHeartbeat('lock:a', 'tok', {
+        ttlMs: 30_000,
+        intervalMs: 10_000,
+        onLost,
+      });
       await jest.advanceTimersByTimeAsync(10_000);
       await jest.advanceTimersByTimeAsync(10_000);
 

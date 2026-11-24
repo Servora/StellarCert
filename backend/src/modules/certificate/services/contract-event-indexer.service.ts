@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Interval } from '@nestjs/schedule';
@@ -19,6 +19,16 @@ import {
 import { WebhooksService } from '../../webhooks/webhooks.service';
 import { WebhookEvent } from '../../webhooks/entities/webhook-subscription.entity';
 import { LoggingService } from '../../../common/logging/logging.service';
+import { User } from '../../users/entities/user.entity';
+import { NotificationsService } from '../../notifications/notifications.service';
+import { NotificationType } from '../../notifications/entities/notification.entity';
+import { EmailService } from '../../email/email.service';
+import { EmailQueueService } from '../../email/email-queue.service';
+import { SendRevocationNoticeDto } from '../../email/dto/send-revocation-notice.dto';
+import { SendCertificateIssuedDto } from '../../email/dto/send-certificate-issued.dto';
+import { AuditService } from '../../audit/services/audit.service';
+import { AuditAction } from '../../audit/constants/audit-action.enum';
+import { AuditResourceType } from '../../audit/constants/audit-resource-type.enum';
 
 const CURSOR_NAME = 'soroban-contract-events';
 const PAGE_LIMIT = 100;
@@ -66,7 +76,61 @@ export class ContractEventIndexerService {
     private readonly webhooksService: WebhooksService,
     private readonly configService: ConfigService,
     private readonly logger: LoggingService,
+    @Optional()
+    @InjectRepository(User)
+    private readonly userRepository?: Repository<User>,
+    @Optional()
+    private readonly notificationsService?: NotificationsService,
+    @Optional()
+    private readonly emailService?: EmailService,
+    @Optional()
+    private readonly emailQueueService?: EmailQueueService,
+    @Optional()
+    private readonly auditService?: AuditService,
   ) {}
+
+  /**
+   * Audit only a state transition that this indexer actually persisted.
+   *
+   * The certificate row is already saved by the time this runs, and the
+   * caller's own early-return guard (cert.status already matches the
+   * target state) is what makes a replayed event a no-op - it never
+   * retries this write. A rejection here must therefore never escape:
+   * letting it propagate would abort the whole poll() page (the cursor
+   * only advances after every event in it is handled), and on the next
+   * run the same event would hit that guard and skip the apply* body
+   * entirely, permanently losing the audit record this exists to write.
+   */
+  private async auditOnChainChange(
+    action: AuditAction,
+    cert: Certificate,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+    txHash: string,
+    event: RawContractEvent,
+  ): Promise<void> {
+    if (!this.auditService) return;
+    try {
+      await this.auditService.log({
+        action,
+        resourceType: AuditResourceType.CERTIFICATE,
+        resourceId: cert.id,
+        transactionHash: txHash,
+        changes: { before, after },
+        metadata: {
+          source: 'soroban_contract_event',
+          eventId: event.id,
+          ledger: event.ledger,
+          contractId: event.contractId,
+        },
+        status: 'success',
+      });
+    } catch (error: unknown) {
+      this.logger.error(
+        `Failed to write on-chain audit record for certificate ${cert.id} (${action}): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 
   isEnabled(): boolean {
     return (
@@ -186,7 +250,9 @@ export class ContractEventIndexerService {
 
   private catchUpWebhooksPerSecond(): number {
     const configured = Number(
-      this.configService.get('CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND'),
+      this.configService.get(
+        'CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND',
+      ),
     );
     return Number.isFinite(configured) && configured > 0
       ? configured
@@ -225,6 +291,7 @@ export class ContractEventIndexerService {
             String(topics[2] ?? data?.certificate_id),
             `CRL revocation (reason code ${data?.reason ?? 'unknown'})`,
             event.txHash,
+            event,
           );
         }
         return;
@@ -233,24 +300,26 @@ export class ContractEventIndexerService {
       const id = topics[1] !== undefined ? String(topics[1]) : undefined;
       switch (name) {
         case 'issued':
-          if (id) await this.applyIssued(id);
+          if (id) await this.applyIssued(id, event);
           break;
         case 'revoked':
-          if (id) await this.applyRevoked(id, data?.reason, event.txHash);
+          if (id)
+            await this.applyRevoked(id, data?.reason, event.txHash, event);
           break;
         case 'suspend':
         case 'frozen':
-          if (id) await this.applyFrozen(id, data?.reason);
+          if (id) await this.applyFrozen(id, data?.reason, event);
           break;
         case 'reinstat':
         case 'unfrozen':
-          if (id) await this.applyUnfrozen(id);
+          if (id) await this.applyUnfrozen(id, event);
           break;
         case 'transfer_done':
           if (data?.certificate_id) {
             await this.applyTransferDone(
               String(data.certificate_id),
               data.to_owner ? String(data.to_owner) : undefined,
+              event,
             );
           }
           break;
@@ -269,29 +338,166 @@ export class ContractEventIndexerService {
     return this.certificateRepository.findOne({ where: { id } });
   }
 
-  private async applyIssued(id: string): Promise<void> {
+  /**
+   * Resolve the recipient user account ID for in-app notifications.
+   * If not stored directly on the certificate, looks up the user account by recipientEmail.
+   */
+  private async resolveRecipientUserId(
+    cert: Certificate,
+  ): Promise<string | undefined> {
+    if (cert.recipientId) return cert.recipientId;
+    if (this.userRepository && cert.recipientEmail) {
+      try {
+        const user = await this.userRepository.findOne({
+          where: { email: cert.recipientEmail },
+          select: { id: true },
+        });
+        return user?.id;
+      } catch (err: unknown) {
+        this.logger.warn(
+          `Failed to resolve recipient user ID for ${cert.recipientEmail}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Deliver an in-app notification to a user.
+   * Swallows errors so notification failures never abort chain sync.
+   */
+  private async sendNotification(
+    userId: string,
+    type: NotificationType,
+    title: string,
+    message: string,
+  ): Promise<void> {
+    if (!this.notificationsService) return;
+    try {
+      await this.notificationsService.createNotification(
+        userId,
+        type,
+        title,
+        message,
+      );
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Failed to send notification to ${userId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Deliver a transactional email. Goes through BullMQ when available for retries,
+   * falling back to direct delivery via EmailService.
+   * Swallows errors so email failures never abort chain sync.
+   */
+  private async deliverEmail(
+    description: string,
+    recipient: string,
+    viaQueue: ((queue: EmailQueueService) => Promise<void>) | null,
+    direct: ((email: EmailService) => Promise<void>) | null,
+  ): Promise<void> {
+    if (this.emailQueueService && viaQueue) {
+      try {
+        await viaQueue(this.emailQueueService);
+        return;
+      } catch (queueErr: unknown) {
+        this.logger.warn(
+          `Could not queue ${description} to ${recipient}: ${queueErr instanceof Error ? queueErr.message : String(queueErr)}; sending directly`,
+        );
+      }
+    }
+    if (this.emailService && direct) {
+      try {
+        await direct(this.emailService);
+      } catch (emailErr: unknown) {
+        this.logger.warn(
+          `Failed to send ${description} to ${recipient}: ${emailErr instanceof Error ? emailErr.message : String(emailErr)}`,
+        );
+      }
+    }
+  }
+
+  private async applyIssued(
+    id: string,
+    event: RawContractEvent,
+  ): Promise<void> {
     const cert = await this.findByOnChainId(id);
     if (!cert || cert.status !== CertificateStatus.PENDING) return;
+    const previousStatus = cert.status;
     cert.status = CertificateStatus.ACTIVE;
     await this.certificateRepository.save(cert);
-    await this.dispatchWebhook(
-      WebhookEvent.CERTIFICATE_ISSUED,
-      cert.issuerId,
-      { id: cert.id, status: cert.status, source: 'chain' },
+    await this.auditOnChainChange(
+      AuditAction.CERTIFICATE_ISSUE,
+      cert,
+      { status: previousStatus },
+      { status: cert.status },
+      event.txHash,
+      event,
     );
+    await this.dispatchWebhook(WebhookEvent.CERTIFICATE_ISSUED, cert.issuerId, {
+      id: cert.id,
+      status: cert.status,
+      source: 'chain',
+    });
+
+    const recipientUserId = await this.resolveRecipientUserId(cert);
+    if (cert.issuerId) {
+      await this.sendNotification(
+        cert.issuerId,
+        NotificationType.SUCCESS,
+        'Certificate Issued',
+        `Certificate "${cert.title}" has been confirmed on-chain.`,
+      );
+    }
+    if (recipientUserId && recipientUserId !== cert.issuerId) {
+      await this.sendNotification(
+        recipientUserId,
+        NotificationType.SUCCESS,
+        'Certificate Issued',
+        `Certificate "${cert.title}" has been issued to you.`,
+      );
+    }
+
+    if (cert.recipientEmail) {
+      const issuedDto: SendCertificateIssuedDto = {
+        to: cert.recipientEmail,
+        certificateId: cert.certificateId || cert.id,
+        recipientName: cert.recipientName || 'Recipient',
+        certificateName: cert.title,
+        issuerName: cert.issuerName || 'Issuer',
+      };
+      await this.deliverEmail(
+        'certificate issued email',
+        cert.recipientEmail,
+        (queue) => queue.queueCertificateIssued(issuedDto),
+        (email) => email.sendCertificateIssued(issuedDto),
+      );
+    }
   }
 
   private async applyRevoked(
     id: string,
     reason: string | undefined,
     txHash: string,
+    event: RawContractEvent,
   ): Promise<void> {
     const cert = await this.findByOnChainId(id);
     if (!cert || cert.status === CertificateStatus.REVOKED) return;
+    const previousStatus = cert.status;
     cert.status = CertificateStatus.REVOKED;
     cert.revokedAt = new Date();
     if (reason) cert.revocationReason = reason;
     await this.certificateRepository.save(cert);
+    await this.auditOnChainChange(
+      AuditAction.CERTIFICATE_REVOKE,
+      cert,
+      { status: previousStatus },
+      { status: cert.status, revocationReason: cert.revocationReason },
+      txHash,
+      event,
+    );
     await this.dispatchWebhook(
       WebhookEvent.CERTIFICATE_REVOKED,
       cert.issuerId,
@@ -304,11 +510,52 @@ export class ContractEventIndexerService {
         source: 'chain',
       },
     );
+
+    const recipientUserId = await this.resolveRecipientUserId(cert);
+    const reasonText = reason ? ` Reason: ${reason}` : '';
+    if (cert.issuerId) {
+      await this.sendNotification(
+        cert.issuerId,
+        NotificationType.ERROR,
+        'Certificate Revoked',
+        `Certificate "${cert.title}" has been revoked on-chain.${reasonText}`,
+      );
+    }
+    if (recipientUserId && recipientUserId !== cert.issuerId) {
+      await this.sendNotification(
+        recipientUserId,
+        NotificationType.ERROR,
+        'Certificate Revoked',
+        `Certificate "${cert.title}" has been revoked.${reasonText}`,
+      );
+    }
+
+    if (cert.recipientEmail) {
+      const revocationDto: SendRevocationNoticeDto = {
+        to: cert.recipientEmail,
+        recipientName: cert.recipientName || 'Recipient',
+        certificateId: cert.certificateId || cert.id,
+        certificateName: cert.title,
+        reason: reason || cert.revocationReason || 'Revoked on-chain',
+        revocationDate: (cert.revokedAt || new Date()).toISOString(),
+      };
+      await this.deliverEmail(
+        'revocation notice email',
+        cert.recipientEmail,
+        (queue) => queue.queueRevocationNotice(revocationDto),
+        (email) => email.sendRevocationNotice(revocationDto),
+      );
+    }
   }
 
-  private async applyFrozen(id: string, reason?: string): Promise<void> {
+  private async applyFrozen(
+    id: string,
+    reason: string | undefined,
+    event: RawContractEvent,
+  ): Promise<void> {
     const cert = await this.findByOnChainId(id);
     if (!cert || cert.status !== CertificateStatus.ACTIVE) return;
+    const previousStatus = cert.status;
     cert.status = CertificateStatus.FROZEN;
     const frozenAt = new Date();
     cert.metadata = {
@@ -317,43 +564,106 @@ export class ContractEventIndexerService {
       frozenAt,
     };
     await this.certificateRepository.save(cert);
-    await this.dispatchWebhook(
-      WebhookEvent.CERTIFICATE_FROZEN,
-      cert.issuerId,
-      {
-        id: cert.id,
-        status: cert.status,
-        ...(reason ? { freezeReason: reason } : {}),
-        frozenAt,
-        source: 'chain',
-      },
+    await this.auditOnChainChange(
+      AuditAction.CERTIFICATE_FREEZE,
+      cert,
+      { status: previousStatus },
+      { status: cert.status, freezeReason: reason },
+      event.txHash,
+      event,
     );
+    await this.dispatchWebhook(WebhookEvent.CERTIFICATE_FROZEN, cert.issuerId, {
+      id: cert.id,
+      status: cert.status,
+      ...(reason ? { freezeReason: reason } : {}),
+      frozenAt,
+      source: 'chain',
+    });
+
+    const recipientUserId = await this.resolveRecipientUserId(cert);
+    const reasonText = reason ? ` Reason: ${reason}` : '';
+    if (cert.issuerId) {
+      await this.sendNotification(
+        cert.issuerId,
+        NotificationType.INFO,
+        'Certificate Frozen',
+        `Certificate "${cert.title}" has been frozen on-chain.${reasonText}`,
+      );
+    }
+    if (recipientUserId && recipientUserId !== cert.issuerId) {
+      await this.sendNotification(
+        recipientUserId,
+        NotificationType.INFO,
+        'Certificate Frozen',
+        `Certificate "${cert.title}" has been frozen.${reasonText}`,
+      );
+    }
   }
 
-  private async applyUnfrozen(id: string): Promise<void> {
+  private async applyUnfrozen(
+    id: string,
+    event: RawContractEvent,
+  ): Promise<void> {
     const cert = await this.findByOnChainId(id);
     if (!cert || cert.status !== CertificateStatus.FROZEN) return;
+    const previousStatus = cert.status;
     cert.status = CertificateStatus.ACTIVE;
     const unfrozenAt = new Date();
     cert.metadata = { ...(cert.metadata ?? {}), unfrozenAt };
     await this.certificateRepository.save(cert);
+    await this.auditOnChainChange(
+      AuditAction.CERTIFICATE_UNFREEZE,
+      cert,
+      { status: previousStatus },
+      { status: cert.status },
+      event.txHash,
+      event,
+    );
     await this.dispatchWebhook(
       WebhookEvent.CERTIFICATE_UNFROZEN,
       cert.issuerId,
       { id: cert.id, status: cert.status, unfrozenAt, source: 'chain' },
     );
+
+    const recipientUserId = await this.resolveRecipientUserId(cert);
+    if (cert.issuerId) {
+      await this.sendNotification(
+        cert.issuerId,
+        NotificationType.SUCCESS,
+        'Certificate Unfrozen',
+        `Certificate "${cert.title}" has been unfrozen on-chain.`,
+      );
+    }
+    if (recipientUserId && recipientUserId !== cert.issuerId) {
+      await this.sendNotification(
+        recipientUserId,
+        NotificationType.SUCCESS,
+        'Certificate Unfrozen',
+        `Certificate "${cert.title}" has been unfrozen.`,
+      );
+    }
   }
 
   private async applyTransferDone(
     certificateId: string,
-    toOwner?: string,
+    toOwner: string | undefined,
+    event: RawContractEvent,
   ): Promise<void> {
     const cert = await this.findByOnChainId(certificateId);
     if (!cert) return;
 
     if (toOwner && cert.recipientStellarAddress !== toOwner) {
+      const previousOwner = cert.recipientStellarAddress;
       cert.recipientStellarAddress = toOwner;
       await this.certificateRepository.save(cert);
+      await this.auditOnChainChange(
+        AuditAction.CERTIFICATE_TRANSFER,
+        cert,
+        { owner: previousOwner },
+        { owner: toOwner },
+        event.txHash,
+        event,
+      );
     }
 
     await this.transferRepository.update(

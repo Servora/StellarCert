@@ -52,6 +52,18 @@ pub struct CRLInfo {
     pub merkle_root: String,
 }
 
+/// Result of [`CRLContract::verify_certificate`] (#1367).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CertificateVerifyResult {
+    /// True when the certificate is not on the CRL.
+    pub is_valid: bool,
+    /// Ledger timestamp the check was performed at.
+    pub checked_at: u64,
+    /// True when the CRL is past its `next_update` and should be refreshed.
+    pub is_crl_stale: bool,
+}
+
 /// Emitted by [`CRLContract::revoke_certificate`] once the revocation has been
 /// stored and the CRL head refreshed.
 ///
@@ -207,6 +219,19 @@ impl CRLContract {
     /// [`Self::revoke_certificate`] cannot run here. The caller is authenticated
     /// directly instead: only the configured certificate contract can use this
     /// entry point.
+    ///
+    /// Binding to a specific revocation (#1363): Soroban rejects contract
+    /// re-entry, so this call cannot cross-check the certificate's status
+    /// while the certificate contract is on the stack. The binding is enforced
+    /// on both sides instead:
+    ///
+    /// * the certificate contract only reaches this symbol through
+    ///   `mirror_revocation_to_crl`, which re-reads the certificate from its
+    ///   own storage, refuses unless it is already `Revoked` there, and derives
+    ///   every argument sent here from that stored record; and
+    /// * any recorded revocation can be re-verified against the source of
+    ///   truth afterwards with [`Self::is_revocation_confirmed`], which performs
+    ///   the `get_certificate` + status cross-call from a fresh invocation.
     pub fn revoke_certificate_mirrored(
         env: Env,
         issuer: Address,
@@ -352,14 +377,65 @@ impl CRLContract {
         page_of_revocations
     }
 
-    pub fn verify_certificate(env: Env, certificate_id: String) -> (bool, u64) {
+    /// Check revocation status and surface CRL staleness (#1367).
+    ///
+    /// `is_valid` is true when the certificate is **not** on the CRL.
+    /// `is_crl_stale` is true when the ledger time is at or past `next_update`,
+    /// so clients can refuse to trust the result until the CRL is refreshed.
+    pub fn verify_certificate(env: Env, certificate_id: String) -> CertificateVerifyResult {
         let crl_info = Self::get_crl_info_internal(&env);
         let is_revoked = env
             .storage()
             .persistent()
             .has(&DataKey::Revocation(certificate_id));
+        let now = env.ledger().timestamp();
+        CertificateVerifyResult {
+            is_valid: !is_revoked,
+            checked_at: now,
+            is_crl_stale: now >= crl_info.next_update,
+        }
+    }
 
-        (is_revoked, crl_info.crl_number)
+    /// Re-verify a CRL entry against the certificate contract (#1363).
+    ///
+    /// Returns `true` only when the certificate is on this CRL **and** the
+    /// configured certificate contract — the source of truth — reports it as
+    /// `Revoked`. Returns `false` when the certificate is not on the CRL, no
+    /// longer exists in the certificate contract, or is not revoked there.
+    ///
+    /// Must be invoked on its own (not from inside a certificate-contract
+    /// call), because it calls back into the certificate contract and Soroban
+    /// forbids re-entry. Auditors and indexers can use it to detect any CRL
+    /// entry that diverges from the certificate contract.
+    pub fn is_revocation_confirmed(env: Env, certificate_id: String) -> bool {
+        if !env
+            .storage()
+            .persistent()
+            .has(&DataKey::Revocation(certificate_id.clone()))
+        {
+            return false;
+        }
+
+        let cert_contract: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CertContract)
+            .expect("CRL not initialized");
+        let exists: bool = env.invoke_contract(
+            &cert_contract,
+            &soroban_sdk::Symbol::new(&env, "certificate_exists"),
+            soroban_sdk::vec![&env, certificate_id.clone().into_val(&env)],
+        );
+        if !exists {
+            return false;
+        }
+
+        let cert: Option<crate::Certificate> = env.invoke_contract(
+            &cert_contract,
+            &soroban_sdk::Symbol::new(&env, "get_certificate"),
+            soroban_sdk::vec![&env, certificate_id.into_val(&env)],
+        );
+        matches!(cert, Some(c) if c.status == crate::CertificateStatus::Revoked)
     }
 
     pub fn get_merkle_root(env: Env) -> String {
@@ -403,6 +479,7 @@ impl CRLContract {
         Self::set_instance(&env, &DataKey::Admin, &admin);
     }
 
+    /// Returns true when the CRL is past its `next_update` and should be refreshed (#1367).
     pub fn needs_update(env: Env) -> bool {
         env.ledger().timestamp() >= Self::get_crl_info_internal(&env).next_update
     }

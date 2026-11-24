@@ -32,6 +32,7 @@ describe('CertificateController', () => {
   const statsService = {
     getPublicSummary: jest.fn(),
     getStatistics: jest.fn(),
+    clearStatsCache: jest.fn(),
   };
   const certificateMapper = {
     toResponse: jest.fn(),

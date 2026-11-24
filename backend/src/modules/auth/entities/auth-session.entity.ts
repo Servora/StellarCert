@@ -14,17 +14,17 @@ export class AuthSession {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid' })
   @Index()
+  @Column({ type: 'uuid' })
   userId: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user: User;
 
-  /** SHA-256 of the session's current refresh token (see hashRefreshToken). */
-  @Column()
-  @Index()
+  /** SHA-256 hash of the session's current refresh token. */
+  @Index({ unique: true })
+  @Column({ type: 'varchar' })
   refreshTokenHash: string;
 
   @Column({ type: 'varchar', nullable: true })
@@ -39,7 +39,10 @@ export class AuthSession {
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @Column({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({
+    type: 'timestamptz',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
   lastUsedAt: Date;
 
   @Column({ type: 'timestamptz', nullable: true })

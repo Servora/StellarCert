@@ -36,7 +36,10 @@ vi.mock("../AdminAnalyticsDashboard", () => ({
 }));
 
 import Dashboard from "../Dashboard";
-import { createTestQueryClient, renderWithProviders } from "../../test/renderWithProviders";
+import {
+  createTestQueryClient,
+  renderWithProviders,
+} from "../../test/renderWithProviders";
 
 describe("Dashboard role views", () => {
   beforeEach(() => {
@@ -54,7 +57,9 @@ describe("Dashboard role views", () => {
         recipientName: "Alice Johnson",
         issueDate: new Date().toISOString(),
         status: "active",
-        expiryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        expiryDate: new Date(
+          Date.now() + 7 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
       },
     ]);
 
@@ -74,9 +79,13 @@ describe("Dashboard role views", () => {
   it("renders the recipient wallet dashboard for recipient users", async () => {
     mocks.useAuthMock.mockReturnValue({
       user: { id: "recipient-1", role: "recipient" },
+      isAuthenticated: true,
+      isLoading: false,
     });
 
-    renderWithProviders(<Dashboard />, { queryClient: createTestQueryClient() });
+    renderWithProviders(<Dashboard />, {
+      queryClient: createTestQueryClient(),
+    });
 
     expect(
       await screen.findByRole("heading", { name: /Your Certificate Wallet/i }),
@@ -90,9 +99,13 @@ describe("Dashboard role views", () => {
   it("renders the verifier dashboard for verifier users", async () => {
     mocks.useAuthMock.mockReturnValue({
       user: { id: "verifier-1", role: "verifier" },
+      isAuthenticated: true,
+      isLoading: false,
     });
 
-    renderWithProviders(<Dashboard />, { queryClient: createTestQueryClient() });
+    renderWithProviders(<Dashboard />, {
+      queryClient: createTestQueryClient(),
+    });
 
     expect(
       await screen.findByRole("heading", { name: /Verification Center/i }),
@@ -111,15 +124,77 @@ describe("Dashboard role views", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders the recipient wallet dashboard for the default 'user' role (#1317)", async () => {
+    // UserRole.USER is the default every public sign-up gets, and is
+    // treated as recipient-like elsewhere (CertificateWallet.tsx). It must
+    // not fall through to the issuer dashboard, which a plain user has no
+    // access to.
+    mocks.useAuthMock.mockReturnValue({
+      user: { id: "recipient-1", role: "user" },
+      isAuthenticated: true,
+      isLoading: false,
+    });
+
+    renderWithProviders(<Dashboard />, {
+      queryClient: createTestQueryClient(),
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: /Your Certificate Wallet/i }),
+    ).toBeInTheDocument();
+    expect(mocks.getUserCertificatesMock).toHaveBeenCalledWith("recipient-1");
+    expect(
+      screen.queryByRole("heading", { name: /Issuer Analytics Dashboard/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders admin analytics for admin users", async () => {
     mocks.useAuthMock.mockReturnValue({
       user: { id: "admin-1", role: "admin" },
+      isAuthenticated: true,
+      isLoading: false,
     });
 
-    renderWithProviders(<Dashboard />, { queryClient: createTestQueryClient() });
+    renderWithProviders(<Dashboard />, {
+      queryClient: createTestQueryClient(),
+    });
 
     expect(
       await screen.findByText(/Admin analytics mock/i),
     ).toBeInTheDocument();
+  });
+
+  it("renders nothing for an anonymous visitor instead of the issuer dashboard (#1317)", () => {
+    // `/` and `/dashboard` render for anonymous visitors too (the public
+    // feature-overview section below this route). Dashboard must not
+    // attempt a role view - or fire its authenticated API calls - when
+    // there is no session.
+    mocks.useAuthMock.mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+    });
+
+    const { container } = renderWithProviders(<Dashboard />, {
+      queryClient: createTestQueryClient(),
+    });
+
+    expect(container).toBeEmptyDOMElement();
+    expect(mocks.getDashboardSummaryMock).not.toHaveBeenCalled();
+    expect(mocks.getUserCertificatesMock).not.toHaveBeenCalled();
+  });
+
+  it("renders nothing while auth is still resolving", () => {
+    mocks.useAuthMock.mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: true,
+    });
+
+    const { container } = renderWithProviders(<Dashboard />, {
+      queryClient: createTestQueryClient(),
+    });
+
+    expect(container).toBeEmptyDOMElement();
   });
 });

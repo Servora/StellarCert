@@ -3,6 +3,8 @@ import { ContractEventIndexerService } from './contract-event-indexer.service';
 import { CertificateStatus } from '../constants/certificate-status.enum';
 import { WebhookEvent } from '../../webhooks/entities/webhook-subscription.entity';
 import { RawContractEvent } from '../../stellar/services/soroban.service';
+import { NotificationType } from '../../notifications/entities/notification.entity';
+import { AuditAction } from '../../audit/constants/audit-action.enum';
 
 const sym = (s: string) => nativeToScVal(s, { type: 'symbol' });
 const str = (s: string) => nativeToScVal(s, { type: 'string' });
@@ -47,12 +49,29 @@ describe('ContractEventIndexerService', () => {
   const webhooksService = { triggerEvent: jest.fn() };
   const configService = { get: jest.fn() };
   const logger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  const userRepository = { findOne: jest.fn() };
+  const notificationsService = { createNotification: jest.fn() };
+  const emailService = {
+    sendRevocationNotice: jest.fn().mockResolvedValue(undefined),
+    sendCertificateIssued: jest.fn().mockResolvedValue(undefined),
+  };
+  const auditService = { log: jest.fn().mockResolvedValue(null) };
+  const emailQueueService = {
+    queueRevocationNotice: jest.fn().mockResolvedValue(undefined),
+    queueCertificateIssued: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
     cert = {
       id: 'cert-1',
+      certificateId: 'CERT-001',
+      title: 'Blockchain Developer Certificate',
       issuerId: 'issuer-1',
+      issuerName: 'Acme Academy',
+      recipientId: 'recipient-1',
+      recipientEmail: 'recipient@example.com',
+      recipientName: 'Alice Doe',
       status: CertificateStatus.ACTIVE,
     };
     certificateRepository.findOne.mockResolvedValue(cert);
@@ -64,6 +83,11 @@ describe('ContractEventIndexerService', () => {
       webhooksService as any,
       configService as any,
       logger as any,
+      userRepository as any,
+      notificationsService as any,
+      emailService as any,
+      emailQueueService as any,
+      auditService as any,
     );
   });
 
@@ -91,6 +115,71 @@ describe('ContractEventIndexerService', () => {
     );
     expect(certificateRepository.save).not.toHaveBeenCalled();
     expect(webhooksService.triggerEvent).not.toHaveBeenCalled();
+  });
+
+  it('writes an audit record for an actual on-chain revocation and includes its transaction hash', async () => {
+    await service.handleEvent(
+      event(
+        [sym('revoked'), str('cert-1')],
+        nativeToScVal({ reason: 'fraud' }),
+        {
+          txHash: 'tx-revoke-123',
+        },
+      ),
+    );
+
+    expect(auditService.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditAction.CERTIFICATE_REVOKE,
+        resourceId: 'cert-1',
+        transactionHash: 'tx-revoke-123',
+        changes: {
+          before: { status: CertificateStatus.ACTIVE },
+          after: expect.objectContaining({ status: CertificateStatus.REVOKED }),
+        },
+        metadata: expect.objectContaining({
+          source: 'soroban_contract_event',
+          eventId: 'evt-1',
+          ledger: 10,
+        }),
+      }),
+    );
+  });
+
+  it('does not let a failed audit write abort the state change or the webhook (regression)', async () => {
+    auditService.log.mockRejectedValueOnce(new Error('audit db unavailable'));
+
+    await expect(
+      service.handleEvent(
+        event(
+          [sym('revoked'), str('cert-1')],
+          nativeToScVal({ reason: 'fraud' }),
+        ),
+      ),
+    ).resolves.toBeUndefined();
+
+    // The state change and webhook dispatch - the actually important
+    // side effects - must still happen even though the audit write failed.
+    expect(cert.status).toBe(CertificateStatus.REVOKED);
+    expect(webhooksService.triggerEvent).toHaveBeenCalledWith(
+      WebhookEvent.CERTIFICATE_REVOKED,
+      'issuer-1',
+      expect.anything(),
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to write on-chain audit record'),
+    );
+  });
+
+  it('does not duplicate audit records when an already-applied revocation is replayed', async () => {
+    cert.status = CertificateStatus.REVOKED;
+    await service.handleEvent(
+      event(
+        [sym('revoked'), str('cert-1')],
+        nativeToScVal({ reason: 'replayed' }),
+      ),
+    );
+    expect(auditService.log).not.toHaveBeenCalled();
   });
 
   it('treats a CRL revocation as a revocation', async () => {
@@ -136,6 +225,239 @@ describe('ContractEventIndexerService', () => {
     );
     expect(cert.recipientStellarAddress).toBe('GNEWOWNER');
     expect(transferRepository.update).toHaveBeenCalled();
+  });
+
+  describe('recipient and issuer notifications & emails (#1290)', () => {
+    it('marks certificate revoked, queues revocation notice email, and notifies recipient and issuer', async () => {
+      await service.handleEvent(
+        event(
+          [sym('revoked'), str('cert-1')],
+          nativeToScVal({ id: 'cert-1', reason: 'Honor code violation' }),
+        ),
+      );
+
+      expect(cert.status).toBe(CertificateStatus.REVOKED);
+      expect(emailQueueService.queueRevocationNotice).toHaveBeenCalledWith({
+        to: 'recipient@example.com',
+        recipientName: 'Alice Doe',
+        certificateId: 'CERT-001',
+        certificateName: 'Blockchain Developer Certificate',
+        reason: 'Honor code violation',
+        revocationDate: expect.any(String),
+      });
+
+      expect(notificationsService.createNotification).toHaveBeenCalledWith(
+        'issuer-1',
+        NotificationType.ERROR,
+        'Certificate Revoked',
+        'Certificate "Blockchain Developer Certificate" has been revoked on-chain. Reason: Honor code violation',
+      );
+
+      expect(notificationsService.createNotification).toHaveBeenCalledWith(
+        'recipient-1',
+        NotificationType.ERROR,
+        'Certificate Revoked',
+        'Certificate "Blockchain Developer Certificate" has been revoked. Reason: Honor code violation',
+      );
+    });
+
+    it('falls back to direct emailService when emailQueueService fails', async () => {
+      emailQueueService.queueRevocationNotice.mockRejectedValueOnce(
+        new Error('Redis connection refused'),
+      );
+
+      await service.handleEvent(
+        event(
+          [sym('revoked'), str('cert-1')],
+          nativeToScVal({ id: 'cert-1', reason: 'Invalid signature' }),
+        ),
+      );
+
+      expect(emailService.sendRevocationNotice).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'recipient@example.com',
+          reason: 'Invalid signature',
+        }),
+      );
+    });
+
+    it('sends email directly when emailQueueService is not configured', async () => {
+      const serviceWithoutQueue = new ContractEventIndexerService(
+        certificateRepository as any,
+        transferRepository as any,
+        cursorRepository as any,
+        sorobanService as any,
+        webhooksService as any,
+        configService as any,
+        logger as any,
+        userRepository as any,
+        notificationsService as any,
+        emailService as any,
+      );
+
+      await serviceWithoutQueue.handleEvent(
+        event(
+          [sym('revoked'), str('cert-1')],
+          nativeToScVal({ id: 'cert-1', reason: 'Direct email test' }),
+        ),
+      );
+
+      expect(emailService.sendRevocationNotice).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'recipient@example.com',
+          reason: 'Direct email test',
+        }),
+      );
+    });
+
+    it('does not fail chain event processing if notification and email delivery throw', async () => {
+      emailQueueService.queueRevocationNotice.mockRejectedValueOnce(
+        new Error('Queue down'),
+      );
+      emailService.sendRevocationNotice.mockRejectedValueOnce(
+        new Error('SMTP unreachable'),
+      );
+      notificationsService.createNotification.mockRejectedValueOnce(
+        new Error('Notification error'),
+      );
+
+      await expect(
+        service.handleEvent(
+          event(
+            [sym('revoked'), str('cert-1')],
+            nativeToScVal({ id: 'cert-1', reason: 'Resilience test' }),
+          ),
+        ),
+      ).resolves.not.toThrow();
+
+      expect(cert.status).toBe(CertificateStatus.REVOKED);
+      expect(certificateRepository.save).toHaveBeenCalled();
+      expect(webhooksService.triggerEvent).toHaveBeenCalled();
+    });
+
+    it('resolves recipient userId from userRepository when recipientId is not populated', async () => {
+      cert.recipientId = undefined;
+      userRepository.findOne.mockResolvedValueOnce({ id: 'resolved-user-42' });
+
+      await service.handleEvent(
+        event(
+          [sym('revoked'), str('cert-1')],
+          nativeToScVal({ id: 'cert-1', reason: 'Lookup test' }),
+        ),
+      );
+
+      expect(userRepository.findOne).toHaveBeenCalledWith({
+        where: { email: 'recipient@example.com' },
+        select: { id: true },
+      });
+      expect(notificationsService.createNotification).toHaveBeenCalledWith(
+        'resolved-user-42',
+        NotificationType.ERROR,
+        'Certificate Revoked',
+        expect.stringContaining('revoked'),
+      );
+    });
+
+    it('notifies recipient and queues certificate-issued email on applyIssued', async () => {
+      cert.status = CertificateStatus.PENDING;
+
+      await service.handleEvent(event([sym('issued'), str('cert-1')]));
+
+      expect(cert.status).toBe(CertificateStatus.ACTIVE);
+      expect(emailQueueService.queueCertificateIssued).toHaveBeenCalledWith({
+        to: 'recipient@example.com',
+        certificateId: 'CERT-001',
+        recipientName: 'Alice Doe',
+        certificateName: 'Blockchain Developer Certificate',
+        issuerName: 'Acme Academy',
+      });
+      expect(notificationsService.createNotification).toHaveBeenCalledWith(
+        'issuer-1',
+        NotificationType.SUCCESS,
+        'Certificate Issued',
+        'Certificate "Blockchain Developer Certificate" has been confirmed on-chain.',
+      );
+      expect(notificationsService.createNotification).toHaveBeenCalledWith(
+        'recipient-1',
+        NotificationType.SUCCESS,
+        'Certificate Issued',
+        'Certificate "Blockchain Developer Certificate" has been issued to you.',
+      );
+    });
+
+    it('notifies recipient and issuer on applyFrozen', async () => {
+      await service.handleEvent(
+        event(
+          [sym('frozen'), str('cert-1')],
+          nativeToScVal({ reason: 'Compliance review' }),
+        ),
+      );
+
+      expect(cert.status).toBe(CertificateStatus.FROZEN);
+      expect(notificationsService.createNotification).toHaveBeenCalledWith(
+        'issuer-1',
+        NotificationType.INFO,
+        'Certificate Frozen',
+        'Certificate "Blockchain Developer Certificate" has been frozen on-chain. Reason: Compliance review',
+      );
+      expect(notificationsService.createNotification).toHaveBeenCalledWith(
+        'recipient-1',
+        NotificationType.INFO,
+        'Certificate Frozen',
+        'Certificate "Blockchain Developer Certificate" has been frozen. Reason: Compliance review',
+      );
+    });
+
+    it('notifies recipient and issuer on applyUnfrozen', async () => {
+      cert.status = CertificateStatus.FROZEN;
+
+      await service.handleEvent(event([sym('unfrozen'), str('cert-1')]));
+
+      expect(cert.status).toBe(CertificateStatus.ACTIVE);
+      expect(notificationsService.createNotification).toHaveBeenCalledWith(
+        'issuer-1',
+        NotificationType.SUCCESS,
+        'Certificate Unfrozen',
+        'Certificate "Blockchain Developer Certificate" has been unfrozen on-chain.',
+      );
+      expect(notificationsService.createNotification).toHaveBeenCalledWith(
+        'recipient-1',
+        NotificationType.SUCCESS,
+        'Certificate Unfrozen',
+        'Certificate "Blockchain Developer Certificate" has been unfrozen.',
+      );
+    });
+
+    it('avoids duplicate notifications when recipientId equals issuerId', async () => {
+      cert.status = CertificateStatus.FROZEN;
+      cert.recipientId = 'issuer-1';
+
+      await service.handleEvent(event([sym('unfrozen'), str('cert-1')]));
+
+      // Only one notification sent to issuer-1
+      expect(notificationsService.createNotification).toHaveBeenCalledTimes(1);
+      expect(notificationsService.createNotification).toHaveBeenCalledWith(
+        'issuer-1',
+        NotificationType.SUCCESS,
+        'Certificate Unfrozen',
+        expect.any(String),
+      );
+    });
+
+    it('does not send notifications or emails when re-processing an already-revoked certificate', async () => {
+      cert.status = CertificateStatus.REVOKED;
+
+      await service.handleEvent(
+        event(
+          [sym('revoked'), str('cert-1')],
+          nativeToScVal({ reason: 'again' }),
+        ),
+      );
+
+      expect(notificationsService.createNotification).not.toHaveBeenCalled();
+      expect(emailQueueService.queueRevocationNotice).not.toHaveBeenCalled();
+      expect(emailService.sendRevocationNotice).not.toHaveBeenCalled();
+    });
   });
 
   it('persists the cursor after a page', async () => {
@@ -282,7 +604,9 @@ describe('ContractEventIndexerService', () => {
 
     it('honours the configured catch-up rate', async () => {
       configService.get.mockImplementation((key: string) =>
-        key === 'CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND' ? '4' : undefined,
+        key === 'CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND'
+          ? '4'
+          : undefined,
       );
       sorobanService.getContractEvents
         .mockResolvedValueOnce(page(0, 100))
@@ -295,7 +619,9 @@ describe('ContractEventIndexerService', () => {
 
     it('ignores an invalid configured rate and uses the default', async () => {
       configService.get.mockImplementation((key: string) =>
-        key === 'CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND' ? '0' : undefined,
+        key === 'CONTRACT_EVENT_INDEXER_CATCHUP_WEBHOOKS_PER_SECOND'
+          ? '0'
+          : undefined,
       );
       sorobanService.getContractEvents
         .mockResolvedValueOnce(page(0, 100))

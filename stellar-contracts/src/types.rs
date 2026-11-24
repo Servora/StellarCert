@@ -16,6 +16,11 @@ pub struct CertificateVersion {
     pub major: u32,
     pub minor: u32,
     pub patch: u32,
+    /// Optional pre-release/build metadata (e.g. `"rc.1"`, `"2026-11-20"`).
+    ///
+    /// `issue_certificate` and `update_certificate_metadata` leave it as
+    /// `None`; it is set by the issuer through the `new_build` argument of
+    /// `reissue_certificate` (#1364). Capped at `MAX_BUILD_METADATA_LEN` bytes.
     pub build: Option<String>,
 }
 
@@ -58,6 +63,10 @@ pub enum DataKey {
     TransferCount,
     /// Address of the CRL contract that revocations must be mirrored into.
     CrlContract,
+    /// Circuit-breaker flag (#1365). Kept in **instance** storage so the check
+    /// at the top of every state-mutating entry point is cheap and the flag
+    /// lives exactly as long as the contract instance itself.
+    Paused,
 }
 
 #[contracttype]
@@ -310,6 +319,17 @@ pub struct VerificationReport {
     pub total: u32,
     pub successful: u32,
     pub failed: u32,
+    /// **Abstract work score, not a fee (#1366).**
+    ///
+    /// Computed as `BATCH_VERIFY_BASE_SCORE + BATCH_VERIFY_SCORE_PER_ID * total`
+    /// (currently `100 + 50 * n`). It is a unitless figure that callers may use
+    /// for client-side rate limiting or quota accounting. It has **no
+    /// relationship** to Soroban resource consumption or the network fee
+    /// (in stroops/XLM) that the transaction actually pays, and must never be
+    /// shown to a user as a cost estimate. Use transaction simulation
+    /// (`simulateTransaction`) to obtain a real fee estimate.
+    ///
+    /// The field name is kept for wire compatibility with existing clients.
     pub total_cost: u64,
     pub results: Vec<VerificationResult>,
 }
@@ -348,4 +368,20 @@ pub struct IssuerRemovedEvent {
     #[topic]
     pub topic_issuer: Address,
     pub issuer: Address,
+}
+
+/// The admin engaged the circuit breaker (#1365). Topics: `("paused",)`.
+/// Data: `{admin}`.
+#[contractevent(topics = ["paused"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractPausedEvent {
+    pub admin: Address,
+}
+
+/// The admin released the circuit breaker (#1365). Topics: `("unpaused",)`.
+/// Data: `{admin}`.
+#[contractevent(topics = ["unpaused"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractUnpausedEvent {
+    pub admin: Address,
 }

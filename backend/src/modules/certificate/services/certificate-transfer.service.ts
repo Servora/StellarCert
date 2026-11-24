@@ -4,6 +4,9 @@ import {
   ForbiddenException,
   ConflictException,
   Optional,
+  Inject,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -23,6 +26,11 @@ import { NotificationType } from '../../notifications/entities/notification.enti
 import { LoggingService } from '../../../common/logging/logging.service';
 import { UserRole } from '../../../common/constants/roles';
 import { CryptoUtils } from '../../../common/utils/crypto.utils';
+import {
+  InMemoryRateLimitStore,
+  RATE_LIMIT_STORE,
+  type RateLimitStore,
+} from '../../../common/guards/ip-rate-limit.guard';
 
 /**
  * Length of the secret code that authorises a transfer.
@@ -40,6 +48,9 @@ export const CONFIRMATION_CODE_LENGTH = 12;
  * cancelled and initiated again.
  */
 export const MAX_CONFIRMATION_CODE_ATTEMPTS = 5;
+
+export const DEFAULT_CONFIRMATION_CODE_RATE_LIMIT_MAX = 5;
+export const DEFAULT_CONFIRMATION_CODE_RATE_LIMIT_WINDOW_MS = 60_000;
 
 export interface TransferResponseDTO {
   id: string;
@@ -94,7 +105,56 @@ export class CertificateTransferService {
     private readonly emailService?: EmailService,
     @Optional()
     private readonly emailQueueService?: EmailQueueService,
-  ) {}
+    @Optional()
+    @Inject(RATE_LIMIT_STORE)
+    rateLimitStore?: RateLimitStore,
+  ) {
+    this.rateLimitStore = rateLimitStore ?? new InMemoryRateLimitStore();
+  }
+
+  private readonly rateLimitStore: RateLimitStore;
+
+  /**
+   * Throttles confirmation-code submissions on a transfer (#1300): a short
+   * code that only tolerates MAX_CONFIRMATION_CODE_ATTEMPTS wrong guesses
+   * before locking is still brute-forceable across many transfers unless
+   * attempts are also capped per IP and per account, independent of which
+   * transfer is being targeted.
+   */
+  private async enforceConfirmationCodeRateLimit(
+    approver: { id: string },
+    ipAddress?: string,
+  ): Promise<void> {
+    const now = Date.now();
+    const checks: Array<[string, string]> = [
+      [`transfer-approve:user:${approver.id}`, 'account'],
+    ];
+    if (ipAddress) {
+      checks.push([`transfer-approve:ip:${ipAddress}`, 'IP']);
+    }
+
+    for (const [key, scope] of checks) {
+      const entry = await this.rateLimitStore.consume(
+        key,
+        DEFAULT_CONFIRMATION_CODE_RATE_LIMIT_WINDOW_MS,
+        now,
+      );
+      if (entry.count > DEFAULT_CONFIRMATION_CODE_RATE_LIMIT_MAX) {
+        const retryAfter = Math.ceil((entry.resetTime - now) / 1000);
+        this.logger.warn(
+          `Transfer approval rate limit exceeded for ${scope} (${key}); retry after ${retryAfter}s`,
+        );
+        throw new HttpException(
+          {
+            error: 'Too Many Requests',
+            message: `Too many confirmation code attempts. Try again in ${retryAfter} seconds.`,
+            retryAfter,
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+  }
 
   /**
    * Deliver a transactional email. It goes through the Bull email queue when
@@ -293,6 +353,8 @@ export class CertificateTransferService {
     approver: { id: string; role: string; email?: string },
     ipAddress?: string,
   ): Promise<TransferResponseDTO> {
+    await this.enforceConfirmationCodeRateLimit(approver, ipAddress);
+
     const transfer = await this.transferRepository.findOne({
       where: { id: transferId },
       relations: ['certificate'],

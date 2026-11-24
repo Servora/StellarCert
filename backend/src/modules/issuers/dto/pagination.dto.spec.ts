@@ -70,12 +70,16 @@ describe('IssuerPaginationQueryDto', () => {
 
   it('rejects unknown sort fields, sort orders and tiers', async () => {
     expect((await check({ sortBy: 'password' })).fields).toEqual(['sortBy']);
-    expect((await check({ sortOrder: 'sideways' })).fields).toEqual(['sortOrder']);
+    expect((await check({ sortOrder: 'sideways' })).fields).toEqual([
+      'sortOrder',
+    ]);
     expect((await check({ tier: 'PLATINUM' })).fields).toEqual(['tier']);
   });
 
   it('rejects an oversized search term and unknown properties', async () => {
-    expect((await check({ search: 'x'.repeat(101) })).fields).toEqual(['search']);
+    expect((await check({ search: 'x'.repeat(101) })).fields).toEqual([
+      'search',
+    ]);
     expect((await check({ offset: '5' })).fields).toEqual(['offset']);
   });
 });

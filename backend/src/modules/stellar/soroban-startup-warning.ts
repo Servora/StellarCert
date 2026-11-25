@@ -2,8 +2,13 @@ export interface SorobanLogger {
   warn: (message: string) => void;
 }
 
+// Matches SorobanService.initializeSoroban()'s own required set exactly
+// (rpcUrl, network, adminSecret) plus the contract ids it needs to resolve
+// calls - STELLAR_NETWORK is covered by existing bootstrap validation
+// elsewhere, so it isn't repeated here.
 const REQUIRED_SOROBAN_VARS = [
   'SOROBAN_RPC_URL',
+  'SOROBAN_ADMIN_SECRET',
   'CERTIFICATE_CONTRACT_ID',
   'MULTISIG_CONTRACT_ID',
   'CRL_CONTRACT_ID',
@@ -13,7 +18,10 @@ export function warnIfSorobanUnconfigured(
   logger: SorobanLogger = console,
   env: Record<string, string | undefined> = process.env,
 ): void {
-  const enabled = String(env.ENABLE_SOROBAN_INTEGRATION ?? '').trim().toLowerCase() === 'true';
+  const enabled =
+    String(env.ENABLE_SOROBAN_INTEGRATION ?? '')
+      .trim()
+      .toLowerCase() === 'true';
 
   if (!enabled) {
     logger.warn(

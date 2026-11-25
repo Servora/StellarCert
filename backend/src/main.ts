@@ -165,7 +165,7 @@ async function bootstrap() {
   });
 
   const port = process.env.PORT ?? 3000;
-  warnIfSorobanUnconfigured(logger);
+  warnIfSorobanUnconfigured(loggingService);
   await app.listen(port);
 
   loggingService.log(`Application started on port ${port}`);

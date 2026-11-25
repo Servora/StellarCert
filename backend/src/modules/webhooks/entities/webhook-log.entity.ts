@@ -16,7 +16,9 @@ export class WebhookLog {
   @Column()
   subscriptionId: string;
 
-  @ManyToOne(() => WebhookSubscription, (sub) => sub.logs)
+  @ManyToOne(() => WebhookSubscription, (sub) => sub.logs, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'subscriptionId' })
   subscription: WebhookSubscription;
 

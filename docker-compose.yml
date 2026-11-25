@@ -65,6 +65,12 @@ services:
     ports:
       - "3000:3000"
     environment:
+      CRL_CONTRACT_ID: ${CRL_CONTRACT_ID:-}
+      MULTISIG_CONTRACT_ID: ${MULTISIG_CONTRACT_ID:-}
+      CERTIFICATE_CONTRACT_ID: ${CERTIFICATE_CONTRACT_ID:-}
+      SOROBAN_ADMIN_SECRET: ${SOROBAN_ADMIN_SECRET:-}
+      SOROBAN_RPC_URL: ${SOROBAN_RPC_URL:-https://soroban-testnet.stellar.org}
+      ENABLE_SOROBAN_INTEGRATION: ${ENABLE_SOROBAN_INTEGRATION:-false}
       NODE_ENV: production
       PORT: 3000
       DB_TYPE: postgres

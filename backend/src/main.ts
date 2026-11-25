@@ -1,3 +1,4 @@
+import { warnIfSorobanUnconfigured } from './modules/stellar/soroban-startup-warning';
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { GlobalExceptionFilter } from './common/exceptions/global-exception.filter';
@@ -164,6 +165,7 @@ async function bootstrap() {
   });
 
   const port = process.env.PORT ?? 3000;
+  warnIfSorobanUnconfigured(loggingService);
   await app.listen(port);
 
   loggingService.log(`Application started on port ${port}`);

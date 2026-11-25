@@ -78,6 +78,7 @@ describe("Header wallet link visibility", () => {
   const walletLinks = () => screen.queryAllByRole("link", { name: "Wallet" });
 
   it.each([
+    UserRole.USER,
     UserRole.RECIPIENT,
     UserRole.VERIFIER,
     UserRole.ISSUER,
@@ -88,16 +89,12 @@ describe("Header wallet link visibility", () => {
     expect(walletLinks().length).toBeGreaterThan(0);
   });
 
-  // A freshly registered USER used to see a Wallet link that the route
-  // rejected, redirecting them back to `/` with no explanation.
-  it.each([UserRole.USER, UserRole.AUDITOR])(
-    "hides the Wallet link from %s, whose route access is denied",
-    (role) => {
-      renderAs(role);
+  // AUDITOR has no certificates of its own and no dedicated wallet view.
+  it("hides the Wallet link from AUDITOR, whose route access is denied", () => {
+    renderAs(UserRole.AUDITOR);
 
-      expect(walletLinks()).toHaveLength(0);
-    },
-  );
+    expect(walletLinks()).toHaveLength(0);
+  });
 
   it("hides the Wallet link from signed-out visitors", () => {
     renderAs(null);

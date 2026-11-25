@@ -53,7 +53,7 @@ describe('ConvertTimestampsToTimestamptz', () => {
 
 describe('entity date columns', () => {
   beforeAll(() => {
-    for (const file of entityFiles(join(__dirname, '..', '..'))) {
+    for (const file of entityFiles(join(__dirname, '..'))) {
       require(file);
     }
   });

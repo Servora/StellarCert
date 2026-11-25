@@ -32,6 +32,7 @@ compile_error!(
 use soroban_sdk::{contract, Address, BytesN, Env, IntoVal, String, Symbol, Val, Vec};
 
 mod multisig_common;
+// Certificate metadata is stored on `Certificate` via `metadata_uri`; the legacy metadata module was removed.
 mod types;
 // Explicit re-exports replace `pub use types::*` to avoid ambiguous_glob_reexports
 pub use types::{

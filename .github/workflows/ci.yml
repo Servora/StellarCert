@@ -412,7 +412,7 @@ jobs:
         run: npx playwright test --project=cross-stack-smoke
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: frontend/playwright-report
@@ -422,7 +422,7 @@ jobs:
         run: docker compose logs --no-color > compose-logs.txt
       - name: Upload compose logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: compose-logs
           path: compose-logs.txt

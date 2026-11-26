@@ -74,7 +74,7 @@
     "socket.io": "^4.8.4",
     "swagger-ui-express": "^5.0.1",
     "typeorm": "^0.3.31",
-    "uuid": "^13.0.0"
+    "uuid": "^14.0.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
